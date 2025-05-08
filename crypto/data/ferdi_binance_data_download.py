@@ -1,4 +1,4 @@
-#+lädt je nach Parameter eine CSV dementsprechend die Daten direkt in Krypto_Daten
+#lädt je nach Parameter eine CSV dementsprechend die Daten direkt in Krypto_Daten
 #ich habe das skript von gemini schon gekürzt, können wir aber gerne auch noch mal durchgehen
 #habe gesehen, dass sie bei ema crossing... auch auf eine CSV zugegriffen haben -> so müsste ein fiexer weg sein um OHLC nach belieben zu laden 
 
@@ -17,7 +17,7 @@ INTERVAL_STRING = "15m"     # Binance API String: "1m", "5m", "15m", "30m", "1h"
 START_DATE_STR = "2023-01-01"
 DAYS_TO_FETCH = 45         # Anzahl der Tage ab START_DATE_STR
 REQUEST_TIMEOUT_SECONDS = 30
-OUTPUT_BASE_FOLDER = "Krypto_Daten" 
+OUTPUT_BASE_FOLDER = "crypto" 
 # -----------------------------------------
 
 def get_binance_interval_timedelta(interval_string):

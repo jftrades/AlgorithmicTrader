@@ -19,3 +19,6 @@ from nautilus_trader.model.identifiers import InstrumentId, Venue, Symbol
 
 # --- Dein Projektcode beginnt hier (außerhalb dieses Presets) ---
 # if __name__ == "__main__":
+
+
+
