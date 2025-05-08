@@ -11,3 +11,5 @@ pytz==2025.2
 six==1.17.0
 tqdm==4.67.1
 tzdata==2025.2
+requests
+
