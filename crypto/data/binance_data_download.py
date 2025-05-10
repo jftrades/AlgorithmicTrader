@@ -15,8 +15,8 @@ def main():
     )
 
     # Definiere den Zeitraum
-    start_date = datetime.date(2024, 5, 7)  # Startdatum
-    end_date = datetime.date(2025, 5, 7)    # Enddatum
+    start_date = datetime.date(2022, 7, 8)  # Startdatum
+    end_date = datetime.date(2023, 2, 2)    # Enddatum
 
     # Lade die Daten herunter
     data_dumper.dump_data(

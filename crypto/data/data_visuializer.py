@@ -6,7 +6,7 @@ import os
 file_path = os.path.join(
     ".","DATA_STORAGE", "spot",
     "monthly", "klines", "BTCUSDT", "15m",
-    "BTCUSDT-15m-2025-04.csv")
+    "BTCUSDT-15m-2022-08.csv")
 
 # Spaltennamen entsprechend der Binance-Kline-Datenstruktur
 columns = [
@@ -27,7 +27,7 @@ df.set_index("timestamp", inplace=True)
 # Plot der Schlusskurse
 plt.figure(figsize=(12, 6))
 plt.plot(df.index, df["close"].astype(float))
-plt.title("BTC/USDT OHLCV – April 2025")
+plt.title("BTC/USDT OHLCV – April 2022")
 plt.xlabel("Datum")
 plt.ylabel("Preis (USDT)")
 plt.grid(True)
