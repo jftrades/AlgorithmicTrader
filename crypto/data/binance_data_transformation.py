@@ -5,7 +5,7 @@ from nautilus_trader.persistence.loaders import CSVBarDataLoader
 from nautilus_trader.persistence.wranglers_v2 import BarDataWranglerV2
 
 # === Konfiguration ===
-CSV_PATH = Path("DATA_STORAGE/spot/monthly/klines/BTCUSDT/15m/BTCUSDT-15m-2022-08.csv")
+CSV_PATH = Path("DATA_STORAGE/spot/monthly/klines/BTCUSDT/15m/BTCUSDT-15m-2022-07.csv")
 CATALOG_PATH = Path("DATA_STORAGE/data_catalog_wrangled/")
 BAR_TYPE = "BINANCE.BTCUSDT-15-MINUTE-LAST-EXTERNAL"
 
