@@ -1,13 +1,20 @@
 from pathlib import Path
 import pandas as pd
-from nautilus_trader.persistence.catalog import ParquetDataCatalog
+from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from nautilus_trader.persistence.loaders import CSVBarDataLoader
 from nautilus_trader.persistence.wranglers_v2 import BarDataWranglerV2
+from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
+from nautilus_trader.test_kit.providers import TestInstrumentProvider
+
 
 # === Konfiguration ===
 CSV_PATH = Path("DATA_STORAGE/spot/monthly/klines/BTCUSDT/15m/BTCUSDT-15m-2025-04.csv")
 CATALOG_PATH = Path("DATA_STORAGE/data_catalog_wrangled/")
 BAR_TYPE = "BINANCE.BTCUSDT-15-MINUTE-LAST-EXTERNAL"
+
+
+
+
 
 
 
@@ -28,12 +35,17 @@ df = df[["timestamp", "open", "high", "low", "close", "volume"]]
 wrangler = BarDataWranglerV2(
     bar_type=BAR_TYPE,
     price_precision=PRICE_PRECISION,
-    size_precision=SIZE_PRECISION,
-)
+    size_precision=SIZE_PRECISION)
+
 bars = wrangler.from_pandas(df)
 
 # === Step 3: Speichern im Catalog ===
 catalog = ParquetDataCatalog(path=CATALOG_PATH)
+BTCUSDT = TestInstrumentProvider.btcusdt_binance()
+catalog.write_data([BTCUSDT])
 catalog.write_data(bars)
+instrument = catalog.instruments()[0]
+print(instrument.id == InstrumentId(Symbol("BTCUSDT"), Venue("BINANCE")))
+
 
 print(f"✅ {len(bars)} Bars erfolgreich verarbeitet und gespeichert.")
