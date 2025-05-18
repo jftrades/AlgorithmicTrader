@@ -42,8 +42,8 @@ venue_config = BacktestVenueConfig(
 
 # StrategyConfig (Importable)
 strategy_config = ImportableStrategyConfig(
-    strategy_path="nautilus_trader.examples.strategies.ema_cross_twap:EMACrossTWAP",
-    config_path="nautilus_trader.examples.strategies.ema_cross_twap:EMACrossTWAPConfig",
+    strategy_path="OVERWORKED_EXAMPLE_ema_cross_twap:EMACrossTWAP",
+    config_path="OVERWORKED_EXAMPLE_ema_cross_twap:EMACrossTWAPConfig",
     config={
         "instrument_id": instrument_id_str,
         "bar_type": bar_type_str_for_configs,
