@@ -17,18 +17,12 @@
 metrics = result.portfolio_metrics() # oder: 
 result.strategy_report('strategiename').metrics
 
-
-
 #1. dann müssen wir wenn backtesting funktioniert manuell eine Liste erstellen - z.B:
 ema_short_periods = [10, 15, 20, 25]
 ema_long_periods = [30, 40, 50, 60] 
 
-
-
 #2. leere Liste als Sammelstelle für kommenden Daten anlegen - z.B:
 optimization_results = []
-
-
 
 
 #3. for loops durchlaufen lassen z.B:
