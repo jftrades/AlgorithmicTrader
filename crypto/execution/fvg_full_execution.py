@@ -16,6 +16,7 @@ from nautilus_trader.backtest.results import BacktestResult
 # --- Konfigurationen ---
 instrument_id_str = "BTCUSDT.BINANCE"
 bar_type_str_for_configs = "BTCUSDT.BINANCE-15-MINUTE-LAST-EXTERNAL"
+STRATEGY_INSTANCE_ID_STR = "FVGStrategy-000"
 
 import sys
 from pathlib import Path
@@ -35,6 +36,7 @@ data_config = BacktestDataConfig(
     catalog_path=catalogPath,
     bar_types=[bar_type_str_for_configs],
     instrument_ids=[instrument_id_str],
+    client_id="FVGStrategy-000"
 )
 
 # VenueConfig
@@ -58,11 +60,11 @@ strategy_config = ImportableStrategyConfig(
     config={
         "instrument_id": instrument_id_str,
         "bar_type": bar_type_str_for_configs,
-        "trade_size": "0.010",
+        "trade_size_base": "0.01",
          "fvg_min_size_pips": 5,
         "entry_offset_pips": 1,
         "stop_loss_pips": 20,
-        "take_profit_ratio": "2.0"
+        "take_profit_ratio": 2.0
     }
 )
 
