@@ -1,4 +1,6 @@
 # fvg_full_strategie.py
+#funktioniert btw nach wie vor noch nicht wie es soll aber ich werde es nutzen um die anderen Codes zu schreiben 
+# so bisschen als Orientierung
 
 from decimal import Decimal
 from collections import deque
@@ -14,7 +16,6 @@ from nautilus_trader.model.enums import OrderSide, OrderType, TimeInForce, Order
 from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.model.events import OrderEvent
 from nautilus_trader.config import PositiveInt, PositiveFloat
-
 
 class FVGStrategyConfig(StrategyConfig):
     instrument_id: str
@@ -100,21 +101,28 @@ class FVGStrategy(Strategy):
         self.subscribe_bars(bar_type=self._bar_type_obj, client_id=current_client_id_for_subscription)
         self.log.info(f"Subscribed to bars for {self._bar_type_obj} with client_id {current_client_id_for_subscription}")
 
+    # In deiner FVGStrategy Klasse (fvg_full_strategie.py)
+
     def on_bar(self, bar: Bar) -> None:
-        self.log.info(f"on_bar: New Bar: ts_event={bar.ts_event}, Close={bar.close}, BarTimestamp={bar.timestamp}")
+        self.log.info(f"DEBUG: dir(bar) = {dir(bar)}")
+
+        current_bar_display_timestamp = bar.ts_event
+
+        self.log.info(f"on_bar: New Bar received. ts_event={bar.ts_event}, Close={bar.close}. (Using ts_event as placeholder for bar time: {current_bar_display_timestamp})")
         
         self._bar_buffer.append(bar)
         if len(self._bar_buffer) < 3:
+            self.log.debug(f"Bar buffer size {len(self._bar_buffer)}/3. Waiting for more bars. Current bar (event time): {current_bar_display_timestamp}")
             return
 
         fvg_details = self._check_for_fvg()
         if fvg_details:
             side, low_b, high_b = fvg_details
-            self.log.info(f"FVG at {bar.timestamp}: Side={side.name}, Low={low_b}, High={high_b}")
+            self.log.info(f"FVG detected for bar ending around {current_bar_display_timestamp}: Side={side.name}, FVG_LowBoundary={low_b}, FVG_HighBoundary={high_b}")
             self._handle_fvg_entry(direction=side, fvg_low_boundary=low_b, fvg_high_boundary=high_b)
         else:
-            self.log.info(f"on_bar: No FVG detected by _check_for_fvg() for pattern ending at {bar.timestamp}")
-    
+            self.log.info(f"No FVG detected for 3-bar pattern ending around {current_bar_display_timestamp}")
+            
     def _check_for_fvg(self) -> Optional[Tuple[OrderSide, Price, Price]]:
         c1: Bar = self._bar_buffer[0]
         c3: Bar = self._bar_buffer[2]

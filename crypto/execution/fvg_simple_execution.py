@@ -1,4 +1,7 @@
 # In high_level_api_backtest.py (Bereinigte Version)
+#funktioniert btw nach wie vor noch nicht wie es soll aber ich werde es nutzen um die anderen Codes zu schreiben 
+# so bisschen als Orientierung
+
 
 from pathlib import Path
 from decimal import Decimal
