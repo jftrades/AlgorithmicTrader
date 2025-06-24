@@ -6,7 +6,7 @@ from typing import Any
 from nautilus_trader.trading import Strategy
 from nautilus_trader.model.data import Bar, TradeTick, BarType
 from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.objects import Money, Price, Quantity, PositiveInt, PositiveFloat
+from nautilus_trader.model.objects import Money, Price, Quantity
 from nautilus_trader.trading.config import StrategyConfig
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 
@@ -14,9 +14,9 @@ class RSISimpleStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: BarType
     trade_size: Decimal
-    rsi_period:PositiveInt
-    rsi_overbought:PositiveFloat
-    rsi_oversold:PositiveFloat
+    rsi_period: int
+    rsi_overbought: float
+    rsi_oversold: float
     close_positions_on_stop: bool = True
     
     
@@ -32,24 +32,26 @@ class RSISimpleStrategy(Strategy):
         self.close_positions_on_stop = config.close_positions_on_stop
         self.rsi = RelativeStrengthIndex(period=self.rsi_period)
     
+        # Debug: Welche Attribute/Möglichkeiten gibt es?
+        print("STRATEGY DIR:", dir(self))
+        if hasattr(self, "portfolio"):
+            print("PORTFOLIO DIR:", dir(self.portfolio))
+
     def on_start(self) -> None:
         self.log.info("Strategy started!")
-        self.subscribe_bars(self.instrument_id, self.bar_type)
-        self.subscribe_trade_ticks(self.instrument_id)
+        # Weitere Initialisierungen
 
     def on_bar(self, bar: Bar) -> None:
         self.rsi.handle_bar(bar)
-        if not self.rsi.is_initialized:
+        if not self.rsi.initialized:
             return
-        
-        rsi_value = self.rsi.value # RSI Value muss nicht in __init__ sein, da es eine Eigenschaft des RSI Indikators ist
-        
-        if self.has_open_orders:
-            self.log.debug("Open order exists, skipping new signal.")
-            return
-    
+
+        rsi_value = self.rsi.value
+
+        position = self.position
+
         if rsi_value > self.rsi_overbought:
-            if self.position.is_open:
+            if position is not None and position.is_open:
                 self.close_position()
             else:
                 self.sell(
@@ -58,7 +60,7 @@ class RSISimpleStrategy(Strategy):
                     price=Price(bar.close_price)
                 )
         if rsi_value < self.rsi_oversold:
-            if self.position.is_open:
+            if position is not None and position.is_open:
                 self.close_position()
             else:
                 self.buy(
@@ -66,7 +68,19 @@ class RSISimpleStrategy(Strategy):
                     quantity=Quantity(self.trade_size),
                     price=Price(bar.close_price)
                 )
-    def on_order_event(self, event: Any)-> None:
+
+    def close_position(self) -> None:
+        position = self.position
+        if position is not None and position.is_open:
+            self.log.info(f"Closing position for {self.instrument_id} at market price.")
+            self.market_order(
+                instrument_id=self.instrument_id,
+                quantity=position.quantity
+            )
+        else:
+            self.log.info(f"No open position to close for {self.instrument_id}.")
+
+    def on_order_event(self, event: Any) -> None:
         if event.is_filled:
             self.log.info(f"Order filled: {event.order_id} for {event.instrument_id} at {event.price}")
         elif event.is_canceled:
@@ -79,25 +93,18 @@ class RSISimpleStrategy(Strategy):
         self.rsi.handle_trade_tick(trade_tick)
 
     def on_stop(self) -> None:
-        if self.close_positions_on_stop and self.position.is_open:
+        position = self.position
+        if self.close_positions_on_stop and position is not None and position.is_open:
             self.close_position()
         self.log.info("Strategy stopped!")
-    
-    def close_position(self) -> None:
-        if self.position.is_open:
-            self.log.info(f"Closing position for {self.instrument_id} at market price.")
-            self.market_order(
-                instrument_id=self.instrument_id,
-                quantity=self.position.quantity
-            )
-        else:
-            self.log.info(f"No open position to close for {self.instrument_id}.")
 
     def on_error(self, error: Exception) -> None:
         self.log.error(f"An error occurred: {error}")
-        if self.close_positions_on_stop and self.position.is_open:
+        position = self.position
+        if self.close_positions_on_stop and position is not None and position.is_open:
             self.close_position()
         self.stop()
+
 
         # Notiz von Ferdi: sowohl def on_trade_tick als auch def on_close_position als auch def on_error
         # sind hier theoreitisch nicht notwendig, da sie nur für die Fehlerbehandlung und das Logging
