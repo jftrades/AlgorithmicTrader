@@ -1,17 +1,22 @@
-#hier werde ich den Code kommplett selber schreiben und nicht mehr Gemini sondern wenn Copilot benutzen
-
+# Standard Library Importe
 from decimal import Decimal
 from typing import Any
 
-from nautilus_trader.model.enums import OrderSide, TimeInForce
+# Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
+from nautilus_trader.trading.config import StrategyConfig
+from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.data import Bar, TradeTick, BarType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Money, Price, Quantity
-from nautilus_trader.trading.config import StrategyConfig
-from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 from nautilus_trader.model.orders import MarketOrder
 
+
+# Nautilus Strategie spezifische Importe
+from nautilus_trader.indicators.rsi import RelativeStrengthIndex
+
+
+# ab hier der Code für die Strategie
 class RSISimpleStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: BarType

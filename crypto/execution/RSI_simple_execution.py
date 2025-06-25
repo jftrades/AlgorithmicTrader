@@ -1,25 +1,26 @@
-# hier rein kommt das Execution Skript für die RSI Simple Strategie
 
+# Standard Library Importe
+import sys
+import time
 from pathlib import Path
 from decimal import Decimal 
 
-# KERN IMPORTE
-import time
+
+# Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.core.nautilus_pyo3 import InstrumentId, Symbol, Venue
-from nautilus_trader.backtest.config import BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig
-from nautilus_trader.trading.config import ImportableStrategyConfig
+from nautilus_trader.model.data import BarType
 from nautilus_trader.model.objects import Money
 from nautilus_trader.model.currencies import USDT, BTC
-from nautilus_trader.backtest.results import BacktestResult
-from nautilus_trader.backtest.config import BacktestRunConfig
+from nautilus_trader.backtest.config import BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig,BacktestRunConfig
 from nautilus_trader.backtest.node import BacktestNode
-from nautilus_trader.model.data import BarType
-
-import sys
-from pathlib import Path
+from nautilus_trader.backtest.results import BacktestResult
 
 
-#Hier die gleichen Parameter wie aus strategy aber halt anpassen
+# Nautilus Strategie spezifische Importe
+from nautilus_trader.trading.config import ImportableStrategyConfig
+
+
+# Hier die gleichen Parameter wie aus strategy aber halt anpassen
 symbol = Symbol("BTCUSDT")
 venue = Venue("BINANCE")
 instrument_id = InstrumentId(symbol, venue)
@@ -31,8 +32,6 @@ rsi_overbought = 70.0
 rsi_oversold = 30.0
 close_positions_on_stop = True
 
-import sys
-from pathlib import Path
 
 # Strategien-Ordner liegt parallel zu AlgorithmicTrader
 STRATEGY_PATH = Path(__file__).resolve().parents[1] / "strategies"
@@ -41,12 +40,14 @@ if str(STRATEGY_PATH) not in sys.path:
 
 catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 
+
 # DataConfig
 data_config = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:Bar", # Traditioneller Pfad, der für Deserialisierung funktionierte
     catalog_path=catalogPath,
     bar_types=[bar_type_str_for_configs]
 )
+
 
 # VenueConfig
 venue_config = BacktestVenueConfig(
@@ -55,6 +56,7 @@ venue_config = BacktestVenueConfig(
     account_type="CASH",
     starting_balances=["100000 USDT", "1 BTC"]
 )
+
 
 # StrategyConfig - IMMER anpassen!!
 strategy_config = ImportableStrategyConfig(
@@ -73,16 +75,14 @@ strategy_config = ImportableStrategyConfig(
 
     }
 )
+
+
 # EngineConfig #-> welche Strategien bei diesem Backtest laufen sollen
 engine_config = BacktestEngineConfig(strategies=[strategy_config])
 
+
 # RunConfig #-> hier wird data, venues und engine zusammengeführt
 run_config = BacktestRunConfig(data=[data_config], venues=[venue_config], engine=engine_config)
-
-#fürs debuggen (kann gelöscht werden)
-print("DataConfig:", data_config)
-print("VenueConfig:", venue_config)
-print("StrategyConfig:", strategy_config)
 
 
 # Launch Node #-> startet den eigentlichen Backtest mit node.run()try:
@@ -94,6 +94,7 @@ except Exception as e:
     print(f"FATAL: Backtest: Ein Fehler ist im Backtest-Node aufgetreten: {e}")
     import traceback
     traceback.print_exc()
+
 
 # Ergebis-Ausgabe  nachdem der Backtest durchgelaufen ist
 def print_backtest_summary(result: BacktestResult):
