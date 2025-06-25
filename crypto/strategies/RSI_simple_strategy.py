@@ -5,12 +5,11 @@ from typing import Any
 # Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
-from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.data import Bar, TradeTick, BarType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Money, Price, Quantity
 from nautilus_trader.model.orders import MarketOrder
-
+from nautilus_trader.model.enums import OrderSide, TimeInForce
 
 # Nautilus Strategie spezifische Importe
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex

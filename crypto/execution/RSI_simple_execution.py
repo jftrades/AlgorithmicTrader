@@ -96,7 +96,6 @@ except Exception as e:
     traceback.print_exc()
 
 
-# Ergebis-Ausgabe  nachdem der Backtest durchgelaufen ist
 def print_backtest_summary(result: BacktestResult):
     print("=" * 60)
     print(f"Backtest Run-ID: {result.run_id}")
