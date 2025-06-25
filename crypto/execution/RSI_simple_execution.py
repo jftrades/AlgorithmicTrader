@@ -4,19 +4,32 @@ from pathlib import Path
 from decimal import Decimal 
 
 # KERN IMPORTE
+import time
 from nautilus_trader.core.nautilus_pyo3 import InstrumentId, Symbol, Venue
 from nautilus_trader.backtest.config import BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig
 from nautilus_trader.trading.config import ImportableStrategyConfig
 from nautilus_trader.model.objects import Money
 from nautilus_trader.model.currencies import USDT, BTC
-import time
 from nautilus_trader.backtest.results import BacktestResult
 from nautilus_trader.backtest.config import BacktestRunConfig
 from nautilus_trader.backtest.node import BacktestNode
+from nautilus_trader.model.data import BarType
 
-# --- Konfigurationen ---
+import sys
+from pathlib import Path
+
+
+#Hier die gleichen Parameter wie aus strategy aber halt anpassen
+symbol = Symbol("BTCUSDT")
+venue = Venue("BINANCE")
+instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = "BTCUSDT.BINANCE"
 bar_type_str_for_configs = "BTCUSDT.BINANCE-15-MINUTE-LAST-EXTERNAL"
+trade_size = Decimal("0.01")
+rsi_period = 14
+rsi_overbought = 70.0
+rsi_oversold = 30.0
+close_positions_on_stop = True
 
 import sys
 from pathlib import Path

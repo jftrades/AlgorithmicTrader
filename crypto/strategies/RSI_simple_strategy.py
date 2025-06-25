@@ -3,12 +3,14 @@
 from decimal import Decimal
 from typing import Any
 
+from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.trading import Strategy
 from nautilus_trader.model.data import Bar, TradeTick, BarType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Money, Price, Quantity
 from nautilus_trader.trading.config import StrategyConfig
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
+from nautilus_trader.model.orders import MarketOrder
 
 class RSISimpleStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
@@ -24,7 +26,10 @@ class RSISimpleStrategy(Strategy):
     def __init__(self, config: RSISimpleStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
-        self.bar_type = config.bar_type
+        if isinstance(config.bar_type, str):
+            self.bar_type = BarType.from_str(config.bar_type)
+        else:
+            self.bar_type = config.bar_type
         self.trade_size = config.trade_size
         self.rsi_period = config.rsi_period
         self.rsi_overbought = config.rsi_overbought
@@ -38,8 +43,18 @@ class RSISimpleStrategy(Strategy):
             print("PORTFOLIO DIR:", dir(self.portfolio))
 
     def on_start(self) -> None:
+        self.instrument = self.cache.instrument(self.instrument_id)
+        self.subscribe_bars(self.bar_type)
+        self.subscribe_trade_ticks(self.instrument_id)
+        self.subscribe_quote_ticks(self.instrument_id)
         self.log.info("Strategy started!")
-        # Weitere Initialisierungen
+
+    def get_position(self):
+        if hasattr(self, "cache") and self.cache is not None:
+            positions = self.cache.positions_open(instrument_id=self.instrument_id)
+            if positions:
+                return positions[0]
+        return None
 
     def on_bar(self, bar: Bar) -> None:
         self.rsi.handle_bar(bar)
@@ -47,64 +62,58 @@ class RSISimpleStrategy(Strategy):
             return
 
         rsi_value = self.rsi.value
-
-        position = self.position
+        position = self.get_position()
 
         if rsi_value > self.rsi_overbought:
             if position is not None and position.is_open:
                 self.close_position()
             else:
-                self.sell(
+                order = self.order_factory.market(
                     instrument_id=self.instrument_id,
-                    quantity=Quantity(self.trade_size),
-                    price=Price(bar.close_price)
+                    order_side=OrderSide.SELL,
+                    quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                    time_in_force=TimeInForce.GTC,
                 )
-        if rsi_value < self.rsi_oversold:
+                self.submit_order(order)
+        elif rsi_value < self.rsi_oversold:
             if position is not None and position.is_open:
                 self.close_position()
             else:
-                self.buy(
+                order = self.order_factory.market(
                     instrument_id=self.instrument_id,
-                    quantity=Quantity(self.trade_size),
-                    price=Price(bar.close_price)
+                    order_side=OrderSide.BUY,
+                    quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                    time_in_force=TimeInForce.GTC,
                 )
+                self.submit_order(order)
 
     def close_position(self) -> None:
-        position = self.position
+        position = self.get_position()
         if position is not None and position.is_open:
             self.log.info(f"Closing position for {self.instrument_id} at market price.")
-            self.market_order(
+            order_side = OrderSide.SELL if position.quantity > 0 else OrderSide.BUY
+            order = self.order_factory.market(
                 instrument_id=self.instrument_id,
-                quantity=position.quantity
+                order_side=order_side,
+                quantity=Quantity(abs(position.quantity), self.instrument.size_precision),
+                time_in_force=TimeInForce.GTC,
             )
+            self.submit_order(order)
         else:
             self.log.info(f"No open position to close for {self.instrument_id}.")
 
-    def on_order_event(self, event: Any) -> None:
-        if event.is_filled:
-            self.log.info(f"Order filled: {event.order_id} for {event.instrument_id} at {event.price}")
-        elif event.is_canceled:
-            self.log.info(f"Order canceled: {event.order_id} for {event.instrument_id}")
-        elif event.is_rejected:
-            self.log.error(f"Order rejected: {event.order_id} for {event.instrument_id}")
-            
-    def on_trade_tick(self, trade_tick: TradeTick) -> None:
-        self.log.debug(f"Trade tick received: {trade_tick.instrument_id} at {trade_tick.price}")
-        self.rsi.handle_trade_tick(trade_tick)
-
     def on_stop(self) -> None:
-        position = self.position
+        position = self.get_position()
         if self.close_positions_on_stop and position is not None and position.is_open:
             self.close_position()
         self.log.info("Strategy stopped!")
 
     def on_error(self, error: Exception) -> None:
         self.log.error(f"An error occurred: {error}")
-        position = self.position
+        position = self.get_position()
         if self.close_positions_on_stop and position is not None and position.is_open:
             self.close_position()
         self.stop()
-
 
         # Notiz von Ferdi: sowohl def on_trade_tick als auch def on_close_position als auch def on_error
         # sind hier theoreitisch nicht notwendig, da sie nur für die Fehlerbehandlung und das Logging
