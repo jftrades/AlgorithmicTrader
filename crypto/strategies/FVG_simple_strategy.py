@@ -1,4 +1,7 @@
-#hier rein kommmt dann die FVG Strategie
+# wichtig für diese FVG Strategie, wir testen NICHT, ob FVGS allgemein halten
+# sondern wir testen, ob, wenn eine FVG respektiert/angetestet wurde, wie gut die continuation dafür ist
+# wir kaufen sozusagen nachdem die FVG gehalten hat
+# wir können auch in anderen Skripten einen Inverse, den direkten Kauf einer FVG etc testen.
 
 # Standard Library Importe
 from decimal import Decimal
@@ -7,11 +10,15 @@ from typing import Any
 # Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
-from nautilus_trader.model.data import Bar, BarType, TradeTick
+from nautilus_trader.model.data import Bar, BarType, TradeTick, QuoteTick, OrderBook
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Money, Price, Quantity
-from nautilus_trader.model.orders import MarketOrder, LimitOrder
+from nautilus_trader.model.orders import MarketOrder, LimitOrder, StopMarketOrder
 from nautilus_trader.model.enums import OrderSide, TimeInForce
+from nautilus_trader.model.events import OrderEvent, PositionEvent
+
+# Weitere/Strategiespezifische Importe
+# from nautilus_trader...
 
 class FVGSimpleStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
@@ -29,7 +36,9 @@ class FVGSimpleStrategy(Strategy):
         else:
             self.bar_type = config.bar_type
         self.trade_size = config.trade_size
-        #...
+        self.bullish_fvgs = []  # Liste für bullische FVGs (jeweils (high, low))
+        self.bearish_fvgs = []  # Liste für bearishe FVGs (jeweils (low, high))
+        self.bar_buffer = [] #einfach eine Liste, die die letzten Bars speichert (wird in on_bar genauer definiert und drauf zugegriffen)
         self.close_positions_on_stop = config.close_positions_on_stop
 
     def on_start(self) -> None:
@@ -45,3 +54,116 @@ class FVGSimpleStrategy(Strategy):
             if positions:
                 return positions[0]
         return None
+
+    def on_bar (self, bar: Bar) -> None: 
+        self.bar_buffer.append(bar)
+        if len(self.bar_buffer) < 3:
+            return
+        
+        bar_2 = self.bar_buffer[-3]
+        bar_1 = self.bar_buffer[-2]
+        bar_0 = self.bar_buffer[-1]
+
+        # Bullische FVG
+        if bar_0.low > bar_2.high:
+            self.log.info(f"Bullische FVG erkannt: Gap von {bar_2.high} bis {bar_0.low}")
+            self.bullish_fvgs.append((bar_2.high, bar_0.low))
+
+        # Bearishe FVG
+        if bar_0.high < bar_2.low:
+            self.log.info(f"Bearishe FVG erkannt: Gap von {bar_2.low} bis {bar_0.high}") 
+            self.bearish_fvgs.append((bar_2.high, bar_0.low))
+        
+        # Buffer auf die letzten 3 Bars begrenzen (pop löscht das letzte Element aus der Liste)
+        if len(self.bar_buffer) > 3:
+            self.bar_buffer.pop(0)
+
+        position = self.get_position()
+        # Bullishe FVG erkennen und Kaufmethode
+        for gap in self.bullish_fvgs[:]:
+            gap_high, gap_low = gap
+            if gap_high <= bar.low <= gap_low:
+                self.log.info(f"Retest bullische FVG: {gap}")
+                if position is not None and position.is_open:
+                    self.close_position()
+                else:
+                    order = self.order_factory.market(
+                        instrument_id=self.instrument_id,
+                        order_side=OrderSide.BUY,
+                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                        time_in_force=TimeInForce.GTC,
+                    )
+                    self.submit_order(order)
+                self.bullish_fvgs.remove(gap) # FVG nach Retest entfernen
+                
+            elif bar.low < gap_low:
+                self.log.info(f"Bullische FVG durchtraded: {gap}")
+                self.bullish_fvgs.remove(gap)  # FVG nach Durchbruch entfernen
+
+        # Bearishe FVG erkennen und Kaufmethode
+        for gap in self.bearish_fvgs[:]:
+            gap_high, gap_low = gap
+            if gap_low <= bar.high <= gap_high:
+                self.log.info(f"Retest bearishe FVG: {gap}")
+                if position is not None and position.is_open:
+                    self.close_position()
+                else:
+                    order = self.order_factory.market(
+                        instrument_id=self.instrument_id,
+                        order_side=OrderSide.SELL,
+                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                        time_in_force=TimeInForce.GTC,
+                    )
+                    self.submit_order(order)
+                self.bearish_fvgs.remove(gap) # FVG nach Retest entfernen
+                
+            elif bar.low < gap_low:
+                self.log.info(f"Bearishe FVG durchtraded: {gap}")
+                self.bearish_fvgs.remove(gap)  # FVG nach Durchbruch entfernen
+    # die weiteren on_Methoden...
+    def on_trade_tick(self, tick: TradeTick) -> None:
+        pass
+    
+    def on_quote_tick(self, tick: QuoteTick) -> None:
+        pass
+
+    def on_order_book(self, order_book: OrderBook) -> None:
+        pass
+
+    def on_order_event(self, event: OrderEvent) -> None:
+        pass
+
+    def on_position_event(self, event: PositionEvent) -> None:
+        pass
+
+    def on_event(self, event: Any) -> None:
+        pass
+
+    
+    def close_position(self) -> None:
+        position = self.get_position()
+        if position is not None and position.is_open:
+            self.log.info(f"Closing position for {self.instrument_id} at market price.")
+            order_side = OrderSide.SELL if position.quantity > 0 else OrderSide.BUY
+            order = self.order_factory.market(
+                instrument_id=self.instrument_id,
+                order_side=order_side,
+                quantity=Quantity(abs(position.quantity), self.instrument.size_precision),
+                time_in_force=TimeInForce.GTC,
+            )
+            self.submit_order(order)
+        else:
+            self.log.info(f"No open position to close for {self.instrument_id}.")
+        
+    def on_stop(self) -> None:
+        position = self.get_position()
+        if self.close_positions_on_stop and position is not None and position.is_open:
+            self.close_position()
+        self.log.info("Strategy stopped!")
+
+    def on_error(self, error: Exception) -> None:
+        self.log.error(f"An error occurred: {error}")
+        position = self.get_position()
+        if self.close_positions_on_stop and position is not None and position.is_open:
+            self.close_position()
+        self.stop()
