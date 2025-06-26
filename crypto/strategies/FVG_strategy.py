@@ -1,7 +1,6 @@
-# wichtig für diese FVG Strategie, wir testen NICHT, ob FVGS allgemein halten
-# sondern wir testen, ob, wenn eine FVG respektiert/angetestet wurde, wie gut die continuation dafür ist
-# wir kaufen sozusagen nachdem die FVG gehalten hat/NUR ANGETESTET WURDE
-# wir können auch in anderen Skripten einen Inverse, den direkten Kauf einer FVG etc testen.
+# der Unterschied zu FVG_simple_strategy und FVG_simple_execution ist:
+# in FVG Strategie probieren wir mal mit Bedingungen, Fees, RiskManagement etc rum um 
+# das zukünftig for weitere Strategien schon mal gemacht zu haben einfach
 
 # Standard Library Importe
 from decimal import Decimal
@@ -88,24 +87,36 @@ class FVGSimpleStrategy(Strategy):
                 if position is not None and position.is_open:
                     self.close_position()
                 else:
-                    order = self.order_factory.market(
-                        instrument_id=self.instrument_id,
-                        order_side=OrderSide.BUY,
-                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
-                        time_in_force=TimeInForce.GTC,
-                    )
-                    self.submit_order(order)
+                    account = self.cache.account(self.venue)
+                    usdt_balance = account.balance("USDT").available
+                    risk_percent = 0.001  # 0.1%
+                    risk_amount = usdt_balance * risk_percent
 
                     entry_price = bar.close
                     stop_loss = bar.low  # SL unter das aktuelle Low
-                    risk = entry_price - stop_loss
-                    take_profit = entry_price + 2 * risk  # TP im 1:2-Ratio
+                    risk_per_unit = abs(entry_price - stop_loss)
+                    if risk_per_unit > 0:
+                        position_size = risk_amount / risk_per_unit
+                    else:
+                        position_size = Decimal("0.0")
+                    position_size = round(position_size, self.instrument.size_precision)
+                    
+                    risk = abs(entry_price - stop_loss)
+                    take_profit = entry_price + 2 * risk
+
+                    order = self.order_factory.market(
+                        instrument_id=self.instrument_id,
+                        order_side=OrderSide.BUY,
+                        quantity=Quantity(position_size, self.instrument.size_precision),
+                        time_in_force=TimeInForce.GTC,
+                    )
+                    self.submit_order(order)
 
                     # Stop-Loss-Order
                     sl_order = self.order_factory.stop_market(
                         instrument_id=self.instrument_id,
                         order_side=OrderSide.SELL,
-                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                        quantity=Quantity(position_size, self.instrument.size_precision),
                         trigger_price=Price(stop_loss, self.instrument.price_precision),
                         time_in_force=TimeInForce.GTC,
                     )
@@ -115,7 +126,7 @@ class FVGSimpleStrategy(Strategy):
                     tp_order = self.order_factory.limit(
                         instrument_id=self.instrument_id,
                         order_side=OrderSide.SELL,
-                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                        quantity=Quantity(position_size, self.instrument.size_precision),
                         price=Price(take_profit, self.instrument.price_precision),
                         time_in_force=TimeInForce.GTC,
                     )
@@ -135,24 +146,37 @@ class FVGSimpleStrategy(Strategy):
                 if position is not None and position.is_open:
                     self.close_position()
                 else:
+                    account = self.cache.account(self.venue)
+                    usdt_balance = account.balance("USDT").available
+                    risk_percent = 0.001  # 0.1%
+                    risk_amount = usdt_balance * risk_percent
+
+                    entry_price = bar.close
+                    stop_loss = bar.high  # SL über das aktuelle high
+                    risk_per_unit = abs(stop_loss - entry_price)
+                    if risk_per_unit > 0:
+                        position_size = risk_amount / risk_per_unit
+                    else:
+                        position_size = Decimal("0.0")
+                    position_size = round(position_size, self.instrument.size_precision)
+
+                    risk = abs(stop_loss - entry_price)
+                    take_profit = entry_price - 2 * risk
+
                     order = self.order_factory.market(
                         instrument_id=self.instrument_id,
                         order_side=OrderSide.SELL,
-                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                        quantity=Quantity(position_size, self.instrument.size_precision),
                         time_in_force=TimeInForce.GTC,
                     )
                     self.submit_order(order)
 
-                    entry_price = bar.close
-                    stop_loss = bar.high  # SL über das aktuelle high
-                    risk = stop_loss - entry_price
-                    take_profit = entry_price + 2 * risk  # TP im 1:2-Ratio
 
                     # Stop-Loss-Order
                     sl_order = self.order_factory.stop_market(
                         instrument_id=self.instrument_id,
                         order_side=OrderSide.BUY,
-                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                        quantity=Quantity(position_size, self.instrument.size_precision),
                         trigger_price=Price(stop_loss, self.instrument.price_precision),
                         time_in_force=TimeInForce.GTC,
                     )
@@ -162,7 +186,7 @@ class FVGSimpleStrategy(Strategy):
                     tp_order = self.order_factory.limit(
                         instrument_id=self.instrument_id,
                         order_side=OrderSide.BUY,
-                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                        quantity=Quantity(position_size, self.instrument.size_precision),
                         price=Price(take_profit, self.instrument.price_precision),
                         time_in_force=TimeInForce.GTC,
                     )
