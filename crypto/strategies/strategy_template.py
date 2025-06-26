@@ -5,12 +5,13 @@ from typing import Any
 # Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
-from nautilus_trader.model.data import Bar, BarType, TradeTick, QuoteTick, OrderBook
+from nautilus_trader.model.data import Bar, BarType, TradeTick, QuoteTick
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Money, Price, Quantity
 from nautilus_trader.model.orders import MarketOrder, LimitOrder, StopMarketOrder
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.events import OrderEvent, PositionEvent
+from nautilus_trader.model.book import OrderBook
 
 # Weitere/Strategiespezifische Importe
 # from nautilus_trader...
@@ -75,17 +76,7 @@ class NameDerStrategy(Strategy):
     def close_position(self) -> None:
         position = self.get_position()
         if position is not None and position.is_open:
-            self.log.info(f"Closing position for {self.instrument_id} at market price.")
-            order_side = OrderSide.SELL if position.quantity > 0 else OrderSide.BUY
-            order = self.order_factory.market(
-                instrument_id=self.instrument_id,
-                order_side=order_side,
-                quantity=Quantity(abs(position.quantity), self.instrument.size_precision),
-                time_in_force=TimeInForce.GTC,
-            )
-            self.submit_order(order)
-        else:
-            self.log.info(f"No open position to close for {self.instrument_id}.")
+            super().close_position(position)
         
     def on_stop(self) -> None:
         position = self.get_position()

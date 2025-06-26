@@ -10,12 +10,13 @@ from typing import Any
 # Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
-from nautilus_trader.model.data import Bar, BarType, TradeTick, QuoteTick, OrderBook
+from nautilus_trader.model.data import Bar, BarType, TradeTick, QuoteTick
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Money, Price, Quantity
 from nautilus_trader.model.orders import MarketOrder, LimitOrder, StopMarketOrder
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.events import OrderEvent, PositionEvent
+from nautilus_trader.model.book import OrderBook
 
 # Weitere/Strategiespezifische Importe
 # from nautilus_trader...
@@ -94,6 +95,32 @@ class FVGSimpleStrategy(Strategy):
                         time_in_force=TimeInForce.GTC,
                     )
                     self.submit_order(order)
+
+                    entry_price = bar.close
+                    stop_loss = bar.low  # SL unter das aktuelle Low
+                    risk = entry_price - stop_loss
+                    take_profit = entry_price + 2 * risk  # TP im 1:2-Ratio
+
+                    # Stop-Loss-Order
+                    sl_order = self.order_factory.stop_market(
+                        instrument_id=self.instrument_id,
+                        order_side=OrderSide.SELL,
+                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                        trigger_price=Price(stop_loss, self.instrument.price_precision),
+                        time_in_force=TimeInForce.GTC,
+                    )
+                    self.submit_order(sl_order)
+
+                    # Take-Profit-Order
+                    tp_order = self.order_factory.limit(
+                        instrument_id=self.instrument_id,
+                        order_side=OrderSide.SELL,
+                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                        price=Price(take_profit, self.instrument.price_precision),
+                        time_in_force=TimeInForce.GTC,
+                    )
+                    self.submit_order(tp_order)
+
                 self.bullish_fvgs.remove(gap) # FVG nach Retest entfernen
                 
             elif bar.low < gap_low:
@@ -115,6 +142,32 @@ class FVGSimpleStrategy(Strategy):
                         time_in_force=TimeInForce.GTC,
                     )
                     self.submit_order(order)
+
+                    entry_price = bar.close
+                    stop_loss = bar.high  # SL über das aktuelle high
+                    risk = stop_loss - entry_price
+                    take_profit = entry_price + 2 * risk  # TP im 1:2-Ratio
+
+                    # Stop-Loss-Order
+                    sl_order = self.order_factory.stop_market(
+                        instrument_id=self.instrument_id,
+                        order_side=OrderSide.BUY,
+                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                        trigger_price=Price(stop_loss, self.instrument.price_precision),
+                        time_in_force=TimeInForce.GTC,
+                    )
+                    self.submit_order(sl_order)
+
+                    # Take-Profit-Order
+                    tp_order = self.order_factory.limit(
+                        instrument_id=self.instrument_id,
+                        order_side=OrderSide.BUY,
+                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                        price=Price(take_profit, self.instrument.price_precision),
+                        time_in_force=TimeInForce.GTC,
+                    )
+                    self.submit_order(tp_order)
+
                 self.bearish_fvgs.remove(gap) # FVG nach Retest entfernen
                 
             elif bar.low < gap_low:
@@ -143,17 +196,7 @@ class FVGSimpleStrategy(Strategy):
     def close_position(self) -> None:
         position = self.get_position()
         if position is not None and position.is_open:
-            self.log.info(f"Closing position for {self.instrument_id} at market price.")
-            order_side = OrderSide.SELL if position.quantity > 0 else OrderSide.BUY
-            order = self.order_factory.market(
-                instrument_id=self.instrument_id,
-                order_side=order_side,
-                quantity=Quantity(abs(position.quantity), self.instrument.size_precision),
-                time_in_force=TimeInForce.GTC,
-            )
-            self.submit_order(order)
-        else:
-            self.log.info(f"No open position to close for {self.instrument_id}.")
+            super().close_position(position)
         
     def on_stop(self) -> None:
         position = self.get_position()
