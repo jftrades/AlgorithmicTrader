@@ -1,6 +1,7 @@
 # Standard Library Importe
 from decimal import Decimal
 from typing import Any
+import pandas as pd
 
 # Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
@@ -13,6 +14,7 @@ from nautilus_trader.model.enums import OrderSide, TimeInForce
 
 # Nautilus Strategie spezifische Importe
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
+from nautilus_trader.core.datetime import unix_nanos_to_dt
 
 
 # ab hier der Code für die Strategie
@@ -40,6 +42,8 @@ class RSISimpleStrategy(Strategy):
         self.rsi_oversold = config.rsi_oversold
         self.close_positions_on_stop = config.close_positions_on_stop
         self.rsi = RelativeStrengthIndex(period=self.rsi_period)
+        self.prev_rsi = None
+        self.just_closed = False
     
         # Debug: Welche Attribute/Möglichkeiten gibt es?
         print("STRATEGY DIR:", dir(self))
@@ -49,8 +53,8 @@ class RSISimpleStrategy(Strategy):
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
         self.subscribe_bars(self.bar_type)
-        self.subscribe_trade_ticks(self.instrument_id)
-        self.subscribe_quote_ticks(self.instrument_id)
+        #self.subscribe_trade_ticks(self.instrument_id)
+        #self.subscribe_quote_ticks(self.instrument_id)
         self.log.info("Strategy started!")
 
     def get_position(self):
@@ -68,29 +72,46 @@ class RSISimpleStrategy(Strategy):
         rsi_value = self.rsi.value
         position = self.get_position()
 
-        if rsi_value > self.rsi_overbought:
-            if position is not None and position.is_open:
-                self.close_position()
-            else:
-                order = self.order_factory.market(
-                    instrument_id=self.instrument_id,
-                    order_side=OrderSide.SELL,
-                    quantity=Quantity(self.trade_size, self.instrument.size_precision),
-                    time_in_force=TimeInForce.GTC,
-                )
-                self.submit_order(order)
-        elif rsi_value < self.rsi_oversold:
-            if position is not None and position.is_open:
-                self.close_position()
-            else:
-                order = self.order_factory.market(
-                    instrument_id=self.instrument_id,
-                    order_side=OrderSide.BUY,
-                    quantity=Quantity(self.trade_size, self.instrument.size_precision),
-                    time_in_force=TimeInForce.GTC,
-                )
-                self.submit_order(order)
+        if self.prev_rsi is not None:
+            # LONG ENTRY
+            if self.prev_rsi >= self.rsi_oversold and rsi_value < self.rsi_oversold:
+                if self.just_closed:
+                    self.just_closed = False  # Reset, aber NICHT sofort wieder handeln!
+                    return
+                if position is not None and position.is_open:
+                    if position.quantity < 0:
+                        self.close_position()
+                        self.just_closed = True  # <--- Flag setzen
+                        return
+                elif position is None or not position.is_open:
+                    self.submit_order(self.order_factory.market(
+                        instrument_id=self.instrument_id,
+                        order_side=OrderSide.BUY,
+                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                        time_in_force=TimeInForce.GTC,
+                    ))
+                    return
 
+            # SHORT ENTRY
+            elif self.prev_rsi <= self.rsi_overbought and rsi_value > self.rsi_overbought:
+                if self.just_closed:
+                    self.just_closed = False
+                    return
+                if position is not None and position.is_open:
+                    if position.quantity > 0:
+                        self.close_position()
+                        self.just_closed = True
+                        return
+                elif position is None or not position.is_open:
+                    self.submit_order(self.order_factory.market(
+                        instrument_id=self.instrument_id,
+                        order_side=OrderSide.SELL,
+                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                        time_in_force=TimeInForce.GTC,
+                    ))
+                    return
+
+        self.prev_rsi = rsi_value
     def close_position(self) -> None:
         position = self.get_position()
         if position is not None and position.is_open:
@@ -108,7 +129,8 @@ class RSISimpleStrategy(Strategy):
 
     def on_stop(self) -> None:
         position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
+        if position is not None and position.is_open:
+            self.log.info(f"Force closing open position at strategy stop for {self.instrument_id}")
             self.close_position()
         self.log.info("Strategy stopped!")
 

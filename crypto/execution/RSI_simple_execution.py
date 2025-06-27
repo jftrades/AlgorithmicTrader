@@ -25,11 +25,11 @@ symbol = Symbol("BTCUSDT")
 venue = Venue("BINANCE")
 instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = "BTCUSDT.BINANCE"
-bar_type_str_for_configs = "BTCUSDT.BINANCE-15-MINUTE-LAST-EXTERNAL"
+bar_type_str_for_configs = "BTCUSDT.BINANCE-5-MINUTE-LAST-EXTERNAL"
 trade_size = Decimal("0.01")
 rsi_period = 14
-rsi_overbought = 70.0
-rsi_oversold = 30.0
+rsi_overbought = 0.7
+rsi_oversold = 0.3
 close_positions_on_stop = True
 
 
@@ -69,8 +69,8 @@ strategy_config = ImportableStrategyConfig(
         "trade_size": "0.010", # Trade Size in BTC
         #hier kommen jetzt die Strategie spezifischen Parameter
         "rsi_period": 14,
-        "rsi_overbought": 70.0, 
-        "rsi_oversold": 30.0,
+        "rsi_overbought": 0.7, 
+        "rsi_oversold": 0.3,
         "close_positions_on_stop": True # Positionen werden beim Stop der Strategie geschlossen
 
     }

@@ -10,15 +10,15 @@ from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.core.datetime import unix_nanos_to_dt
 
 # === Konfiguration ===
-CSV_PATH = Path(__file__).resolve().parent.parent / "DATA_STORAGE" / "processed_data_2024-02-01_to_2025-04-15" / "csv" / "BTCUSDT_15MINUTE_2024-02-01_to_2025-04-15.csv"
+CSV_PATH = Path(__file__).resolve().parent.parent / "DATA_STORAGE" / "processed_data_2020-01-01_to_2025-06-01" / "csv" / "BTCUSDT_5MINUTE_2020-01-01_to_2025-06-01.csv"
 CATALOG_ROOT_PATH = Path(__file__).resolve().parent.parent / "DATA_STORAGE" / "data_catalog_wrangled"
 PRICE_PRECISION = 2
 SIZE_PRECISION = 6
-WRANGLER_INIT_BAR_TYPE_STRING = "BINANCE.BTCUSDT-15-MINUTE-LAST-EXTERNAL"
+WRANGLER_INIT_BAR_TYPE_STRING = "BINANCE.BTCUSDT-5-MINUTE-LAST-EXTERNAL"
 FINAL_TARGET_AGGREGATION_SOURCE = AggregationSource.EXTERNAL
 
 TARGET_INSTRUMENT_ID = InstrumentId(Symbol("BTCUSDT"), Venue("BINANCE"))
-TARGET_BAR_SPEC = BarSpecification(step=15, aggregation=BarAggregation.MINUTE, price_type=PriceType.LAST)
+TARGET_BAR_SPEC = BarSpecification(step=5, aggregation=BarAggregation.MINUTE, price_type=PriceType.LAST)
 TARGET_BAR_TYPE_OBJ = BarType(
     instrument_id=TARGET_INSTRUMENT_ID,
     spec=TARGET_BAR_SPEC,
