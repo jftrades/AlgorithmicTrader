@@ -29,8 +29,8 @@ class TradeInstance:
         self.price_desired = float(order.avg_px) if order.avg_px is not None else None
         self.id = order.client_order_id 
         self.parent_id = order.parent_order_id if order.parent_order_id else None
-        self.type = tag_type
-        self.action = tag_action
+        self.type = tag_type # "OPEN", "CLOSE"!!
+        self.action = tag_action # "BUY", "SHORT"!!
         self.sl = sl
         self.tp = tp
 
@@ -52,9 +52,12 @@ class BacktestDataCollector:
         self.initialise_result_path()
 
     def initialise_result_path(self):
+        import shutil
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         from pathlib import Path
         self.path = Path(base_dir) / "DATA_STORAGE" / "results"
+        if self.path.exists() and self.path.is_dir():
+            shutil.rmtree(self.path)
         os.makedirs(self.path, exist_ok=True)
  
     def initialise_logging_indicator(self, name, plot_number): #indicator -> [indicator_name, plot_number]

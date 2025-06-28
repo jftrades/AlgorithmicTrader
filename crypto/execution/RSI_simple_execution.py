@@ -36,8 +36,13 @@ from dashboard import TradingDashboard
 symbol = Symbol("BTCUSDT")
 venue = Venue("BINANCE")
 instrument_id = InstrumentId(symbol, venue)
+<<<<<<< HEAD
 instrument_id_str = "BTCUSDT.BINANCE"
 bar_type_str_for_configs = "BTCUSDT.BINANCE-15-MINUTE-LAST-EXTERNAL"
+=======
+instrument_id_str = "BTCUSDT-PERP.BINANCE"
+bar_type_str_for_configs = "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
+>>>>>>> RaphaelDev
 trade_size = Decimal("0.5")
 rsi_period = 14
 rsi_overbought = 0.8
@@ -68,7 +73,7 @@ data_config = BacktestDataConfig(
 venue_config = BacktestVenueConfig(
     name="BINANCE",
     oms_type="NETTING", 
-    account_type="CASH",  # FIXED: CASH automatically updates balance with realized PnL
+    account_type="MARGIN",  # FIXED: CASH automatically updates balance with realized PnL
     starting_balances=["100000 USDT"]
 )
 

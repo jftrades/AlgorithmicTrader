@@ -30,7 +30,6 @@ from backtest_visualizer_prototype import BacktestDataCollector
 ###################
 
 
-
 # ab hier der Code für die Strategie
 class RSISimpleStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
