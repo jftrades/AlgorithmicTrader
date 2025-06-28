@@ -16,16 +16,20 @@ from nautilus_trader.model.currencies import USDT, BTC
 from nautilus_trader.backtest.config import (BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig, BacktestRunConfig)
 from nautilus_trader.backtest.node import BacktestNode
 from nautilus_trader.backtest.results import BacktestResult
+from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
 # Nautilus Strategie spezifische Importe
 from nautilus_trader.trading.config import ImportableStrategyConfig
 
+catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
+catalog = ParquetDataCatalog(catalogPath)
+
 # Hier die gleichen Parameter wie aus strategy aber halt anpassen
-symbol = Symbol("BTCUSDT")
+symbol = Symbol("BTCUSDT-PERP")
 venue = Venue("BINANCE")
 instrument_id = InstrumentId(symbol, venue)
-instrument_id_str = "BTCUSDT.BINANCE"
-bar_type_str_for_configs = "BTCUSDT.BINANCE-15-MINUTE-LAST-EXTERNAL"
+instrument_id_str = "BTCUSDT-PERP.BINANCE"
+bar_type_str_for_configs = "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
 trade_size = Decimal("0.01") # Wird von der Strategie ignoriert, da dynamisches Risk-Management!
 #...
 close_positions_on_stop = True
@@ -35,22 +39,23 @@ STRATEGY_PATH = Path(__file__).resolve().parents[1] / "strategies"
 if str(STRATEGY_PATH) not in sys.path:
     sys.path.insert(0, str(STRATEGY_PATH))
 
-catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
-
 # DataConfig
 data_config = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:Bar",
     catalog_path=catalogPath,
     bar_types=[bar_type_str_for_configs],
-    # Optional: start_time, end_time, instrument_ids, filter_expr, etc.
+    start_time="2021-01-01",
+    end_time="2021-03-01",
+    # optional: instrument_ids, filter_expr, etc.
 )
 
 # VenueConfig
 venue_config = BacktestVenueConfig(
     name="BINANCE",
     oms_type="NETTING",
-    account_type="CASH",
-    starting_balances=["100000 USDT", "1 BTC"],
+    account_type="MARGIN",
+    base_currency="USDT",
+    starting_balances=["100000 USDT"],
     # Optional: base_currency, default_leverage, leverages, book_type, etc.
 )
 

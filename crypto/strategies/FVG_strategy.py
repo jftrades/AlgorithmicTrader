@@ -48,8 +48,8 @@ class FVGStrategy(Strategy):
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
         self.subscribe_bars(self.bar_type)
-        self.subscribe_trade_ticks(self.instrument_id)
-        self.subscribe_quote_ticks(self.instrument_id)
+        #self.subscribe_trade_ticks(self.instrument_id)
+        #self.subscribe_quote_ticks(self.instrument_id)
         self.log.info("Strategy started!")
 
     def get_position(self):
@@ -82,7 +82,7 @@ class FVGStrategy(Strategy):
         # Bearishe FVG
         if bar_0.high < bar_2.low:
             self.log.info(f"Bearishe FVG erkannt: Gap von {bar_2.low} bis {bar_0.high}") 
-            self.bearish_fvgs.append((bar_2.high, bar_0.low))
+            self.bearish_fvgs.append((bar_2.low, bar_0.high))
         
         # Buffer auf die letzten 3 Bars begrenzen (pop löscht das letzte Element aus der Liste)
         if len(self.bar_buffer) > 3:
@@ -210,11 +210,6 @@ class FVGStrategy(Strategy):
                     if position_size <= 0:
                         self.log.warning(f"PositionSize <= 0, Trade wird übersprungen! RiskPerUnit: {risk_per_unit}")
                         continue  # oder 'return', je nach Schleife/Kontext
-                    
-                    btc_free = account.balance(BTC).free
-                    if order_side == OrderSide.SELL and position_size > btc_free.as_decimal():
-                        self.log.warning(f"Zu wenig BTC für Short! BTC frei: {btc_free}, benötigt: {position_size}")
-                        continue
 
                     order = self.order_factory.market(
                         instrument_id=self.instrument_id,
@@ -247,7 +242,7 @@ class FVGStrategy(Strategy):
 
                 self.bearish_fvgs.remove(gap) # FVG nach Retest entfernen
                 
-            elif bar.low < gap_low:
+            elif bar.high > gap_high:
                 self.log.info(f"Bearishe FVG durchtraded: {gap}")
                 self.bearish_fvgs.remove(gap)  # FVG nach Durchbruch entfernen
     # die weiteren on_Methoden...
