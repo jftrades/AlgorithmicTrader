@@ -1,120 +1,75 @@
-
 # Standard Library Importe
 import sys
 import time
+import pandas as pd
 from pathlib import Path
 from decimal import Decimal 
-import pandas as pd
 
-
-# Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
-from nautilus_trader.core.nautilus_pyo3 import InstrumentId, Symbol, Venue
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.objects import Money
+# Nautilus Core Importe (v2.18 safe order)
+from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue, AccountId
 from nautilus_trader.model.currencies import USDT, BTC
-from nautilus_trader.backtest.config import BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig,BacktestRunConfig
+
+# Import in separate groups to avoid circular dependency
+from nautilus_trader.model.objects import Money
+
+# Strategy and config imports
+from nautilus_trader.trading.config import ImportableStrategyConfig
+
+# Backtest imports - in correct order
+from nautilus_trader.backtest.config import BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig, BacktestRunConfig
 from nautilus_trader.backtest.node import BacktestNode
 from nautilus_trader.backtest.results import BacktestResult
 
+################
+import sys
+from pathlib import Path
 
+# Pfad zum visualizing-Ordner hinzufügen
+VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
+if str(VIS_PATH) not in sys.path:
+    sys.path.insert(0, str(VIS_PATH))
 
-# Nautilus Strategie spezifische Importe
-from nautilus_trader.trading.config import ImportableStrategyConfig
-from nautilus_trader.persistence.catalog import ParquetDataCatalog
-
-# FÜGE HIER EIN (nach Zeile 25):
-print("=" * 60)
-print("DATENCHECK:")
-print("=" * 60)
-
-catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
-
-catalog = ParquetDataCatalog(catalogPath)
-print("Verfügbare Instrumente:", catalog.instruments())
-# KORREKTE METHODE FÜR BAR-DATEN:
-try:
-    # Prüfe direkt mit bars() Methode
-    test_instrument_id_str = "BTCUSDT-PERP.BINANCE"
-    test_bar_type_str = "BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"
-    
-    available_data = catalog.bars(
-        instrument_ids=[test_instrument_id_str],
-        bar_types=[test_bar_type_str]
-    )
-    
-    if available_data is not None and len(available_data) > 0:
-        print("✅ DATEN GEFUNDEN!")
-        print("Datenbereich:", available_data.index.min(), "bis", available_data.index.max())
-        print("Anzahl Bars:", len(available_data))
-        
-        # Prüfe ob 2021 Daten verfügbar sind
-        data_2021 = available_data.loc['2021-01-01':'2021-03-01']
-        if len(data_2021) > 0:
-            print("✅ 2021 DATEN VERFÜGBAR:", len(data_2021), "Bars")
-        else:
-            print("❌ KEINE 2021 DATEN im gewünschten Zeitraum!")
-    else:
-        print("❌ KEINE DATEN für", test_instrument_id_str, "gefunden!")
-        
-        # Versuche alternative Bar-Typen
-        alternative_bar_types = [
-            "BTCUSDT.BINANCE-5-MINUTE-LAST-EXTERNAL",  # SPOT statt PERP
-            "BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL",  # 1min statt 5min
-        ]
-        
-        for alt_bar_type in alternative_bar_types:
-            try:
-                alt_data = catalog.bars(bar_types=[alt_bar_type])
-                if alt_data is not None and len(alt_data) > 0:
-                    print(f"✅ ALTERNATIVE DATEN GEFUNDEN: {alt_bar_type}")
-                    break
-            except:
-                continue
-                
-except Exception as e:
-    print("FEHLER beim Laden der Daten:", e)
-
-print("=" * 60)
+from dashboard import TradingDashboard
+###################
 
 # Hier die gleichen Parameter wie aus strategy aber halt anpassen
-symbol = Symbol("BTCUSDT-PERP")
+symbol = Symbol("BTCUSDT")
 venue = Venue("BINANCE")
 instrument_id = InstrumentId(symbol, venue)
-instrument_id_str = "BTCUSDT-PERP.BINANCE"
-bar_type_str_for_configs = "BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"
-trade_size = Decimal("0.001")
+instrument_id_str = "BTCUSDT.BINANCE"
+bar_type_str_for_configs = "BTCUSDT.BINANCE-15-MINUTE-LAST-EXTERNAL"
+trade_size = Decimal("0.5")
 rsi_period = 14
-rsi_overbought = 0.65
-rsi_oversold = 0.45
+rsi_overbought = 0.8
+rsi_oversold = 0.2
 close_positions_on_stop = True
 
-start_date = "2021-01-01T00:00:00Z"
-end_date = "2021-03-01T00:00:00Z"
+start_date = "2024-10-01T00:00:00Z"
+end_date = "2024-10-31T00:00:00Z"
+
 
 # Strategien-Ordner liegt parallel zu AlgorithmicTrader
 STRATEGY_PATH = Path(__file__).resolve().parents[1] / "strategies"
 if str(STRATEGY_PATH) not in sys.path:
     sys.path.insert(0, str(STRATEGY_PATH))
 
+catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
+
 
 # DataConfig
 data_config = BacktestDataConfig(
-    data_cls="nautilus_trader.model.data:Bar",
+    data_cls="nautilus_trader.model.data:Bar", # Traditioneller Pfad, der für Deserialisierung funktionierte
     catalog_path=catalogPath,
-    bar_types=[bar_type_str_for_configs],
-    start_time=pd.Timestamp("2021-01-01T00:00:00", tz="UTC"),
-    end_time=pd.Timestamp("2021-03-01T00:00:00", tz="UTC")
+    bar_types=[bar_type_str_for_configs]
 )
 
-# VenueConfig - FUTURES/MARGIN TRADING KORRIGIERT
+
+# VenueConfig - CHANGED TO CASH for automatic PnL balance updates
 venue_config = BacktestVenueConfig(
     name="BINANCE",
     oms_type="NETTING", 
-    account_type="MARGIN",
-    base_currency="USDT",  # Base Currency für Futures
-    starting_balances=["100000 USDT"],  # Nur USDT für Futures
-    default_leverage=1.0,  # REDUZIERE Leverage auf 1x
-    leverages={"BTCUSDT-PERP.BINANCE": 1.0}  # Keine Leverage für Tests
+    account_type="CASH",  # FIXED: CASH automatically updates balance with realized PnL
+    starting_balances=["100000 USDT"]
 )
 
 
@@ -126,27 +81,25 @@ strategy_config = ImportableStrategyConfig(
     config={
         "instrument_id": instrument_id_str,
         "bar_type": bar_type_str_for_configs,
-        "trade_size": "0.0010", # Trade Size in BTC
+        "trade_size": "0.5", # Trade Size in BTC
         #hier kommen jetzt die Strategie spezifischen Parameter
         "rsi_period": 14,
-        "rsi_overbought": 0.65, 
-        "rsi_oversold": 0.35,
+        "rsi_overbought": 0.8, 
+        "rsi_oversold": 0.2,
         "close_positions_on_stop": True # Positionen werden beim Stop der Strategie geschlossen
 
     }
 )
 
+
 # EngineConfig -> welche Strategien bei diesem Backtest laufen sollen
 engine_config = BacktestEngineConfig(strategies=[strategy_config])
 
+
 # RunConfig -> hier wird data, venues und engine zusammengeführt
-run_config = BacktestRunConfig(
-    data=[data_config], 
-    venues=[venue_config], 
-    engine=engine_config,
-    start=pd.Timestamp("2021-01-01T00:00:00", tz="UTC"),  # <-- pd.Timestamp
-    end=pd.Timestamp("2021-03-01T00:00:00", tz="UTC")     # <-- pd.Timestamp
-)
+run_config = BacktestRunConfig(data=[data_config], venues=[venue_config], engine=engine_config, start=start_date, end=end_date)
+
+
 
 # Launch Node #-> startet den eigentlichen Backtest mit node.run()try:
 try:
@@ -179,5 +132,172 @@ def print_backtest_summary(result: BacktestResult):
 
 if results:
     print_backtest_summary(results[0])
+    
+    # === EINGEBAUTE TRADE REPORTS ===
+    print("\n" + "=" * 60)
+    print("📊 TRADE REPORTS (Built-in NautilusTrader Analyzer)")
+    print("=" * 60)
+    
+    # Correct way: get the engine from the node, then access its trader
+    engine = node.get_engine(run_config.id)
+    trader = engine.trader
+    
+    # Reports generieren
+    fills_report = trader.generate_order_fills_report()
+    positions_report = trader.generate_positions_report()
+    orders_report = trader.generate_orders_report()
+    
+    # Alle Trades mit PnL anzeigen
+    if not fills_report.empty:
+        print("\n🔸 ALL TRADES WITH PnL:")
+        print(f"Available columns: {list(fills_report.columns)}")
+        
+        # Nur verfügbare Spalten verwenden
+        wanted_cols = ['instrument_id', 'side', 'order_side', 'quantity', 'last_qty', 'price', 'last_px', 
+                      'avg_px', 'commission', 'realized_pnl', 'ts_event', 'ts_last', 'ts_init']
+        available_cols = [col for col in wanted_cols if col in fills_report.columns]
+        
+        if available_cols:
+            print(fills_report[available_cols].to_string())
+        else:
+            print("Showing all available data:")
+            print(fills_report.to_string())
+        print(f"\nTotal Trades: {len(fills_report)}")
+    else:
+        print("\n🔸 Keine Fills/Trades gefunden!")
+    
+    # Positions Summary mit PnL
+    if not positions_report.empty:
+        print("\n🔸 POSITIONS SUMMARY:")
+        pos_cols = ['instrument_id', 'side', 'avg_px_open', 'avg_px_close', 'realized_pnl']
+        available_cols = [col for col in pos_cols if col in positions_report.columns]
+        print(positions_report[available_cols].to_string())
+        
+        # Total PnL aus Positions - handle Money objects properly
+        if 'realized_pnl' in positions_report.columns:
+            try:
+                # Extract numeric values from Money objects (remove currency)
+                pnl_values = []
+                for pnl in positions_report['realized_pnl']:
+                    if isinstance(pnl, str):
+                        # Extract number from "123.45 USDT" format
+                        numeric_part = pnl.split()[0] if ' ' in str(pnl) else str(pnl)
+                        pnl_values.append(float(numeric_part))
+                    else:
+                        pnl_values.append(float(pnl))
+                
+                total_pnl = sum(pnl_values)
+                print(f"\n💰 Total Realized PnL from Positions: {total_pnl:.4f} USDT")
+            except Exception as e:
+                print(f"\n💰 Total Realized PnL calculation error: {e}")
+                print(f"Raw PnL data: {list(positions_report['realized_pnl'])[:3]}...")
+    else:
+        print("\n🔸 Keine Positionen gefunden!")
+    
+    # Orders Overview
+    if not orders_report.empty:
+        print(f"\n🔸 ORDERS OVERVIEW: {len(orders_report)} total orders")
+        # Check what columns are available for orders
+        if 'filled_qty' in orders_report.columns:
+            try:
+                # Convert filled_qty to numeric for comparison
+                orders_report['filled_qty_numeric'] = pd.to_numeric(orders_report['filled_qty'], errors='coerce')
+                filled_orders = orders_report[orders_report['filled_qty_numeric'] > 0]
+                print(f"   - Filled Orders: {len(filled_orders)}")
+                print(f"   - Cancelled/Rejected: {len(orders_report) - len(filled_orders)}")
+            except Exception as e:
+                print(f"   - Error processing filled_qty: {e}")
+                print(f"   - Sample filled_qty values: {list(orders_report['filled_qty'].head())}")
+        else:
+            print(f"   - Available columns: {list(orders_report.columns)}")
+            print("   - Showing first few orders:")
+            print(orders_report.head().to_string())
+    else:
+        print("\n🔸 Keine Orders gefunden!")
+    
+    print("=" * 60)
+    
+    # === DETAILED PnL ANALYSIS ===
+    print("\n" + "=" * 60)
+    print("🔍 DETAILED PnL ANALYSIS - Investigating Discrepancy")
+    print("=" * 60)
+    
+    # 1. Portfolio-level PnL - Get account balances instead of net_liquidating_value
+    portfolio = engine.trader._portfolio  # Use _portfolio instead of portfolio
+    total_realized_pnl_portfolio = portfolio.realized_pnl(instrument_id)
+    total_unrealized_pnl_portfolio = portfolio.unrealized_pnl(instrument_id)
+    
+    # Get account for portfolio value calculation using venue directly
+    account = portfolio.account(venue)
+    if account:
+        usdt_balance = account.balance_total(USDT)
+        total_portfolio_value = usdt_balance.as_double() if usdt_balance else 0.0
+    else:
+        total_portfolio_value = 0.0
+    
+    print(f"\n🔸 PORTFOLIO LEVEL:")
+    print(f"   - Realized PnL (Portfolio): {total_realized_pnl_portfolio}")
+    print(f"   - Unrealized PnL (Portfolio): {total_unrealized_pnl_portfolio}")
+    print(f"   - Total Portfolio Value: {total_portfolio_value:.2f} USDT")
+    
+    # 2. Account-level balances
+    # account is already retrieved above for portfolio value calculation
+    if account:
+        print(f"\n🔸 ACCOUNT LEVEL:")
+        usdt_balance = account.balance_total(USDT)
+        print(f"   - Account balance USDT: {usdt_balance}")
+        starting_balance = Money(100000, USDT)
+        if usdt_balance:
+            balance_change = usdt_balance.as_double() - starting_balance.as_double()
+            print(f"   - Starting balance: {starting_balance}")
+            print(f"   - Current balance: {usdt_balance}")
+            print(f"   - Balance change: {balance_change:.4f} USDT")
+    
+    # 3. Commission analysis
+    if not fills_report.empty and 'commissions' in fills_report.columns:
+        print(f"\n🔸 COMMISSION ANALYSIS:")
+        print(f"   - Sample commissions: {list(fills_report['commissions'].head())}")
+        # Try to sum commissions if they're numeric
+        try:
+            if fills_report['commissions'].dtype == 'object':
+                # Extract numeric part from commission strings
+                comm_values = []
+                for comm in fills_report['commissions']:
+                    if comm and str(comm) != 'nan':
+                        if isinstance(comm, str) and ' ' in comm:
+                            numeric_part = comm.split()[0]
+                            comm_values.append(float(numeric_part))
+                        else:
+                            comm_values.append(float(comm))
+                total_commissions = sum(comm_values) if comm_values else 0
+            else:
+                total_commissions = fills_report['commissions'].sum()
+            print(f"   - Total commissions: {total_commissions:.4f}")
+        except Exception as e:
+            print(f"   - Commission calculation error: {e}")
+    
+    print("=" * 60)
 else:
     print("No results to display.")
+
+    time.sleep(1)
+
+
+visualizer = TradingDashboard()
+visualizer.collect_results(results)
+visualizer.load_data_from_csv()
+
+if visualizer.bars_df is not None:
+    print(f"  - Bars geladen: {len(visualizer.bars_df)} Einträge")
+else:
+    print("  - Keine Bars gefunden!")
+
+if visualizer.trades_df is not None:
+    print(f"  - Trades geladen: {len(visualizer.trades_df)} Einträge")
+else:
+    print("  - Keine Trades gefunden!")
+
+print(f"  - Indikatoren geladen: {len(visualizer.indicators_df)} Indikatoren")
+print(f"  - Metriken geladen: {len(visualizer.metrics) if visualizer.metrics else 0} Metriken")
+print("INFO: Starte Dashboard...")
+visualizer.visualize(visualize_after_backtest=True)
