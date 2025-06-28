@@ -467,13 +467,15 @@ class DashboardApp:
                     mode='lines',  # Keine Marker!
                     name=name,
                     line=dict(color=colors[i % len(colors)], width=2),
-                    hoverinfo='skip',
-                    hovertemplate=None,
+                    hovertemplate='<b>%{fullData.name}</b><br>' +
+                                'Zeit: %{x|%Y-%m-%d %H:%M:%S}<br>' +
+                                'Wert: %{y:.4f}<br>' +
+                                '<extra></extra>',
                     showlegend=True,
                     hoverlabel=dict(
-                        bgcolor="rgba(0,0,0,0)",
-                        bordercolor="rgba(0,0,0,0)",
-                        font=dict(size=1, color="rgba(0,0,0,0)")
+                        bgcolor="rgba(255,255,255,0.95)",
+                        bordercolor="#666",
+                        font=dict(size=12, color="#222", family='Inter, system-ui, sans-serif')
                     )
                 )
             )
@@ -492,7 +494,7 @@ class DashboardApp:
             ),
             uirevision=f'indicators-subplot',
             font=dict(family='Inter, system-ui, sans-serif', size=11),
-            hovermode='x',  # Crosshair-Linien beim Hover wieder aktiv
+            hovermode='x unified',  # Unified hover für alle Linien gleichzeitig
             margin=dict(t=30, b=60, l=60, r=20),  # Gleiche Margins wie Hauptchart
             # Crosshair-Linien auch für Subplots
             xaxis=dict(
@@ -504,13 +506,6 @@ class DashboardApp:
             ),
             yaxis=dict(
                 showspikes=False  # Kein horizontaler Crosshair in Indikator-Charts
-            ),
-            # Hover-Labels komplett unsichtbar machen (auch für Subplots)
-            hoverlabel=dict(
-                bgcolor="rgba(0,0,0,0)",
-                bordercolor="rgba(0,0,0,0)",
-                font_size=1,
-                font_color="rgba(0,0,0,0)"
             )
         )
         
