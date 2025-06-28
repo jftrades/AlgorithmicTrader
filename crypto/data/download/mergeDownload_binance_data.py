@@ -1,3 +1,5 @@
+
+
 import datetime as dt
 from pathlib import Path
 import pandas as pd
@@ -8,10 +10,10 @@ from binance_historical_data import BinanceDataDumper
 
 # === 1. Konfiguration ===
 TICKER = "BTCUSDT"
-DATA_FREQUENCY_DOWNLOAD = "15m"
-DATA_FREQUENCY_FILENAME = "15MINUTE"
-START_DATE = dt.date(2024, 2, 1)
-END_DATE = dt.date(2025, 4, 15)
+DATA_FREQUENCY_DOWNLOAD = "1m"
+DATA_FREQUENCY_FILENAME = "1MINUTE"
+START_DATE = dt.date(2020, 1, 1)
+END_DATE = dt.date(2025, 6, 1)
 
 BASE_DATA_DIR = Path(__file__).resolve().parent.parent / "DATA_STORAGE"
 TEMP_RAW_DOWNLOAD_DIR = BASE_DATA_DIR / "temp_raw_downloads"
@@ -52,7 +54,7 @@ def main():
     try:
         dumper = BinanceDataDumper(
             path_dir_where_to_dump=str(TEMP_RAW_DOWNLOAD_DIR),
-            asset_class="spot",
+            asset_class="um",
             data_type="klines",
             data_frequency=DATA_FREQUENCY_DOWNLOAD,
         )
@@ -64,8 +66,12 @@ def main():
             is_to_update_existing=False
         )
 
-        search_root = TEMP_RAW_DOWNLOAD_DIR / "spot"
-        all_csvs = sorted(search_root.rglob(f"{TICKER}-{DATA_FREQUENCY_DOWNLOAD}-*.csv"))
+        search_root = TEMP_RAW_DOWNLOAD_DIR
+
+        print("Inhalt von", search_root)
+        for path in search_root.rglob("*"):
+            print("  ", path)
+        all_csvs = sorted(search_root.rglob("*.csv"))
 
         if not all_csvs:
             print("❌ Keine CSV-Dateien gefunden.")
@@ -76,7 +82,18 @@ def main():
         df_list = []
         for file in all_csvs:
             try:
-                df = pd.read_csv(file, header=None, names=EXPECTED_COLUMNS)
+                # Prüfe, ob die erste Zeile ein Header ist
+                with open(file, "r") as f:
+                    first_line = f.readline()
+                skip = 1 if "open_time" in first_line else 0
+
+                df = pd.read_csv(
+                    file,
+                    header=None,
+                    names=EXPECTED_COLUMNS,
+                    dtype={"open_time": "int64"},
+                    skiprows=skip,
+                )
                 df = normalize_timestamp_units(df)
                 df_list.append(df)
             except Exception as e:

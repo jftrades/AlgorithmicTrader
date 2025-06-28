@@ -1,6 +1,7 @@
 # Standard Library Importe
 from decimal import Decimal
 from typing import Any
+import pandas as pd
 
 # Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
@@ -13,6 +14,7 @@ from nautilus_trader.model.enums import OrderSide, TimeInForce
 
 # Nautilus Strategie spezifische Importe
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
+from nautilus_trader.core.datetime import unix_nanos_to_dt
 
 
 # ab hier der Code für die Strategie
@@ -40,83 +42,128 @@ class RSISimpleStrategy(Strategy):
         self.rsi_oversold = config.rsi_oversold
         self.close_positions_on_stop = config.close_positions_on_stop
         self.rsi = RelativeStrengthIndex(period=self.rsi_period)
-    
-        # Debug: Welche Attribute/Möglichkeiten gibt es?
-        print("STRATEGY DIR:", dir(self))
-        if hasattr(self, "portfolio"):
-            print("PORTFOLIO DIR:", dir(self.portfolio))
+        self.prev_rsi = None
+        self.just_closed = False
+
 
     def on_start(self) -> None:
+        """Strategie-Start mit verbessertem Logging"""
         self.instrument = self.cache.instrument(self.instrument_id)
         self.subscribe_bars(self.bar_type)
-        self.subscribe_trade_ticks(self.instrument_id)
-        self.subscribe_quote_ticks(self.instrument_id)
-        self.log.info("Strategy started!")
+        
+        self.log.info("="*50)
+        self.log.info("🚀 RSI STRATEGY STARTED")
+        self.log.info(f"📊 Instrument: {self.instrument_id}")
+        self.log.info(f"📈 Bar Type: {self.bar_type}")
+        self.log.info(f"💰 Trade Size: {self.trade_size}")
+        self.log.info(f"🔢 RSI Period: {self.rsi_period}")
+        self.log.info(f"📉 RSI Oversold: {self.rsi_oversold}")
+        self.log.info(f"📈 RSI Overbought: {self.rsi_overbought}")
+        self.log.info("="*50)
 
-    def get_position(self):
-        if hasattr(self, "cache") and self.cache is not None:
-            positions = self.cache.positions_open(instrument_id=self.instrument_id)
-            if positions:
-                return positions[0]
-        return None
+    def get_total_position_size(self):
+        """Berechne Position Size MIT Vorzeichen (+ für LONG, - für SHORT)"""
+        positions = self.cache.positions_open(instrument_id=self.instrument_id)
+        
+        total_quantity = 0.0
+        for pos in positions:
+            signed_qty = float(pos.signed_qty)
+            total_quantity += signed_qty
+        
+        return total_quantity
+
+    def close_all_positions(self):
+        """Schließe ALLE Positionen mit EINER Order basierend auf Netto-Position"""
+        total_position = self.get_total_position_size()
+        
+        if abs(total_position) <= 0.001:
+            self.log.info("No significant position to close")
+            return
+        
+        order_side = OrderSide.SELL if total_position > 0 else OrderSide.BUY
+        order = self.order_factory.market(
+            instrument_id=self.instrument_id,
+            order_side=order_side,
+            quantity=Quantity(abs(total_position), self.instrument.size_precision),
+            time_in_force=TimeInForce.GTC,
+        )
+        self.log.info(f"🔄 CLOSING total position: {total_position} with single order")
+        self.submit_order(order)
 
     def on_bar(self, bar: Bar) -> None:
+        """Haupthandelslogik mit detailliertem Logging"""
         self.rsi.handle_bar(bar)
         if not self.rsi.initialized:
             return
 
         rsi_value = self.rsi.value
-        position = self.get_position()
+        total_position = self.get_total_position_size()
+        
+        # Kompaktes Bar-Logging
+        bar_time = pd.to_datetime(bar.ts_event, unit='ns')
+        self.log.info(f"📊 [{bar_time}] Price: {bar.close}, RSI: {rsi_value:.2f}, Position: {total_position}")
+        
+        if self.prev_rsi is not None:
+            # Signal-Detection
+            long_signal = self.prev_rsi >= self.rsi_oversold and rsi_value < self.rsi_oversold
+            short_signal = self.prev_rsi <= self.rsi_overbought and rsi_value > self.rsi_overbought
+            
+            # LONG SIGNAL
+            if long_signal:
+                self.log.info(f"🟢 LONG SIGNAL! RSI crossed below {self.rsi_oversold}")
+                if total_position < -0.001:
+                    self.log.info(f"🔄 Closing SHORT position (Total: {total_position})")
+                    self.close_all_positions()
+                elif abs(total_position) <= 0.001:
+                    self.log.info(f"🚀 Opening LONG position, size: {self.trade_size}")
+                    order = self.order_factory.market(
+                        instrument_id=self.instrument_id,
+                        order_side=OrderSide.BUY,
+                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                        time_in_force=TimeInForce.GTC,
+                    )
+                    self.submit_order(order)
 
-        if rsi_value > self.rsi_overbought:
-            if position is not None and position.is_open:
-                self.close_position()
-            else:
-                order = self.order_factory.market(
-                    instrument_id=self.instrument_id,
-                    order_side=OrderSide.SELL,
-                    quantity=Quantity(self.trade_size, self.instrument.size_precision),
-                    time_in_force=TimeInForce.GTC,
-                )
-                self.submit_order(order)
-        elif rsi_value < self.rsi_oversold:
-            if position is not None and position.is_open:
-                self.close_position()
-            else:
-                order = self.order_factory.market(
-                    instrument_id=self.instrument_id,
-                    order_side=OrderSide.BUY,
-                    quantity=Quantity(self.trade_size, self.instrument.size_precision),
-                    time_in_force=TimeInForce.GTC,
-                )
-                self.submit_order(order)
+            # SHORT SIGNAL  
+            elif short_signal:
+                self.log.info(f"🔴 SHORT SIGNAL! RSI crossed above {self.rsi_overbought}")
+                if total_position > 0.001:
+                    self.log.info(f"🔄 Closing LONG position (Total: {total_position})")
+                    self.close_all_positions()
+                elif abs(total_position) <= 0.001:
+                    self.log.info(f"📉 Opening SHORT position, size: {self.trade_size}")
+                    order = self.order_factory.market(
+                        instrument_id=self.instrument_id,
+                        order_side=OrderSide.SELL,
+                        quantity=Quantity(self.trade_size, self.instrument.size_precision),
+                        time_in_force=TimeInForce.GTC,
+                    )
+                    self.submit_order(order)
 
-    def close_position(self) -> None:
-        position = self.get_position()
-        if position is not None and position.is_open:
-            self.log.info(f"Closing position for {self.instrument_id} at market price.")
-            order_side = OrderSide.SELL if position.quantity > 0 else OrderSide.BUY
-            order = self.order_factory.market(
-                instrument_id=self.instrument_id,
-                order_side=order_side,
-                quantity=Quantity(abs(position.quantity), self.instrument.size_precision),
-                time_in_force=TimeInForce.GTC,
-            )
-            self.submit_order(order)
-        else:
-            self.log.info(f"No open position to close for {self.instrument_id}.")
+        self.prev_rsi = rsi_value
 
     def on_stop(self) -> None:
-        position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
-            self.close_position()
-        self.log.info("Strategy stopped!")
+        """Strategie-Stop mit finaler Position-Schließung"""
+        self.log.info("="*50)
+        self.log.info("🛑 STRATEGY STOPPING - FORCE CLOSING ALL POSITIONS")
+        total_position = self.get_total_position_size()
+        self.log.info(f"📊 Final Position Size: {total_position}")
+        
+        if abs(total_position) > 0.001:
+            self.close_all_positions()
+            self.log.info("✅ All positions closed")
+        else:
+            self.log.info("✅ No positions to close")
+        
+        self.log.info("🏁 RSI STRATEGY STOPPED")
+        self.log.info("="*50)
 
     def on_error(self, error: Exception) -> None:
-        self.log.error(f"An error occurred: {error}")
-        position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
-            self.close_position()
+        """Fehlerbehandlung mit Position-Schließung"""
+        self.log.error(f"❌ STRATEGY ERROR: {error}")
+        if self.close_positions_on_stop:
+            self.log.info("🔄 Closing all positions due to error")
+            self.close_all_positions()
         self.stop()
 
         # Notiz von Ferdi: sowohl def on_trade_tick als auch def on_close_position als auch def on_error

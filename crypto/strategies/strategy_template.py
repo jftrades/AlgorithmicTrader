@@ -12,6 +12,8 @@ from nautilus_trader.model.orders import MarketOrder, LimitOrder, StopMarketOrde
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.events import OrderEvent, PositionEvent
 from nautilus_trader.model.book import OrderBook
+from nautilus_trader.model.identifiers import AccountId
+from nautilus_trader.model.currencies import USDT, BTC
 
 # Weitere/Strategiespezifische Importe
 # from nautilus_trader...
@@ -34,6 +36,7 @@ class NameDerStrategy(Strategy):
         self.trade_size = config.trade_size
         #...
         self.close_positions_on_stop = config.close_positions_on_stop
+        self.venue = self.instrument_id.venue
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
