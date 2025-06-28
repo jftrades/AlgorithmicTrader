@@ -19,6 +19,17 @@ from nautilus_trader.backtest.results import BacktestResult
 # Nautilus Strategie spezifische Importe
 from nautilus_trader.trading.config import ImportableStrategyConfig
 
+################
+import sys
+from pathlib import Path
+
+# Pfad zum visualizing-Ordner hinzufügen
+VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
+if str(VIS_PATH) not in sys.path:
+    sys.path.insert(0, str(VIS_PATH))
+
+from dashboard import TradingDashboard
+###################
 
 # Hier die gleichen Parameter wie aus strategy aber halt anpassen
 symbol = Symbol("BTCUSDT")
@@ -26,11 +37,14 @@ venue = Venue("BINANCE")
 instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = "BTCUSDT.BINANCE"
 bar_type_str_for_configs = "BTCUSDT.BINANCE-15-MINUTE-LAST-EXTERNAL"
-trade_size = Decimal("0.01")
+trade_size = Decimal("0.5")
 rsi_period = 14
-rsi_overbought = 70.0
-rsi_oversold = 30.0
+rsi_overbought = 0.8
+rsi_oversold = 0.2
 close_positions_on_stop = True
+
+start_date = "2024-10-01T00:00:00Z"
+end_date = "2024-10-31T00:00:00Z"
 
 
 # Strategien-Ordner liegt parallel zu AlgorithmicTrader
@@ -66,11 +80,11 @@ strategy_config = ImportableStrategyConfig(
     config={
         "instrument_id": instrument_id_str,
         "bar_type": bar_type_str_for_configs,
-        "trade_size": "0.010", # Trade Size in BTC
+        "trade_size": "0.5", # Trade Size in BTC
         #hier kommen jetzt die Strategie spezifischen Parameter
         "rsi_period": 14,
-        "rsi_overbought": 70.0, 
-        "rsi_oversold": 30.0,
+        "rsi_overbought": 0.8, 
+        "rsi_oversold": 0.2,
         "close_positions_on_stop": True # Positionen werden beim Stop der Strategie geschlossen
 
     }
@@ -82,7 +96,8 @@ engine_config = BacktestEngineConfig(strategies=[strategy_config])
 
 
 # RunConfig -> hier wird data, venues und engine zusammengeführt
-run_config = BacktestRunConfig(data=[data_config], venues=[venue_config], engine=engine_config)
+run_config = BacktestRunConfig(data=[data_config], venues=[venue_config], engine=engine_config, start=start_date, end=end_date)
+
 
 
 # Launch Node #-> startet den eigentlichen Backtest mit node.run()try:
@@ -118,3 +133,25 @@ if results:
     print_backtest_summary(results[0])
 else:
     print("No results to display.")
+
+    time.sleep(1)
+
+
+visualizer = TradingDashboard()
+visualizer.collect_results(results)
+visualizer.load_data_from_csv()
+
+if visualizer.bars_df is not None:
+    print(f"  - Bars geladen: {len(visualizer.bars_df)} Einträge")
+else:
+    print("  - Keine Bars gefunden!")
+
+if visualizer.trades_df is not None:
+    print(f"  - Trades geladen: {len(visualizer.trades_df)} Einträge")
+else:
+    print("  - Keine Trades gefunden!")
+
+print(f"  - Indikatoren geladen: {len(visualizer.indicators_df)} Indikatoren")
+print(f"  - Metriken geladen: {len(visualizer.metrics) if visualizer.metrics else 0} Metriken")
+print("INFO: Starte Dashboard...")
+visualizer.visualize(visualize_after_backtest=True)

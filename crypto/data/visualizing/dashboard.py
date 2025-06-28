@@ -138,19 +138,21 @@ class TradingDashboard:
                 bars_df=self.bars_df,
                 trades_df=self.trades_df,
                 indicators_df=self.indicators_df,
-                metrics=self.metrics
+                metrics=self.metrics,
+                nautilus_result=self.nautilus_result  # <-- Pass result for units
             )
             dashboard_app.run(debug=True, port=8050)
 
 # Dashboard App Klasse
 class DashboardApp:
-    def __init__(self, title="Simple Trading Dashboard", bars_df=None, trades_df=None, indicators_df=None, metrics=None):
-        self.app = dash.Dash(__name__)
+    def __init__(self, title="Simple Trading Dashboard", bars_df=None, trades_df=None, indicators_df=None, metrics=None, nautilus_result=None):
+        self.app = dash.Dash(__name__, suppress_callback_exceptions=True)
         self.app.title = title
         self.bars_df = bars_df
         self.trades_df = trades_df
         self.indicators_df = indicators_df or {}
         self.metrics = metrics or {}
+        self.nautilus_result = nautilus_result  # <-- Store result for units
         self.app.layout = self._create_layout()
         self._register_callbacks()
 
@@ -563,7 +565,7 @@ class DashboardApp:
                 return self.create_subplot_figure(indicators_for_plot)
 
     def create_metrics_table(self):
-        """Erstellt professionelle Metriken-Tabelle ohne Emojis."""
+        """Erstellt professionelle Metriken-Tabelle mit Einheiten."""
         if not self.metrics:
             return html.Div("No metrics available", style={
                 'textAlign': 'center', 
@@ -571,6 +573,48 @@ class DashboardApp:
                 'fontFamily': 'Inter, system-ui, sans-serif',
                 'padding': '20px'
             })
+        
+        # Einheiten aus result extrahieren, falls vorhanden
+        units = {}
+        if self.nautilus_result and len(self.nautilus_result) > 0:
+            result_obj = self.nautilus_result[0]
+            # Mapping für spezifische Metriken basierend auf ihrem Namen
+            # PnL-Metriken in USDT
+            if hasattr(result_obj, 'stats_pnls') and 'USDT' in result_obj.stats_pnls:
+                for key in result_obj.stats_pnls['USDT'].keys():
+                    metric_name = key.replace('_', ' ').title()
+                    if 'pnl' in key.lower() and 'pnl%' not in key.lower():
+                        units[metric_name] = 'USDT'
+                    elif 'pnl%' in key.lower():
+                        units[metric_name] = '%'
+            
+            # Return-Statistiken und Ratios in Prozent
+            if hasattr(result_obj, 'stats_returns'):
+                for key in result_obj.stats_returns.keys():
+                    metric_name = key.replace('_', ' ').title()
+                    # Alle Return-Metriken sind Prozentsätze, außer spezifische Ausnahmen
+                    if any(term in key.lower() for term in ['volatility', 'average', 'sharpe', 'sortino']):
+                        units[metric_name] = '%'
+            
+            # Spezielle Behandlung für bekannte Metriken
+            special_units = {
+                'Win Rate': '',  # Win Rate ist bereits ein Dezimalwert (0.625 = 62.5%)
+                'Profit Factor': '',  # Profit Factor ist ein Verhältnis 
+                'Risk Return Ratio': '',  # Ist ein Verhältnis
+                'Total Positions': '',  # Anzahl, keine Einheit
+                'Total Orders': '',  # Anzahl, keine Einheit
+                'Total Events': '',  # Anzahl, keine Einheit
+                'Iterations': '',  # Anzahl, keine Einheit
+                'Elapsed Time (s)': 'time',  # Spezielle Behandlung für Zeit
+                'Max Winner': 'USDT',  # Gewinn in USDT
+                'Avg Winner': 'USDT',  # Gewinn in USDT
+                'Min Winner': 'USDT',  # Gewinn in USDT
+                'Max Loser': 'USDT',   # Verlust in USDT
+                'Avg Loser': 'USDT',   # Verlust in USDT
+                'Min Loser': 'USDT',   # Verlust in USDT
+                'Expectancy': 'USDT',  # Erwarteter Gewinn in USDT
+            }
+            units.update(special_units)
         
         # Organisiere Metriken in Kategorien
         performance_metrics = {}
@@ -587,6 +631,59 @@ class DashboardApp:
                 general_info[key] = value
         
         def create_metric_row(key, value):
+            einheit = units.get(key, '')
+            formatted_value = value
+            
+            # Spezielle Formatierung für verschiedene Metriken
+            if key == 'Win Rate':
+                # Win Rate von Dezimal zu Prozent umwandeln (0.625 -> 62.5%)
+                try:
+                    formatted_value = f"{float(value)*100:.1f}%"
+                except Exception:
+                    formatted_value = f"{value}"
+            elif key == 'Elapsed Time (s)':
+                # Zeit von Sekunden in lesbares Format umwandeln
+                try:
+                    seconds = float(value)
+                    if seconds < 60:
+                        formatted_value = f"{seconds:.1f}s"
+                    elif seconds < 3600:
+                        minutes = seconds / 60
+                        formatted_value = f"{minutes:.1f}m"
+                    elif seconds < 86400:
+                        hours = seconds / 3600
+                        formatted_value = f"{hours:.1f}h"
+                    else:
+                        days = seconds / 86400
+                        remaining_hours = (seconds % 86400) / 3600
+                        if remaining_hours >= 1:
+                            formatted_value = f"{int(days)}d {int(remaining_hours)}h"
+                        else:
+                            formatted_value = f"{int(days)}d"
+                except Exception:
+                    formatted_value = f"{value}"
+            elif key in ['Profit Factor', 'Risk Return Ratio']:
+                # Ratios als Dezimalwerte anzeigen
+                try:
+                    formatted_value = f"{float(value):.2f}"
+                except Exception:
+                    formatted_value = f"{value}"
+            elif 'Ratio' in key or 'Volatility' in key or 'Average' in key and einheit == '%':
+                # Andere Prozent-Metriken
+                try:
+                    if float(value) < 1:  # Wenn Wert < 1, dann zu Prozent umwandeln
+                        formatted_value = f"{float(value)*100:.2f}%"
+                    else:  # Wenn Wert >= 1, dann bereits als Prozent interpretieren
+                        formatted_value = f"{float(value):.2f}%"
+                except Exception:
+                    formatted_value = f"{value}%"
+            elif einheit:
+                # Andere Metriken mit Einheiten
+                try:
+                    formatted_value = f"{float(value):.2f} {einheit}"
+                except Exception:
+                    formatted_value = f"{value} {einheit}"
+            
             return html.Tr([
                 html.Td(key, style={
                     'padding': '12px 16px', 
@@ -595,7 +692,7 @@ class DashboardApp:
                     'fontFamily': 'Inter, system-ui, sans-serif',
                     'borderBottom': '1px solid #e9ecef'
                 }),
-                html.Td(str(value), style={
+                html.Td(str(formatted_value), style={
                     'padding': '12px 16px', 
                     'color': '#495057',
                     'fontFamily': 'Inter, system-ui, sans-serif',
