@@ -3,6 +3,8 @@ import sys
 import time
 from pathlib import Path
 from decimal import Decimal
+import pandas as pd
+
 
 # Nautilus Kern Importe
 from nautilus_trader.core.nautilus_pyo3 import InstrumentId, Symbol, Venue
