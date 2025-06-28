@@ -384,22 +384,22 @@ class DashboardApp:
             ),
             uirevision='price-chart',
             hovermode='x',  # Crosshair-Linien beim Hover wieder aktiv
-            margin=dict(t=30, b=60, l=60, r=120),  # rechter Rand erhöht
+            margin=dict(t=30, b=60, l=60, r=20),  # rechter Rand minimal
             font=dict(family='Inter, system-ui', size=12),
-            # Crosshair-Linien aktivieren
+            # Crosshair-Linien aktivieren (beide vertikal und horizontal)
             xaxis=dict(
                 showspikes=True,
-                spikecolor="#666666",
-                spikethickness=1,
-                spikedash="solid",
-                spikemode="across"
+                spikecolor="#333333",
+                spikethickness=2,
+                spikedash="dot",
+                spikemode="across+toaxis"
             ),
             yaxis=dict(
                 showspikes=True,
-                spikecolor="#666666", 
-                spikethickness=1,
-                spikedash="solid",
-                spikemode="across"
+                spikecolor="#333333", 
+                spikethickness=2,
+                spikedash="dot",
+                spikemode="across+toaxis"
             ),
             # Hover-Labels komplett unsichtbar machen
             hoverlabel=dict(
@@ -493,20 +493,17 @@ class DashboardApp:
             uirevision=f'indicators-subplot',
             font=dict(family='Inter, system-ui, sans-serif', size=11),
             hovermode='x',  # Crosshair-Linien beim Hover wieder aktiv
+            margin=dict(t=30, b=60, l=60, r=20),  # Gleiche Margins wie Hauptchart
             # Crosshair-Linien auch für Subplots
             xaxis=dict(
                 showspikes=True,
-                spikecolor="#666666",
-                spikethickness=1,
-                spikedash="solid",
-                spikemode="across"
+                spikecolor="#333333",
+                spikethickness=2,
+                spikedash="dot",
+                spikemode="across+toaxis"
             ),
             yaxis=dict(
-                showspikes=True,
-                spikecolor="#666666", 
-                spikethickness=1,
-                spikedash="solid",
-                spikemode="across"
+                showspikes=False  # Kein horizontaler Crosshair in Indikator-Charts
             ),
             # Hover-Labels komplett unsichtbar machen (auch für Subplots)
             hoverlabel=dict(
