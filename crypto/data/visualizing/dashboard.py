@@ -158,7 +158,7 @@ class DashboardApp:
 
     def _create_layout(self):
         return html.Div([
-            html.H1("Professional Trading Dashboard", style={
+            html.H1("Algorithmic Trading Dashboard", style={
                 'textAlign': 'center', 
                 'color': '#2c3e50', 
                 'marginBottom': '30px',
