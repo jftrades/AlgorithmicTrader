@@ -36,13 +36,8 @@ from dashboard import TradingDashboard
 symbol = Symbol("BTCUSDT")
 venue = Venue("BINANCE")
 instrument_id = InstrumentId(symbol, venue)
-<<<<<<< HEAD
-instrument_id_str = "BTCUSDT.BINANCE"
-bar_type_str_for_configs = "BTCUSDT.BINANCE-15-MINUTE-LAST-EXTERNAL"
-=======
 instrument_id_str = "BTCUSDT-PERP.BINANCE"
 bar_type_str_for_configs = "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
->>>>>>> RaphaelDev
 trade_size = Decimal("0.5")
 rsi_period = 14
 rsi_overbought = 0.8
