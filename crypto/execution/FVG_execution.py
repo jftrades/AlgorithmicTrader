@@ -52,7 +52,7 @@ data_config = BacktestDataConfig(
     catalog_path=catalogPath,
     bar_types=[bar_type_str_for_configs],
     start_time="2021-01-01",
-    end_time="2021-03-01",
+    end_time="2021-01-15",
     # optional: instrument_ids, filter_expr, etc.
 )
 
