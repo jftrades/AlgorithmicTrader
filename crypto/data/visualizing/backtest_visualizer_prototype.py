@@ -27,13 +27,15 @@ class TradeInstance:
                     tag_action = tag.split(":", 1)[1]
         self.timestamp = order.ts_last
         self.tradesize = float(order.quantity)
-        self.price_desired = float(order.avg_px) if order.avg_px is not None else None
+        self.open_price_actual = None
+        self.close_price_actual = None
         self.id = order.client_order_id 
         self.parent_id = order.parent_order_id if order.parent_order_id else None
         self.type = tag_type # "OPEN", "CLOSE"!!
         #self.action = tag_action # "BUY", "SHORT"!!
         self.sl = sl
         self.tp = tp
+        self.realized_pnl = 0.0  # Wird später gesetzt, wenn der Trade geschlossen wird
         self.closed_timestamp = None  # Wird später gesetzt, wenn der Trade geschlossen wird
         if order.side == OrderSide.BUY:
             self.action = "BUY"
@@ -44,7 +46,7 @@ class TradeInstance:
             raise ValueError(f"Unbekannte OrderSide: {order.side}")
 
 
-        self.price_actual = None
+        self.price_desired = None
         self.fee = None
 
 class IndicatorInstance:
@@ -103,16 +105,23 @@ class BacktestDataCollector:
 
         for trade in self.trades:
             if trade.id == id:
-                trade.price_actual = price_actual
+                trade.open_price_actual = price_actual
                 trade.fee = fee
                 break
 
     def add_closed_trade(self, position_closed):
         id = position_closed.opening_order_id
         closed_timestamp = position_closed.ts_closed
+        realized_pnl = position_closed.realized_pnl
+        close_price_actual = position_closed.avg_px_close
+        open_price_actual = position_closed.avg_px_open
+
         for trade in self.trades:
             if trade.id == id:
                 trade.closed_timestamp = closed_timestamp
+                trade.realized_pnl = realized_pnl
+                trade.close_price_actual = close_price_actual
+                trade.open_price_actual = open_price_actual
                 break
         
     # In BacktestDataCollector:

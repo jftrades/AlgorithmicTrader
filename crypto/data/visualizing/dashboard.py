@@ -443,12 +443,12 @@ class DashboardApp:
                             fig.add_trace(
                                 go.Scatter(
                                     x=pd.to_datetime(normal_buy_trades['timestamp']),
-                                    y=normal_buy_trades['price_actual'],
+                                    y=normal_buy_trades.get('open_price_actual', normal_buy_trades.get('price_actual', 0)),
                                     mode='markers',
                                     name='BUY Signal',
                                     marker=dict(
                                         symbol='triangle-up', 
-                                        size=25,
+                                        size=18,
                                         color='#28a745',
                                         line=dict(color='#ffffff', width=4),
                                         opacity=0.9
@@ -465,12 +465,12 @@ class DashboardApp:
                             fig.add_trace(
                                 go.Scatter(
                                     x=pd.to_datetime(selected_trade['timestamp']),
-                                    y=selected_trade['price_actual'],
+                                    y=selected_trade.get('open_price_actual', selected_trade.get('price_actual', 0)),
                                     mode='markers',
                                     name='Selected BUY',
                                     marker=dict(
                                         symbol='triangle-up', 
-                                        size=25,
+                                        size=18,
                                         color='#28a745',
                                         line=dict(color='#000000', width=4),
                                         opacity=1.0
@@ -489,12 +489,12 @@ class DashboardApp:
                             fig.add_trace(
                                 go.Scatter(
                                     x=pd.to_datetime(normal_sell_trades['timestamp']),
-                                    y=normal_sell_trades['price_actual'],
+                                    y=normal_sell_trades.get('open_price_actual', normal_sell_trades.get('price_actual', 0)),
                                     mode='markers',
                                     name='SELL Signal',
                                     marker=dict(
                                         symbol='triangle-down', 
-                                        size=25,
+                                        size=18,
                                         color='#dc3545',
                                         line=dict(color='#ffffff', width=4),
                                         opacity=0.9
@@ -511,12 +511,12 @@ class DashboardApp:
                             fig.add_trace(
                                 go.Scatter(
                                     x=pd.to_datetime(selected_trade['timestamp']),
-                                    y=selected_trade['price_actual'],
+                                    y=selected_trade.get('open_price_actual', selected_trade.get('price_actual', 0)),
                                     mode='markers',
                                     name='Selected SELL',
                                     marker=dict(
                                         symbol='triangle-down', 
-                                        size=25,
+                                        size=18,
                                         color='#dc3545',
                                         line=dict(color='#000000', width=4),
                                         opacity=1.0
@@ -526,6 +526,11 @@ class DashboardApp:
                                     showlegend=False
                                 )
                             )
+                    
+                    
+                    # Trade-Visualisierung für ausgewählten Trade (Entry/Exit Linien und TP/SL Boxen)
+                    if self.selected_trade_index is not None:
+                        self.add_trade_visualization(fig, self.selected_trade_index)
                 except Exception as e:
                     print(f"Fehler bei Trade-Signalen: {e}")
             
@@ -551,6 +556,233 @@ class DashboardApp:
             fig = go.Figure()
             fig.update_layout(title="Chart Error - Please refresh")
             return fig
+
+    def add_trade_visualization(self, fig, trade_index):
+        """
+        Fügt professionelle Trade-Visualisierung hinzu:
+        - Entry und Exit Linien (gestrichelt, schwarz, über ganzen Chart)
+        - TP/SL Boxen (falls vorhanden)
+        - Exit-Marker (kleines schwarzes X)
+        """
+        try:
+            if self.trades_df is None or trade_index not in self.trades_df.index:
+                return
+            
+            trade = self.trades_df.loc[trade_index]
+            
+            # Trade-Daten extrahieren mit neuen CSV-Spaltennamen
+            entry_time = pd.to_datetime(trade['timestamp'])
+            entry_price = trade.get('open_price_actual', trade.get('price_actual', None))  # Fallback für alte Daten
+            action = trade['action']  # BUY oder SHORT
+            
+            # Exit-Daten (falls vorhanden)
+            exit_time = None
+            exit_price = None
+            if pd.notna(trade.get('closed_timestamp', None)) and pd.notna(trade.get('close_price_actual', None)):
+                exit_time = pd.to_datetime(trade['closed_timestamp'])
+                exit_price = trade['close_price_actual']
+            
+            # TP/SL Daten
+            tp = trade.get('tp', None)
+            sl = trade.get('sl', None)
+            
+            # 1. Entry-Linie (gestrichelt, schwarz, über ganzen Chart)
+            if entry_price is not None:
+                self._add_price_line_full_chart(fig, entry_price, "Entry", "#000000", dash="dash")
+            
+            # 2. Exit-Linie und Exit-Marker (falls vorhanden)
+            if exit_time is not None and exit_price is not None:
+                self._add_price_line_full_chart(fig, exit_price, "Exit", "#000000", dash="dash")
+                self._add_exit_marker_small(fig, exit_time, exit_price)
+            
+            # 3. TP/SL Boxen (falls vorhanden)
+            if exit_time is not None and entry_price is not None and (pd.notna(tp) or pd.notna(sl)):
+                self._add_tp_sl_boxes(fig, entry_time, exit_time, entry_price, action, tp, sl)
+                
+        except Exception as e:
+            print(f"Fehler bei Trade-Visualisierung: {e}")
+    
+    def _add_price_line_full_chart(self, fig, price, name, color, dash="solid"):
+        """Fügt eine horizontale Preis-Linie über den ganzen Chart hinzu."""
+        try:
+            # Bestimme den vollen Zeitbereich des Charts
+            if self.bars_df is not None and not self.bars_df.empty:
+                min_time = pd.to_datetime(self.bars_df['timestamp'].min())
+                max_time = pd.to_datetime(self.bars_df['timestamp'].max())
+            else:
+                # Fallback: 24 Stunden Bereich
+                now = pd.Timestamp.now()
+                min_time = now - pd.Timedelta(hours=12)
+                max_time = now + pd.Timedelta(hours=12)
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=[min_time, max_time],
+                    y=[price, price],
+                    mode='lines',
+                    name=f"{name} Line",
+                    line=dict(color=color, width=1, dash=dash),
+                    showlegend=False,
+                    hovertemplate=f'<b>{name} Price</b><br>Price: {price:.4f} USDT<extra></extra>'
+                )
+            )
+        except Exception as e:
+            print(f"Fehler bei Vollchart-Preis-Linie: {e}")
+
+    def _add_price_line(self, fig, time, price, name, color, dash="solid"):
+        """Fügt eine horizontale Preis-Linie hinzu."""
+        try:
+            # Bestimme Zeitbereich für die Linie (erweitert um 10% der sichtbaren Zeit)
+            if self.bars_df is not None and not self.bars_df.empty:
+                min_time = pd.to_datetime(self.bars_df['timestamp'].min())
+                max_time = pd.to_datetime(self.bars_df['timestamp'].max())
+                time_range = max_time - min_time
+                extension = time_range * 0.1
+                
+                start_time = max(min_time, time - extension)
+                end_time = min(max_time, time + extension)
+            else:
+                # Fallback: 1 Stunde vor und nach dem Trade
+                start_time = time - pd.Timedelta(hours=1)
+                end_time = time + pd.Timedelta(hours=1)
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=[start_time, end_time],
+                    y=[price, price],
+                    mode='lines',
+                    name=f"{name} Line",
+                    line=dict(color=color, width=2, dash=dash),
+                    showlegend=False,
+                    hovertemplate=f'<b>{name} Price</b><br>Price: {price:.2f} USDT<extra></extra>'
+                )
+            )
+        except Exception as e:
+            print(f"Fehler bei Preis-Linie: {e}")
+    
+    def _add_exit_marker_small(self, fig, exit_time, exit_price):
+        """Fügt einen kleinen schwarzen X-Marker am Exit-Punkt hinzu."""
+        try:
+            fig.add_trace(
+                go.Scatter(
+                    x=[exit_time],
+                    y=[exit_price],
+                    mode='markers',
+                    name='Trade Exit',
+                    marker=dict(
+                        symbol='x',
+                        size=10,  # Kleiner als vorher
+                        color='#000000',
+                        line=dict(color='#ffffff', width=1)
+                    ),
+                    showlegend=False,
+                    hovertemplate='<b>Trade Exit</b><br>Time: %{x}<br>Price: %{y:.4f} USDT<extra></extra>'
+                )
+            )
+        except Exception as e:
+            print(f"Fehler bei kleinem Exit-Marker: {e}")
+
+    def _add_exit_marker(self, fig, exit_time, exit_price):
+        """Fügt einen schwarzen X-Marker am Exit-Punkt hinzu."""
+        try:
+            fig.add_trace(
+                go.Scatter(
+                    x=[exit_time],
+                    y=[exit_price],
+                    mode='markers',
+                    name='Trade Exit',
+                    marker=dict(
+                        symbol='x',
+                        size=15,
+                        color='#000000',
+                        line=dict(color='#ffffff', width=2)
+                    ),
+                    showlegend=False,
+                    hovertemplate='<b>Trade Exit</b><br>Time: %{x}<br>Price: %{y:.2f} USDT<extra></extra>'
+                )
+            )
+        except Exception as e:
+            print(f"Fehler bei Exit-Marker: {e}")
+    
+    def _add_tp_sl_boxes(self, fig, entry_time, exit_time, entry_price, action, tp, sl):
+        """Fügt TP/SL Boxen wie im professionellen Trading-Interface hinzu."""
+        try:
+            is_long = action == 'BUY'
+            
+            # TP Box (Take Profit)
+            if pd.notna(tp) and tp > 0:
+                if is_long:
+                    # Long: TP ist oberhalb Entry (grün)
+                    box_color = "rgba(76, 175, 80, 0.2)"  # Grün
+                    line_color = "#4CAF50"
+                    tp_y_top = max(tp, entry_price)
+                    tp_y_bottom = min(tp, entry_price)
+                else:
+                    # Short: TP ist unterhalb Entry (grün für Short)
+                    box_color = "rgba(76, 175, 80, 0.2)"  # Grün
+                    line_color = "#4CAF50"
+                    tp_y_top = max(tp, entry_price)
+                    tp_y_bottom = min(tp, entry_price)
+                
+                self._add_box(fig, entry_time, exit_time, tp_y_bottom, tp_y_top, 
+                             box_color, line_color, "TP")
+            
+            # SL Box (Stop Loss)
+            if pd.notna(sl) and sl > 0:
+                if is_long:
+                    # Long: SL ist unterhalb Entry (rot)
+                    box_color = "rgba(244, 67, 54, 0.2)"  # Rot
+                    line_color = "#F44336"
+                    sl_y_top = max(sl, entry_price)
+                    sl_y_bottom = min(sl, entry_price)
+                else:
+                    # Short: SL ist oberhalb Entry (rot für Short)
+                    box_color = "rgba(244, 67, 54, 0.2)"  # Rot
+                    line_color = "#F44336"
+                    sl_y_top = max(sl, entry_price)
+                    sl_y_bottom = min(sl, entry_price)
+                
+                self._add_box(fig, entry_time, exit_time, sl_y_bottom, sl_y_top, 
+                             box_color, line_color, "SL")
+                
+        except Exception as e:
+            print(f"Fehler bei TP/SL Boxen: {e}")
+    
+    def _add_box(self, fig, start_time, end_time, y_bottom, y_top, fill_color, line_color, label):
+        """Fügt eine rechteckige Box hinzu."""
+        try:
+            # Box als gefüllte Fläche
+            fig.add_trace(
+                go.Scatter(
+                    x=[start_time, end_time, end_time, start_time, start_time],
+                    y=[y_bottom, y_bottom, y_top, y_top, y_bottom],
+                    fill="toself",
+                    fillcolor=fill_color,
+                    line=dict(color=line_color, width=1),
+                    mode='lines',
+                    name=f"{label} Zone",
+                    showlegend=False,
+                    hovertemplate=f'<b>{label} Zone</b><br>Range: {y_bottom:.2f} - {y_top:.2f} USDT<extra></extra>'
+                )
+            )
+            
+            # Label für die Box
+            mid_time = start_time + (end_time - start_time) / 2
+            mid_price = (y_bottom + y_top) / 2
+            
+            fig.add_annotation(
+                x=mid_time,
+                y=mid_price,
+                text=label,
+                showarrow=False,
+                font=dict(color=line_color, size=12, family="Inter, system-ui, sans-serif"),
+                bgcolor="rgba(255,255,255,0.8)",
+                bordercolor=line_color,
+                borderwidth=1
+            )
+            
+        except Exception as e:
+            print(f"Fehler bei Box-Erstellung: {e}")
 
     def create_indicator_subplots(self):
         """Erstellt dynamische Subplots basierend auf Plot-IDs."""
@@ -912,6 +1144,15 @@ class DashboardApp:
                 except:
                     return str(value)
             
+            # P&L-Felder (mit +/- Vorzeichen)
+            elif 'pnl' in key_lower or 'p&l' in key_lower:
+                try:
+                    pnl_value = float(value)
+                    sign = "+" if pnl_value >= 0 else ""
+                    return f"{sign}{pnl_value:.4f}"
+                except:
+                    return str(value)
+            
             # Gebühren-Felder  
             elif 'fee' in key_lower:
                 try:
@@ -939,18 +1180,21 @@ class DashboardApp:
         action_color = '#28a745' if action == 'BUY' else '#dc3545'
         
         # Kompakte horizontale Darstellung für wichtigste Felder
-        key_fields = ['timestamp', 'action', 'price_actual', 'tradesize', 'sl', 'tp', 'fee']
+        key_fields = ['timestamp', 'action', 'open_price_actual', 'close_price_actual', 'closed_timestamp', 'tradesize', 'sl', 'tp', 'realized_pnl', 'fee']
         
         main_info = []
         for field in key_fields:
             if field in trade_data and not pd.isna(trade_data[field]):
                 label = {
-                    'timestamp': 'Time',
+                    'timestamp': 'Entry Time',
                     'action': 'Action', 
-                    'price_actual': 'Price',
+                    'open_price_actual': 'Open Price',
+                    'close_price_actual': 'Close Price',
+                    'closed_timestamp': 'Exit Time',
                     'tradesize': 'Size',
                     'sl': 'SL',
                     'tp': 'TP',
+                    'realized_pnl': 'P&L',
                     'fee': 'Fee'
                 }.get(field, field)
                 
@@ -992,7 +1236,7 @@ class DashboardApp:
                         'border': '1px solid #e9ecef',
                         'fontSize': '13px',
                         'fontFamily': 'Inter, system-ui, sans-serif',
-                        'color': '#495057',
+                        'color': '#28a745' if 'P&L: +' in info else '#dc3545' if 'P&L: -' in info else '#495057',
                         'textAlign': 'center',
                         'margin': '3px'
                     }) for info in main_info
