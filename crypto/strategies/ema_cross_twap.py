@@ -38,7 +38,7 @@ from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.trading.strategy import Strategy
 from nautilus_trader.core.datetime import dt_to_unix_nanos, unix_nanos_to_dt
-from help_funcs import create_tags
+from AlgorithmicTrader.crypto.strategies.help_funcs import create_tags
 
 
 ################

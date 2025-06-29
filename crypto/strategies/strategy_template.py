@@ -1,8 +1,10 @@
 # Standard Library Importe
 from decimal import Decimal
 from typing import Any
+import sys
+from pathlib import Path
 
-# Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
+# Nautilus Kern offizielle Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
 from nautilus_trader.model.data import Bar, BarType, TradeTick, QuoteTick
@@ -14,6 +16,15 @@ from nautilus_trader.model.events import OrderEvent, PositionEvent
 from nautilus_trader.model.book import OrderBook
 from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.currencies import USDT, BTC
+
+# Nautilus Kern eigene Importe !!! immer
+VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
+if str(VIS_PATH) not in sys.path:
+    sys.path.insert(0, str(VIS_PATH))
+
+from backtest_visualizer_prototype import BacktestDataCollector
+from AlgorithmicTrader.crypto.strategies.help_funcs import create_tags
+from nautilus_trader.common.enums import LogColor
 
 # Weitere/Strategiespezifische Importe
 # from nautilus_trader...
@@ -37,6 +48,8 @@ class NameDerStrategy(Strategy):
         #...
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
+        self.realized_pnl = 0
+        self.bar_counter = 0
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
@@ -45,6 +58,12 @@ class NameDerStrategy(Strategy):
         self.subscribe_quote_ticks(self.instrument_id)
         self.log.info("Strategy started!")
 
+        self.collector = BacktestDataCollector()
+        self.collector.initialise_logging_indicator("position", 1)
+        self.collector.initialise_logging_indicator("realized_pnl", 2)
+        self.collector.initialise_logging_indicator("unrealized_pnl", 3)
+        self.collector.initialise_logging_indicator("balance", 4)
+
     def get_position(self):
         if hasattr(self, "cache") and self.cache is not None:
             positions = self.cache.positions_open(instrument_id=self.instrument_id)
@@ -52,9 +71,43 @@ class NameDerStrategy(Strategy):
                 return positions[0]
         return None
 
-    def on_bar (self, bar: Bar) -> None: 
+    def on_bar(self, bar: Bar) -> None: 
+        self.bar_counter += 1
+        
         # in on_bar kommt die Handelslogik der Strategie + meistens Positionsmanagement wenn nicht in on_order_event / on_position_event
-        pass
+        
+        # Beispiel für USDT Balance holen:
+        # account_id = AccountId("BINANCE-001")
+        # account = self.cache.account(account_id)
+        # usdt_free = account.balance(USDT).free
+        # usdt_balance = Decimal(str(usdt_free).split(" ")[0]) if usdt_free else Decimal("0")
+        
+        # Beispiel für Bracket Order:
+        # bracket_order = self.order_factory.bracket(
+        #     instrument_id=self.instrument_id,
+        #     order_side=OrderSide.BUY,  # oder SELL
+        #     quantity=Quantity(position_size, self.instrument.size_precision),
+        #     sl_trigger_price=Price(stop_loss, self.instrument.price_precision),
+        #     tp_price=Price(take_profit, self.instrument.price_precision),
+        #     time_in_force=TimeInForce.GTC,
+        #     entry_tags=create_tags(action="BUY", type="BRACKET", sl=stop_loss, tp=take_profit)
+        # )
+        # self.submit_order_list(bracket_order)
+        # self.collector.add_trade(bracket_order.orders[0])  # Entry Order für Tracking
+
+        # HILFSBLOCK FÜR VISUALIZER: - anpassen je nach Indikatoren etc
+        net_position = self.portfolio.net_position(self.instrument_id)
+        unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
+        
+        venue = self.instrument_id.venue
+        account = self.portfolio.account(venue)
+        usdt_balance = account.balances_total()
+        self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
+
+        self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
+        self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
 
     # die weiteren on_Methoden...
     def on_trade_tick(self, tick: TradeTick) -> None:
@@ -75,7 +128,6 @@ class NameDerStrategy(Strategy):
     def on_event(self, event: Any) -> None:
         pass
 
-    
     def close_position(self) -> None:
         position = self.get_position()
         if position is not None and position.is_open:
@@ -86,6 +138,25 @@ class NameDerStrategy(Strategy):
         if self.close_positions_on_stop and position is not None and position.is_open:
             self.close_position()
         self.log.info("Strategy stopped!")
+
+        logging_message = self.collector.save_data()
+        self.log.info(logging_message, color=LogColor.GREEN)
+
+    # on_order_filled, on_position_closed und on_position_opened immer hinzufügen für skript
+    def on_order_filled(self, order_filled) -> None:
+        """
+        Actions to be performed when an order is filled.
+        """
+        ret = self.collector.add_trade_details(order_filled)
+        self.log.info(f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
+
+    def on_position_closed(self, position_closed) -> None:
+        realized_pnl = position_closed.realized_pnl
+        self.realized_pnl += float(realized_pnl) if realized_pnl else 0
+
+    def on_position_opened(self, position_opened) -> None:
+        realized_pnl = position_opened.realized_pnl
+        #self.realized_pnl += float(realized_pnl) if realized_pnl else 0
 
     def on_error(self, error: Exception) -> None:
         self.log.error(f"An error occurred: {error}")

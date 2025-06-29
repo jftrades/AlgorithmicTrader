@@ -11,7 +11,7 @@ from nautilus_trader.model.identifiers import InstrumentId, Venue
 from nautilus_trader.model.objects import Money, Price, Quantity, Currency
 from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.model.enums import OrderSide, TimeInForce
-from help_funcs import create_tags
+from AlgorithmicTrader.crypto.strategies.help_funcs import create_tags
 from nautilus_trader.common.enums import LogColor
 
 # Nautilus Strategie spezifische Importe
