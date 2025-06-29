@@ -1,7 +1,3 @@
-# der Unterschied zu FVG_simple_strategy und FVG_simple_execution ist:
-# in FVG Strategie probieren wir mal mit Bedingungen, Fees, RiskManagement etc rum um 
-# das zukünftig for weitere Strategien schon mal gemacht zu haben einfach
-
 # Standard Library Importe
 from decimal import Decimal
 from typing import Any
@@ -57,7 +53,7 @@ class FVGStrategy(Strategy):
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
         self.realized_pnl = 0
-        self.logged_accounts = False  # <--- zum debuuggen
+        self.bar_counter = 0
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
@@ -81,11 +77,7 @@ class FVGStrategy(Strategy):
         return None
 
     def on_bar (self, bar: Bar) -> None: 
-        if not self.logged_accounts: # <--- zum debuuggen
-            with open("account_debug.txt", "w") as f:
-                for acc in self.cache.accounts():
-                    f.write(f"Account: {acc} | Balances: {acc.balances()}\n")
-            self.logged_accounts = True
+        self.bar_counter += 1
 
         self.bar_buffer.append(bar)
         if len(self.bar_buffer) < 3:
@@ -98,22 +90,25 @@ class FVGStrategy(Strategy):
         # Bullische FVG
         if bar_0.low > bar_2.high:
             self.log.info(f"Bullische FVG erkannt: Gap von {bar_2.high} bis {bar_0.low}")
-            self.bullish_fvgs.append((bar_2.high, bar_0.low))
+            self.bullish_fvgs.append((bar_0.low, bar_2.high, self.bar_counter)) # self bar counter speichert die 3te bar die FVG enstehen lässt -> die creation bar
 
         # Bearishe FVG
         if bar_0.high < bar_2.low:
             self.log.info(f"Bearishe FVG erkannt: Gap von {bar_2.low} bis {bar_0.high}") 
-            self.bearish_fvgs.append((bar_2.low, bar_0.high))
+            self.bearish_fvgs.append((bar_2.low, bar_0.high, self.bar_counter))
         
-        # Buffer auf die letzten 3 Bars begrenzen (pop löscht das letzte Element aus der Liste)
+        # Buffer auf die letzten 3 Bars begrenzen
         if len(self.bar_buffer) > 3:
             self.bar_buffer.pop(0)
 
         position = self.get_position()
         # Bullishe FVG erkennen und Kaufmethode
         for gap in self.bullish_fvgs[:]:
-            gap_high, gap_low = gap
-            if gap_high <= bar.low <= gap_low:
+            gap_high, gap_low, creation_bar = gap
+            if self.bar_counter <= creation_bar:
+                continue
+            
+            if gap_low <= bar.low <= gap_high:
                 self.log.info(f"Retest bullische FVG: {gap}")
                 if position is not None and position.is_open:
                     self.close_position()
@@ -127,12 +122,27 @@ class FVGStrategy(Strategy):
                     else:
                         usdt_balance = Decimal(str(usdt_free).split(" ")[0])
                     self.log.info(f"DEBUG: Aktuelle USDT-Balance: {usdt_balance}")
-                    risk_percent = Decimal("0.001")
+                    risk_percent = Decimal("0.01")
                     risk_amount = usdt_balance * risk_percent
 
                     entry_price = bar.close
                     stop_loss = bar.low  # SL unter das aktuelle Low
                     risk_per_unit = abs(entry_price - stop_loss)
+
+                    # DEBUG: Schauen wir uns die Werte an
+                    self.log.info(f"DEBUG: Entry={entry_price}, SL={stop_loss}, Risk_per_unit={risk_per_unit}")
+                    self.log.info(f"DEBUG: Risk als % vom Entry: {(risk_per_unit/entry_price)*100:.4f}%")
+                    
+                    # FIX: Minimum Risk Distance setzen
+                    min_risk_percent = Decimal("0.002")  # Mindestens 0.2% vom Entry-Preis
+                    min_risk_distance = entry_price * min_risk_percent
+                    
+                    if risk_per_unit < min_risk_distance:
+                        # Stop-Loss ist zu nah - setze ihn weiter weg
+                        stop_loss = entry_price - min_risk_distance
+                        risk_per_unit = min_risk_distance
+                        self.log.info(f"Stop-Loss zu nah! Angepasst auf: {stop_loss}")
+
                     if risk_per_unit > 0:
                         position_size = risk_amount / risk_per_unit
                     else:
@@ -151,11 +161,6 @@ class FVGStrategy(Strategy):
                     if position_size <= 0:
                         self.log.warning(f"PositionSize <= 0, Trade wird übersprungen! RiskPerUnit: {risk_per_unit}")
                         continue  # oder 'return', je nach Schleife/Kontext
-                    max_size = Decimal("0.5")  # oder passend zu deinem Markt
-                    if position_size > max_size:
-                        position_size = max_size
-
-                    self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}, USDT={usdt_balance}")
                     
                     order = self.order_factory.market(
                         instrument_id=self.instrument_id,
@@ -186,6 +191,8 @@ class FVGStrategy(Strategy):
                         time_in_force=TimeInForce.GTC,
                     )
                     self.submit_order(tp_order)
+                
+                    self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}, USDT={usdt_balance}")
 
                 self.bullish_fvgs.remove(gap) # FVG nach Retest entfernen
                 
@@ -195,7 +202,10 @@ class FVGStrategy(Strategy):
 
         # Bearishe FVG erkennen und Kaufmethode
         for gap in self.bearish_fvgs[:]:
-            gap_high, gap_low = gap
+            gap_high, gap_low, creation_bar = gap
+            if self.bar_counter <= creation_bar:
+                continue
+
             if gap_low <= bar.high <= gap_high:
                 self.log.info(f"Retest bearishe FVG: {gap}")
                 if position is not None and position.is_open:
@@ -210,12 +220,22 @@ class FVGStrategy(Strategy):
                     else:
                         usdt_balance = Decimal(str(usdt_free).split(" ")[0])
                     self.log.info(f"DEBUG: Aktuelle USDT-Balance: {usdt_balance}")
-                    risk_percent = Decimal("0.001")
+                    risk_percent = Decimal("0.01")
                     risk_amount = usdt_balance * risk_percent
 
                     entry_price = bar.close
                     stop_loss = bar.high  # SL über das aktuelle high
                     risk_per_unit = abs(stop_loss - entry_price)
+
+                 # FIX: Minimum Risk Distance
+                    min_risk_percent = Decimal("0.002")  # Mindestens 0.2%
+                    min_risk_distance = entry_price * min_risk_percent
+                    
+                    if risk_per_unit < min_risk_distance:
+                        stop_loss = entry_price + min_risk_distance
+                        risk_per_unit = min_risk_distance
+                        self.log.info(f"Stop-Loss zu nah! Angepasst auf: {stop_loss}")
+
                     if risk_per_unit > 0:
                         position_size = risk_amount / risk_per_unit
                     else:
@@ -264,6 +284,8 @@ class FVGStrategy(Strategy):
                         time_in_force=TimeInForce.GTC,
                     )
                     self.submit_order(tp_order)
+
+                    self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}, USDT={usdt_balance}")
 
                 self.bearish_fvgs.remove(gap) # FVG nach Retest entfernen
                 

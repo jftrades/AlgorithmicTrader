@@ -118,7 +118,7 @@ class BacktestDataCollector:
         # order.client_order_id   -> str (falls gesetzt)
         # order.price             -> Decimal (Limitpreis, falls LimitOrder)
         # order.type              -> OrderType (MARKET, LIMIT, etc.)
-
+        
     def bars_to_csv(self):
         pd.DataFrame(self.bars).to_csv(self.path / "bars.csv", index=False)
 
