@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+from nautilus_trader.model.enums import OrderSide
 
 class TradeInstance:
     def __init__(self, order):
@@ -30,9 +31,18 @@ class TradeInstance:
         self.id = order.client_order_id 
         self.parent_id = order.parent_order_id if order.parent_order_id else None
         self.type = tag_type # "OPEN", "CLOSE"!!
-        self.action = tag_action # "BUY", "SHORT"!!
+        #self.action = tag_action # "BUY", "SHORT"!!
         self.sl = sl
         self.tp = tp
+        self.closed_timestamp = None  # Wird später gesetzt, wenn der Trade geschlossen wird
+        if order.side == OrderSide.BUY:
+            self.action = "BUY"
+        elif order.side == OrderSide.SELL:
+            self.action = "SHORT"
+        else:
+            self.action = None
+            raise ValueError(f"Unbekannte OrderSide: {order.side}")
+
 
         self.price_actual = None
         self.fee = None
@@ -95,6 +105,14 @@ class BacktestDataCollector:
             if trade.id == id:
                 trade.price_actual = price_actual
                 trade.fee = fee
+                break
+
+    def add_closed_trade(self, position_closed):
+        id = position_closed.opening_order_id
+        closed_timestamp = position_closed.ts_closed
+        for trade in self.trades:
+            if trade.id == id:
+                trade.closed_timestamp = closed_timestamp
                 break
         
     # In BacktestDataCollector:

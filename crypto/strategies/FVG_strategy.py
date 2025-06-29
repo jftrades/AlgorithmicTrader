@@ -110,8 +110,10 @@ class FVGStrategy(Strategy):
             
             if gap_low <= bar.low <= gap_high:
                 self.log.info(f"Retest bullische FVG: {gap}")
-                if position is not None and position.is_open:
-                    self.close_position()
+                if False:
+                    pass
+                #if position is not None and position.is_open:
+                #    self.close_position()
                 else:
                     order_side = OrderSide.BUY
                     account_id = AccountId("BINANCE-001")
@@ -122,7 +124,14 @@ class FVGStrategy(Strategy):
                     else:
                         usdt_balance = Decimal(str(usdt_free).split(" ")[0])
                     self.log.info(f"DEBUG: Aktuelle USDT-Balance: {usdt_balance}")
-                    risk_percent = Decimal("0.01")
+                    
+                    # Risk Management - Reduzierte Risiko% und Mindestkapital-Check
+                    min_account_balance = Decimal("1000.0")  # Mindestens 1000 USDT für Trading
+                    if usdt_balance < min_account_balance:
+                        self.log.warning(f"Konto-Balance zu niedrig für Trading: {usdt_balance} < {min_account_balance}")
+                        continue
+                    
+                    risk_percent = Decimal("0.005")  # Reduziert von 1% auf 0.5%
                     risk_amount = usdt_balance * risk_percent
 
                     entry_price = bar.close
@@ -147,7 +156,28 @@ class FVGStrategy(Strategy):
                         position_size = risk_amount / risk_per_unit
                     else:
                         position_size = Decimal("0.0")
+                    
+                    # HEBEL-KONTROLLE: Verhindert versteckten Hebel durch Positionsgrößen-Limitierung
+                    # Problem: Ohne diese Prüfung können wir Positionen kaufen, die größer sind als unser Kapital
+                    # Beispiel: 10.000 USDT Balance, aber 8 BTC kaufen (320.000 USDT Wert) = 32x Hebel!
+                    max_leverage = Decimal("2.0")  # Maximal 2:1 Hebel erlaubt
+                    max_position_value = usdt_balance * max_leverage  # Max. Positionswert basierend auf Balance
+                    max_position_size = max_position_value / entry_price  # Max. BTC die wir kaufen können
+                    
+                    # Nehme das MINIMUM von Risk-basierter Size und Leverage-limitierter Size
+                    if position_size > max_position_size:
+                        self.log.warning(
+                            f"HEBEL-WARNUNG: Position zu groß! Risk-Size: {position_size}, Max-Size: {max_position_size} "
+                            f"(Positionswert: {position_size * entry_price:.0f} USDT bei {usdt_balance} USDT Balance)"
+                        )
+                        position_size = max_position_size  # Limitiere auf max. erlaubte Größe
+                    
                     position_size = round(position_size, self.instrument.size_precision)
+                    
+                    # Debug-Info: Zeige tatsächlichen Hebel an
+                    actual_position_value = position_size * entry_price
+                    actual_leverage = actual_position_value / usdt_balance if usdt_balance > 0 else Decimal("0")
+                    self.log.info(f"HEBEL-CHECK: PositionWert={actual_position_value:.0f} USDT, Hebel={actual_leverage:.2f}x")
                     
                     risk = abs(entry_price - stop_loss)
                     take_profit = entry_price + 2 * risk
@@ -162,35 +192,20 @@ class FVGStrategy(Strategy):
                         self.log.warning(f"PositionSize <= 0, Trade wird übersprungen! RiskPerUnit: {risk_per_unit}")
                         continue  # oder 'return', je nach Schleife/Kontext
                     
-                    order = self.order_factory.market(
+                    # Bracket Order für BUY (Entry + SL + TP in einem)
+                    bracket_order = self.order_factory.bracket(
                         instrument_id=self.instrument_id,
                         order_side=OrderSide.BUY,
                         quantity=Quantity(position_size, self.instrument.size_precision),
+                        sl_trigger_price=Price(stop_loss, self.instrument.price_precision),
+                        tp_price=Price(take_profit, self.instrument.price_precision),
                         time_in_force=TimeInForce.GTC,
-                        tags=create_tags(action="BUY", type="OPEN", sl= stop_loss, tp= take_profit)
+                        entry_tags=create_tags(action="BUY", type="OPEN", sl=stop_loss, tp=take_profit)
                     )
-                    self.submit_order(order)
-                    self.collector.add_trade(order)
-
-                    # Stop-Loss-Order
-                    sl_order = self.order_factory.stop_market(
-                        instrument_id=self.instrument_id,
-                        order_side=OrderSide.SELL,
-                        quantity=Quantity(position_size, self.instrument.size_precision),
-                        trigger_price=Price(stop_loss, self.instrument.price_precision),
-                        time_in_force=TimeInForce.GTC,
-                    )
-                    self.submit_order(sl_order)
-
-                    # Take-Profit-Order
-                    tp_order = self.order_factory.limit(
-                        instrument_id=self.instrument_id,
-                        order_side=OrderSide.SELL,
-                        quantity=Quantity(position_size, self.instrument.size_precision),
-                        price=Price(take_profit, self.instrument.price_precision),
-                        time_in_force=TimeInForce.GTC,
-                    )
-                    self.submit_order(tp_order)
+                    
+                    # Add the entry order (first order in the bracket) to collector
+                    self.submit_order_list(bracket_order)
+                    self.collector.add_trade(bracket_order.orders[0])
                 
                     self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}, USDT={usdt_balance}")
 
@@ -208,8 +223,10 @@ class FVGStrategy(Strategy):
 
             if gap_low <= bar.high <= gap_high:
                 self.log.info(f"Retest bearishe FVG: {gap}")
-                if position is not None and position.is_open:
-                    self.close_position()
+                if False:
+                    pass
+                #if position is not None and position.is_open:
+                #    self.close_position()
                 else:
                     order_side = OrderSide.SELL
                     account_id = AccountId("BINANCE-001")
@@ -220,7 +237,14 @@ class FVGStrategy(Strategy):
                     else:
                         usdt_balance = Decimal(str(usdt_free).split(" ")[0])
                     self.log.info(f"DEBUG: Aktuelle USDT-Balance: {usdt_balance}")
-                    risk_percent = Decimal("0.01")
+                    
+                    # Risk Management - Reduzierte Risiko% und Mindestkapital-Check
+                    min_account_balance = Decimal("1000.0")  # Mindestens 1000 USDT für Trading
+                    if usdt_balance < min_account_balance:
+                        self.log.warning(f"Konto-Balance zu niedrig für Trading: {usdt_balance} < {min_account_balance}")
+                        continue
+                    
+                    risk_percent = Decimal("0.005")  # Reduziert von 1% auf 0.5%
                     risk_amount = usdt_balance * risk_percent
 
                     entry_price = bar.close
@@ -240,7 +264,28 @@ class FVGStrategy(Strategy):
                         position_size = risk_amount / risk_per_unit
                     else:
                         position_size = Decimal("0.0")
+                    
+                    # HEBEL-KONTROLLE: Verhindert versteckten Hebel durch Positionsgrößen-Limitierung
+                    # Problem: Ohne diese Prüfung können wir Positionen kaufen, die größer sind als unser Kapital
+                    # Beispiel: 10.000 USDT Balance, aber 8 BTC shorten (320.000 USDT Wert) = 32x Hebel!
+                    max_leverage = Decimal("2.0")  # Maximal 2:1 Hebel erlaubt
+                    max_position_value = usdt_balance * max_leverage  # Max. Positionswert basierend auf Balance
+                    max_position_size = max_position_value / entry_price  # Max. BTC die wir shorten können
+                    
+                    # Nehme das MINIMUM von Risk-basierter Size und Leverage-limitierter Size
+                    if position_size > max_position_size:
+                        self.log.warning(
+                            f"HEBEL-WARNUNG: Position zu groß! Risk-Size: {position_size}, Max-Size: {max_position_size} "
+                            f"(Positionswert: {position_size * entry_price:.0f} USDT bei {usdt_balance} USDT Balance)"
+                        )
+                        position_size = max_position_size  # Limitiere auf max. erlaubte Größe
+                    
                     position_size = round(position_size, self.instrument.size_precision)
+                    
+                    # Debug-Info: Zeige tatsächlichen Hebel an
+                    actual_position_value = position_size * entry_price
+                    actual_leverage = actual_position_value / usdt_balance if usdt_balance > 0 else Decimal("0")
+                    self.log.info(f"HEBEL-CHECK: PositionWert={actual_position_value:.0f} USDT, Hebel={actual_leverage:.2f}x")
 
                     risk = abs(stop_loss - entry_price)
                     take_profit = entry_price - 2 * risk
@@ -254,36 +299,20 @@ class FVGStrategy(Strategy):
                         self.log.warning(f"PositionSize <= 0, Trade wird übersprungen! RiskPerUnit: {risk_per_unit}")
                         continue  # oder 'return', je nach Schleife/Kontext
 
-                    order = self.order_factory.market(
+                    # Bracket Order für SELL (Entry + SL + TP in einem)
+                    bracket_order = self.order_factory.bracket(
                         instrument_id=self.instrument_id,
                         order_side=OrderSide.SELL,
                         quantity=Quantity(position_size, self.instrument.size_precision),
+                        sl_trigger_price=Price(stop_loss, self.instrument.price_precision),
+                        tp_price=Price(take_profit, self.instrument.price_precision),
                         time_in_force=TimeInForce.GTC,
-                        tags=create_tags(action="SHORT", type="OPEN",sl= stop_loss, tp= take_profit)
+                        entry_tags=create_tags(action="SHORT", type="OPEN", sl=stop_loss, tp=take_profit)
                     )
-                    self.submit_order(order)
-                    self.collector.add_trade(order)
 
-
-                    # Stop-Loss-Order
-                    sl_order = self.order_factory.stop_market(
-                        instrument_id=self.instrument_id,
-                        order_side=OrderSide.BUY,
-                        quantity=Quantity(position_size, self.instrument.size_precision),
-                        trigger_price=Price(stop_loss, self.instrument.price_precision),
-                        time_in_force=TimeInForce.GTC,
-                    )
-                    self.submit_order(sl_order)
-
-                    # Take-Profit-Order
-                    tp_order = self.order_factory.limit(
-                        instrument_id=self.instrument_id,
-                        order_side=OrderSide.BUY,
-                        quantity=Quantity(position_size, self.instrument.size_precision),
-                        price=Price(take_profit, self.instrument.price_precision),
-                        time_in_force=TimeInForce.GTC,
-                    )
-                    self.submit_order(tp_order)
+                    self.submit_order_list(bracket_order)
+                    # Add the entry order (first order in the bracket) to collector
+                    self.collector.add_trade(bracket_order.orders[0])
 
                     self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}, USDT={usdt_balance}")
 
@@ -359,11 +388,8 @@ class FVGStrategy(Strategy):
 
         realized_pnl = position_closed.realized_pnl  # Realized PnL
         self.realized_pnl += float(realized_pnl) if realized_pnl else 0
-    
+        self.collector.add_closed_trade(position_closed)
 
-    def on_position_opened(self, position_opened) -> None:
-        realized_pnl = position_opened.realized_pnl  # Realized PnL
-        #self.realized_pnl += float(realized_pnl) if realized_pnl else 0
 
     def on_error(self, error: Exception) -> None:
         self.log.error(f"An error occurred: {error}")

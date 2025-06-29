@@ -167,7 +167,38 @@ class DashboardApp:
                 'letterSpacing': '-0.025em'
             }),
             
-            # Hauptchart für Bars und Trades (größer)
+            # Trade Details Panel (oberhalb des Charts als Overlay)
+            html.Div([
+                html.Div(id='trade-details-panel', children=[
+                    html.Div([
+                        html.H4("Trade Details", style={
+                            'color': '#34495e',
+                            'marginBottom': '10px',
+                            'fontFamily': 'Inter, system-ui, sans-serif',
+                            'fontWeight': '500',
+                            'textAlign': 'center',
+                            'fontSize': '16px'
+                        }),
+                        html.P("Click on a trade marker in the chart below to see details", style={
+                            'color': '#6c757d',
+                            'fontFamily': 'Inter, system-ui, sans-serif',
+                            'textAlign': 'center',
+                            'fontSize': '14px',
+                            'margin': '0'
+                        })
+                    ])
+                ])
+            ], style={
+                'backgroundColor': '#f8f9fa',
+                'border': '1px solid #dee2e6',
+                'borderRadius': '8px',
+                'padding': '15px',
+                'marginBottom': '20px',
+                'maxHeight': '300px',
+                'overflowY': 'auto'
+            }),
+
+            # Hauptchart für Bars und Trades (volle Breite)
             html.Div([
                 html.H3("Price Data & Trading Signals", style={
                     'color': '#34495e', 
@@ -175,10 +206,7 @@ class DashboardApp:
                     'fontFamily': 'Inter, system-ui, sans-serif',
                     'fontWeight': '500'
                 }),
-                # Container für Chart ohne Overlay-Infobox
-                html.Div([
-                    dcc.Graph(id='price-chart', style={'height': '650px'})
-                ], style={'position': 'relative'})
+                dcc.Graph(id='price-chart', style={'height': '650px'})
             ], style={'margin': '20px 0'}),
             
             # Container für dynamische Indikator-Subplots
@@ -235,6 +263,75 @@ class DashboardApp:
             metrics_table = self.create_metrics_table()
                 
             return price_fig, indicators_components, metrics_table
+
+        # Callback für Trade-Details bei Klick auf Trade-Marker
+        @self.app.callback(
+            Output('trade-details-panel', 'children'),
+            [Input('price-chart', 'clickData')]
+        )
+        def display_trade_details(clickData):
+            if not clickData or self.trades_df is None or self.trades_df.empty:
+                return [
+                    html.Div([
+                        html.H4("Trade Details", style={
+                            'color': '#34495e',
+                            'marginBottom': '10px',
+                            'fontFamily': 'Inter, system-ui, sans-serif',
+                            'fontWeight': '500',
+                            'textAlign': 'center',
+                            'fontSize': '16px'
+                        }),
+                        html.P("Click on a trade marker in the chart below to see details", style={
+                            'color': '#6c757d',
+                            'fontFamily': 'Inter, system-ui, sans-serif',
+                            'textAlign': 'center',
+                            'fontSize': '14px',
+                            'margin': '0'
+                        })
+                    ])
+                ]
+            
+            try:
+                # Suche nach Trade-Marker mit customdata in allen Points
+                trade_point = None
+                for point in clickData['points']:
+                    if 'customdata' in point:
+                        trade_point = point
+                        break
+                
+                # Kein Trade-Marker gefunden
+                if trade_point is None:
+                    return [html.Div([
+                        html.H4("Trade Details", style={
+                            'color': '#34495e',
+                            'marginBottom': '10px',
+                            'fontFamily': 'Inter, system-ui, sans-serif',
+                            'fontWeight': '500',
+                            'textAlign': 'center',
+                            'fontSize': '16px'
+                        }),
+                        html.P("Please click directly on a trade marker (triangle) to see details", style={
+                            'color': '#dc3545',
+                            'fontFamily': 'Inter, system-ui, sans-serif',
+                            'textAlign': 'center',
+                            'fontSize': '14px'
+                        })
+                    ])]
+                
+                trade_index = trade_point['customdata']
+                
+                # Prüfe ob Index gültig ist
+                if trade_index >= len(self.trades_df):
+                    return [html.P(f"Trade index {trade_index} out of range (max: {len(self.trades_df)-1})", 
+                                 style={'color': '#dc3545'})]
+                
+                trade_data = self.trades_df.iloc[trade_index]
+                
+                # Formatiere Trade-Details
+                return self.create_trade_details_content(trade_data)
+                
+            except Exception as e:
+                return [html.P(f"Error loading trade details: {str(e)}", style={'color': '#dc3545'})]
 
         # Dynamische Callbacks für Indikator-Subplots
         self._register_indicator_sync_callbacks()
@@ -328,18 +425,20 @@ class DashboardApp:
                         name='BUY Signal',
                         marker=dict(
                             symbol='triangle-up', 
-                            size=20,
+                            size=25,  # Größer für bessere Klickbarkeit
                             color='#28a745',
-                            line=dict(color='#ffffff', width=3)
+                            line=dict(color='#ffffff', width=4),
+                            opacity=0.9
                         ),
-                        hoverinfo='skip',
-                        hovertemplate=None,
+                        customdata=buy_trades.index.tolist(),  # Original DataFrame Index
+                        hovertemplate='<b>BUY Signal</b><br>' +
+                                    'Time: %{x|%Y-%m-%d %H:%M:%S}<br>' +
+                                    'Price: %{y:.2f} USDT<br>' +
+                                    'Click to see details<br>' +
+                                    '<extra></extra>',
                         showlegend=True,
-                        hoverlabel=dict(
-                            bgcolor="rgba(0,0,0,0)",
-                            bordercolor="rgba(0,0,0,0)",
-                            font=dict(size=1, color="rgba(0,0,0,0)")
-                        )
+                        # Höhere Z-Order für bessere Klickbarkeit
+                        zorder=1000
                     )
                 )
             sell_trades = trades[trades['action'] == 'SHORT']
@@ -352,18 +451,20 @@ class DashboardApp:
                         name='SELL Signal',
                         marker=dict(
                             symbol='triangle-down', 
-                            size=20,
+                            size=25,  # Größer für bessere Klickbarkeit
                             color='#dc3545',
-                            line=dict(color='#ffffff', width=3)
+                            line=dict(color='#ffffff', width=4),
+                            opacity=0.9
                         ),
-                        hoverinfo='skip',
-                        hovertemplate=None,
+                        customdata=sell_trades.index.tolist(),  # Original DataFrame Index
+                        hovertemplate='<b>SELL Signal</b><br>' +
+                                    'Time: %{x|%Y-%m-%d %H:%M:%S}<br>' +
+                                    'Price: %{y:.2f} USDT<br>' +
+                                    'Click to see details<br>' +
+                                    '<extra></extra>',
                         showlegend=True,
-                        hoverlabel=dict(
-                            bgcolor="rgba(0,0,0,0)",
-                            bordercolor="rgba(0,0,0,0)",
-                            font=dict(size=1, color="rgba(0,0,0,0)")
-                        )
+                        # Höhere Z-Order für bessere Klickbarkeit
+                        zorder=1000
                     )
                 )
         
@@ -723,6 +824,125 @@ class DashboardApp:
             create_section("Trading", trade_metrics, '#f8f9fa'),
             create_section("General", general_info, '#f8f9fa')
         ])
+
+    def create_trade_details_content(self, trade_data):
+        """Erstellt den Inhalt für das Trade-Details Panel (kompakt für oberhalb des Charts)."""
+        
+        def format_value(key, value):
+            """Formatiert Werte basierend auf dem Feldtyp."""
+            if pd.isna(value) or value is None:
+                return "N/A"
+            
+            key_lower = key.lower()
+            
+            # Timestamp-Felder
+            if 'timestamp' in key_lower:
+                try:
+                    if isinstance(value, (int, float)) and value > 1e15:
+                        return pd.to_datetime(value, unit='ns').strftime('%Y-%m-%d %H:%M:%S')
+                    else:
+                        return pd.to_datetime(value).strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    return str(value)
+            
+            # Preis-Felder
+            elif any(term in key_lower for term in ['price', 'sl', 'tp']):
+                try:
+                    return f"{float(value):.4f}"
+                except:
+                    return str(value)
+            
+            # Gebühren-Felder  
+            elif 'fee' in key_lower:
+                try:
+                    return f"{float(value):.6f}"
+                except:
+                    return str(value)
+            
+            # Größe/Menge
+            elif 'size' in key_lower or 'quantity' in key_lower:
+                try:
+                    return f"{float(value):.6f}"
+                except:
+                    return str(value)
+            
+            # Boolean-ähnliche Werte
+            elif key_lower in ['type', 'action']:
+                return str(value).upper()
+            
+            # Default
+            else:
+                return str(value)
+        
+        # Action-basierte Farbe
+        action = str(trade_data.get('action', '')).upper()
+        action_color = '#28a745' if action == 'BUY' else '#dc3545'
+        
+        # Kompakte horizontale Darstellung für wichtigste Felder
+        key_fields = ['timestamp', 'action', 'price_actual', 'tradesize', 'sl', 'tp', 'fee']
+        
+        main_info = []
+        for field in key_fields:
+            if field in trade_data and not pd.isna(trade_data[field]):
+                label = {
+                    'timestamp': 'Time',
+                    'action': 'Action', 
+                    'price_actual': 'Price',
+                    'tradesize': 'Size',
+                    'sl': 'SL',
+                    'tp': 'TP',
+                    'fee': 'Fee'
+                }.get(field, field)
+                
+                value = format_value(field, trade_data[field])
+                main_info.append(f"{label}: {value}")
+        
+        # Erstelle kompakte horizontale Anzeige
+        return [
+            html.Div([
+                # Header mit Action
+                html.Div([
+                    html.Span(f"{action} SIGNAL", style={
+                        'backgroundColor': action_color,
+                        'color': 'white',
+                        'padding': '4px 12px',
+                        'borderRadius': '15px',
+                        'fontSize': '12px',
+                        'fontWeight': '600',
+                        'fontFamily': 'Inter, system-ui, sans-serif',
+                        'marginRight': '15px'
+                    }),
+                    html.Span(f"ID: {trade_data.get('id', 'N/A')}", style={
+                        'color': '#6c757d',
+                        'fontSize': '12px',
+                        'fontFamily': 'Inter, system-ui, sans-serif'
+                    })
+                ], style={
+                    'display': 'flex',
+                    'alignItems': 'center',
+                    'marginBottom': '10px'
+                }),
+                
+                # Hauptinformationen in Grid
+                html.Div([
+                    html.Div(info, style={
+                        'backgroundColor': 'white',
+                        'padding': '8px 12px',
+                        'borderRadius': '6px',
+                        'border': '1px solid #e9ecef',
+                        'fontSize': '13px',
+                        'fontFamily': 'Inter, system-ui, sans-serif',
+                        'color': '#495057',
+                        'textAlign': 'center',
+                        'margin': '3px'
+                    }) for info in main_info
+                ], style={
+                    'display': 'flex',
+                    'flexWrap': 'wrap',
+                    'gap': '5px'
+                })
+            ])
+        ]
 
     def run(self, **kwargs):
         self.app.run(**kwargs)

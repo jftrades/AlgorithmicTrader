@@ -37,7 +37,7 @@ venue = Venue("BINANCE")
 instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = "BTCUSDT-PERP.BINANCE"
 bar_type_str_for_configs = "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
-trade_size = Decimal("0.01") # Wird von der Strategie ignoriert, da dynamisches Risk-Management!
+trade_size = Decimal("0.01")
 #...
 close_positions_on_stop = True
 
