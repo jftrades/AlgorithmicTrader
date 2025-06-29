@@ -1,5 +1,5 @@
 import dash
-from dash import dcc, html, Input, Output
+from dash import dcc, html, Input, Output, callback_context
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
@@ -153,6 +153,7 @@ class DashboardApp:
         self.indicators_df = indicators_df or {}
         self.metrics = metrics or {}
         self.nautilus_result = nautilus_result  # <-- Store result for units
+        self.selected_trade_index = None  # Für visuelles Feedback bei angeklickten Trades
         self.app.layout = self._create_layout()
         self._register_callbacks()
 
@@ -251,309 +252,354 @@ class DashboardApp:
         @self.app.callback(
             [Output('price-chart', 'figure'),
              Output('indicators-container', 'children'),
-             Output('metrics-display', 'children')],
-            [Input('refresh-btn', 'n_clicks')]
+             Output('metrics-display', 'children'),
+             Output('trade-details-panel', 'children')],
+            [Input('refresh-btn', 'n_clicks'),
+             Input('price-chart', 'clickData')],
+            prevent_initial_call=False
         )
-        def update_dashboard(n_clicks):
-            # Charts erstellen
-            price_fig = self.create_price_chart()
-            indicators_components = self.create_indicator_subplots()
-            
-            # Metriken in professioneller Tabelle
-            metrics_table = self.create_metrics_table()
-                
-            return price_fig, indicators_components, metrics_table
-
-        # Callback für Trade-Details bei Klick auf Trade-Marker
-        @self.app.callback(
-            Output('trade-details-panel', 'children'),
-            [Input('price-chart', 'clickData')]
-        )
-        def display_trade_details(clickData):
-            if not clickData or self.trades_df is None or self.trades_df.empty:
-                return [
-                    html.Div([
-                        html.H4("Trade Details", style={
-                            'color': '#34495e',
-                            'marginBottom': '10px',
-                            'fontFamily': 'Inter, system-ui, sans-serif',
-                            'fontWeight': '500',
-                            'textAlign': 'center',
-                            'fontSize': '16px'
-                        }),
-                        html.P("Click on a trade marker in the chart below to see details", style={
-                            'color': '#6c757d',
-                            'fontFamily': 'Inter, system-ui, sans-serif',
-                            'textAlign': 'center',
-                            'fontSize': '14px',
-                            'margin': '0'
-                        })
-                    ])
-                ]
-            
+        def update_dashboard(refresh_clicks, clickData):
             try:
-                # Suche nach Trade-Marker mit customdata in allen Points
-                trade_point = None
-                for point in clickData['points']:
-                    if 'customdata' in point:
-                        trade_point = point
-                        break
+                # Bestimme welcher Input getriggert wurde
+                ctx = dash.callback_context
+                if not ctx.triggered:
+                    triggered_id = 'refresh-btn'
+                else:
+                    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
                 
-                # Kein Trade-Marker gefunden
-                if trade_point is None:
-                    return [html.Div([
-                        html.H4("Trade Details", style={
-                            'color': '#34495e',
-                            'marginBottom': '10px',
-                            'fontFamily': 'Inter, system-ui, sans-serif',
-                            'fontWeight': '500',
-                            'textAlign': 'center',
-                            'fontSize': '16px'
-                        }),
-                        html.P("Please click directly on a trade marker (triangle) to see details", style={
-                            'color': '#dc3545',
-                            'fontFamily': 'Inter, system-ui, sans-serif',
-                            'textAlign': 'center',
-                            'fontSize': '14px'
-                        })
-                    ])]
+                # Basis-Charts und Metriken erstellen
+                try:
+                    indicators_components = self.create_indicator_subplots()
+                except Exception as e:
+                    print(f"Fehler bei Indikatoren: {e}")
+                    indicators_components = []
                 
-                trade_index = trade_point['customdata']
+                try:
+                    metrics_table = self.create_metrics_table()
+                except Exception as e:
+                    print(f"Fehler bei Metriken: {e}")
+                    metrics_table = html.Div("Metrics could not be loaded")
                 
-                # Prüfe ob Index gültig ist
-                if trade_index >= len(self.trades_df):
-                    return [html.P(f"Trade index {trade_index} out of range (max: {len(self.trades_df)-1})", 
-                                 style={'color': '#dc3545'})]
+                # Trade-Details und Chart basierend auf Click-Data
+                if triggered_id == 'price-chart' and clickData and self.trades_df is not None and not self.trades_df.empty:
+                    try:
+                        # Suche nach Trade-Marker mit customdata in allen Points
+                        trade_point = None
+                        for point in clickData['points']:
+                            if 'customdata' in point:
+                                trade_point = point
+                                break
+                        
+                        if trade_point is not None:
+                            trade_index = trade_point['customdata']
+                            if trade_index < len(self.trades_df):
+                                # Setze ausgewählten Trade
+                                self.selected_trade_index = trade_index
+                                trade_data = self.trades_df.iloc[trade_index]
+                                trade_details = self.create_trade_details_content(trade_data)
+                            else:
+                                self.selected_trade_index = None
+                                trade_details = self.get_default_trade_details()
+                        else:
+                            # Klick war nicht auf Trade-Marker - Reset Selection
+                            self.selected_trade_index = None
+                            trade_details = self.get_default_trade_details_with_message()
+                    except Exception as e:
+                        print(f"Fehler bei Trade-Details: {e}")
+                        self.selected_trade_index = None
+                        trade_details = self.get_default_trade_details()
+                else:
+                    # Refresh oder kein Click-Data
+                    self.selected_trade_index = None
+                    trade_details = self.get_default_trade_details()
                 
-                trade_data = self.trades_df.iloc[trade_index]
+                # Chart mit aktuellem Selection-State erstellen
+                try:
+                    price_fig = self.create_price_chart()
+                except Exception as e:
+                    print(f"Fehler bei Chart-Erstellung: {e}")
+                    # Fallback - leerer Chart
+                    price_fig = go.Figure()
+                    price_fig.update_layout(title="Chart could not be loaded")
                 
-                # Formatiere Trade-Details
-                return self.create_trade_details_content(trade_data)
-                
+                return price_fig, indicators_components, metrics_table, trade_details
+            
             except Exception as e:
-                return [html.P(f"Error loading trade details: {str(e)}", style={'color': '#dc3545'})]
+                print(f"Allgemeiner Callback-Fehler: {e}")
+                # Fallback-Rückgabe
+                empty_fig = go.Figure()
+                empty_fig.update_layout(title="Error loading dashboard")
+                return empty_fig, [], html.Div("Error"), self.get_default_trade_details()
 
-        # Dynamische Callbacks für Indikator-Subplots
-        self._register_indicator_sync_callbacks()
+        # Dynamische Callbacks für Indikator-Subplots nur wenn Indikatoren vorhanden
+        try:
+            self._register_indicator_sync_callbacks()
+        except Exception as e:
+            print(f"Fehler bei Indikator-Callbacks: {e}")
+    
+    def get_default_trade_details(self):
+        """Standard Trade-Details Anzeige."""
+        return [
+            html.Div([
+                html.H4("Trade Details", style={
+                    'color': '#34495e',
+                    'marginBottom': '10px',
+                    'fontFamily': 'Inter, system-ui, sans-serif',
+                    'fontWeight': '500',
+                    'textAlign': 'center',
+                    'fontSize': '16px'
+                }),
+                html.P("Click on a trade marker in the chart below to see details", style={
+                    'color': '#6c757d',
+                    'fontFamily': 'Inter, system-ui, sans-serif',
+                    'textAlign': 'center',
+                    'fontSize': '14px',
+                    'margin': '0'
+                })
+            ])
+        ]
+    
+    def get_default_trade_details_with_message(self):
+        """Trade-Details mit Hinweis-Message."""
+        return [
+            html.Div([
+                html.H4("Trade Details", style={
+                    'color': '#34495e',
+                    'marginBottom': '10px',
+                    'fontFamily': 'Inter, system-ui, sans-serif',
+                    'fontWeight': '500',
+                    'textAlign': 'center',
+                    'fontSize': '16px'
+                }),
+                html.P("Please click directly on a trade marker (triangle) to see details", style={
+                    'color': '#dc3545',
+                    'fontFamily': 'Inter, system-ui, sans-serif',
+                    'textAlign': 'center',
+                    'fontSize': '14px'
+                })
+            ])
+        ]
 
     def create_price_chart(self):
         """Erstellt Chart für Bars und Trades + Indikatoren mit Plot-ID 0."""
-        fig = go.Figure()
-        
-        # 1. OHLC Chart falls Bars vorhanden - professionelle Farben (Basis-Layer)
-        if self.bars_df is not None and not self.bars_df.empty:
-            bars = self.bars_df
-            fig.add_trace(
-                go.Candlestick(
-                    x=pd.to_datetime(bars['timestamp']),
-                    open=bars['open'],
-                    high=bars['high'], 
-                    low=bars['low'],
-                    close=bars['close'],
-                    name='OHLC',
-                    increasing_line_color='#26a69a',
-                    decreasing_line_color='#ef5350',
-                    increasing_fillcolor='#26a69a',
-                    decreasing_fillcolor='#ef5350',
-                    showlegend=True,
-                    hoverlabel=dict(
-                        bgcolor="rgba(255,255,255,0.97)",
-                        bordercolor="#666",
-                        font=dict(size=12, color="#222")
-                    )
-                )
-            )
-            # Unsichtbarer Scatter für individuelles Hover-Kästchen
-            fig.add_trace(
-                go.Scatter(
-                    x=pd.to_datetime(bars['timestamp']),
-                    y=bars['close'],
-                    mode='markers',
-                    marker=dict(opacity=0),
-                    name='Bar Info',
-                    hovertemplate='<b>Datum:</b> %{x|%Y-%m-%d %H:%M:%S}<br><b>Preis:</b> %{y:.2f}<extra></extra>',
-                    showlegend=False
-                )
-            )
-
-        # 2. Indikatoren mit Plot-ID 0 hinzufügen (gleicher Plot wie Bars) - EMA als durchgezogene Linien
-        # Neutrale Farbpalette mit angepasster Transparenz für bessere Sichtbarkeit der Bars
-        indicator_colors = [
-            'rgba(0,0,0,0.4)',      # Schwarz (erste EMA) - deutlich transparenter
-            'rgba(64,64,64,0.8)',   # Dunkelgrau (zweite EMA)
-            'rgba(139,69,19,0.8)',  # Braun (dritte EMA)
-            'rgba(114,9,183,0.8)'   # Lila (vierte EMA)
-        ]
-        
-        color_idx = 0
-        for name, indicator_df in self.indicators_df.items():
-            if not indicator_df.empty and indicator_df.iloc[0]['plot_id'] == 0:
-                line_color = indicator_colors[color_idx % len(indicator_colors)]
-                fig.add_trace(
-                    go.Scatter(
-                        x=pd.to_datetime(indicator_df['timestamp']),
-                        y=indicator_df['value'],
-                        mode='lines',  # Keine Marker!
-                        name=f"{name.upper()}",
-                        line=dict(
-                            color=line_color, 
-                            width=2.5,
-                            dash='solid'
-                        ),
-                        hoverinfo='skip',  # Keine Hover-Symbole
-                        hovertemplate=None,
-                        showlegend=True,
-                        hoverlabel=dict(
-                            bgcolor="rgba(0,0,0,0)",
-                            bordercolor="rgba(0,0,0,0)",
-                            font=dict(size=1, color="rgba(0,0,0,0)")
+        try:
+            fig = go.Figure()
+            
+            # 1. OHLC Chart falls Bars vorhanden - professionelle Farben (Basis-Layer)
+            if self.bars_df is not None and not self.bars_df.empty:
+                try:
+                    bars = self.bars_df
+                    fig.add_trace(
+                        go.Candlestick(
+                            x=pd.to_datetime(bars['timestamp']),
+                            open=bars['open'],
+                            high=bars['high'], 
+                            low=bars['low'],
+                            close=bars['close'],
+                            name='OHLC',
+                            increasing_line_color='#26a69a',
+                            decreasing_line_color='#ef5350',
+                            increasing_fillcolor='#26a69a',
+                            decreasing_fillcolor='#ef5350',
+                            showlegend=True
                         )
                     )
-                )
-                color_idx += 1
-        
-        # 3. Trade-Signale falls Trades vorhanden - Im Vordergrund (Top-Layer)
-        if self.trades_df is not None and not self.trades_df.empty:
-            trades = self.trades_df
-            buy_trades = trades[trades['action'] == 'BUY']
-            if not buy_trades.empty:
-                fig.add_trace(
-                    go.Scatter(
-                        x=pd.to_datetime(buy_trades['timestamp']),
-                        y=buy_trades['price_actual'],
-                        mode='markers',
-                        name='BUY Signal',
-                        marker=dict(
-                            symbol='triangle-up', 
-                            size=25,  # Größer für bessere Klickbarkeit
-                            color='#28a745',
-                            line=dict(color='#ffffff', width=4),
-                            opacity=0.9
-                        ),
-                        customdata=buy_trades.index.tolist(),  # Original DataFrame Index
-                        hovertemplate='<b>BUY Signal</b><br>' +
-                                    'Time: %{x|%Y-%m-%d %H:%M:%S}<br>' +
-                                    'Price: %{y:.2f} USDT<br>' +
-                                    'Click to see details<br>' +
-                                    '<extra></extra>',
-                        showlegend=True,
-                        # Höhere Z-Order für bessere Klickbarkeit
-                        zorder=1000
-                    )
-                )
-            sell_trades = trades[trades['action'] == 'SHORT']
-            if not sell_trades.empty:
-                fig.add_trace(
-                    go.Scatter(
-                        x=pd.to_datetime(sell_trades['timestamp']),
-                        y=sell_trades['price_actual'],
-                        mode='markers',
-                        name='SELL Signal',
-                        marker=dict(
-                            symbol='triangle-down', 
-                            size=25,  # Größer für bessere Klickbarkeit
-                            color='#dc3545',
-                            line=dict(color='#ffffff', width=4),
-                            opacity=0.9
-                        ),
-                        customdata=sell_trades.index.tolist(),  # Original DataFrame Index
-                        hovertemplate='<b>SELL Signal</b><br>' +
-                                    'Time: %{x|%Y-%m-%d %H:%M:%S}<br>' +
-                                    'Price: %{y:.2f} USDT<br>' +
-                                    'Click to see details<br>' +
-                                    '<extra></extra>',
-                        showlegend=True,
-                        # Höhere Z-Order für bessere Klickbarkeit
-                        zorder=1000
-                    )
-                )
-        
-        fig.update_layout(
-            title="",
-            xaxis_title="Time",
-            yaxis_title="Price (USDT)",
-            xaxis_rangeslider_visible=False,
-            template="plotly_white",
-            showlegend=True,
-            legend=dict(
-                x=0, 
-                y=1, 
-                bgcolor='rgba(255,255,255,0.95)',
-                bordercolor='rgba(0,0,0,0.1)',
-                borderwidth=1,
-                font=dict(family='Inter, system-ui, sans-serif', size=12)
-            ),
-            uirevision='price-chart',
-            hovermode='x',  # Crosshair-Linien beim Hover wieder aktiv
-            margin=dict(t=30, b=60, l=60, r=20),  # rechter Rand minimal
-            font=dict(family='Inter, system-ui', size=12),
-            # Crosshair-Linien aktivieren (beide vertikal und horizontal)
-            xaxis=dict(
-                showspikes=True,
-                spikecolor="#333333",
-                spikethickness=2,
-                spikedash="dot",
-                spikemode="across+toaxis"
-            ),
-            yaxis=dict(
-                showspikes=True,
-                spikecolor="#333333", 
-                spikethickness=2,
-                spikedash="dot",
-                spikemode="across+toaxis"
-            ),
-            # Hover-Labels komplett unsichtbar machen
-            hoverlabel=dict(
-                bgcolor="rgba(0,0,0,0)",
-                bordercolor="rgba(0,0,0,0)",
-                font_size=1,
-                font_color="rgba(0,0,0,0)"
+                except Exception as e:
+                    print(f"Fehler bei OHLC-Chart: {e}")
+
+            # 2. Indikatoren mit Plot-ID 0 hinzufügen (gleicher Plot wie Bars)
+            try:
+                indicator_colors = ['rgba(0,0,0,0.4)', 'rgba(64,64,64,0.8)', 'rgba(139,69,19,0.8)', 'rgba(114,9,183,0.8)']
+                color_idx = 0
+                for name, indicator_df in self.indicators_df.items():
+                    try:
+                        if not indicator_df.empty and indicator_df.iloc[0]['plot_id'] == 0:
+                            line_color = indicator_colors[color_idx % len(indicator_colors)]
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=pd.to_datetime(indicator_df['timestamp']),
+                                    y=indicator_df['value'],
+                                    mode='lines',
+                                    name=f"{name.upper()}",
+                                    line=dict(color=line_color, width=2.5),
+                                    showlegend=True
+                                )
+                            )
+                            color_idx += 1
+                    except Exception as e:
+                        print(f"Fehler bei Indikator {name}: {e}")
+            except Exception as e:
+                print(f"Fehler bei Indikatoren: {e}")
+            
+            # 3. Trade-Signale falls Trades vorhanden
+            if self.trades_df is not None and not self.trades_df.empty:
+                try:
+                    trades = self.trades_df
+                    buy_trades = trades[trades['action'] == 'BUY']
+                    if not buy_trades.empty:
+                        # Normale BUY Trades
+                        normal_buy_trades = buy_trades[~buy_trades.index.isin([self.selected_trade_index] if self.selected_trade_index is not None else [])]
+                        if not normal_buy_trades.empty:
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=pd.to_datetime(normal_buy_trades['timestamp']),
+                                    y=normal_buy_trades['price_actual'],
+                                    mode='markers',
+                                    name='BUY Signal',
+                                    marker=dict(
+                                        symbol='triangle-up', 
+                                        size=25,
+                                        color='#28a745',
+                                        line=dict(color='#ffffff', width=4),
+                                        opacity=0.9
+                                    ),
+                                    customdata=normal_buy_trades.index.tolist(),
+                                    hovertemplate='<b>BUY Signal</b><br>Time: %{x}<br>Price: %{y:.2f} USDT<extra></extra>',
+                                    showlegend=True
+                                )
+                            )
+                        
+                        # Ausgewählter BUY Trade (falls vorhanden)
+                        if self.selected_trade_index is not None and self.selected_trade_index in buy_trades.index:
+                            selected_trade = buy_trades.loc[[self.selected_trade_index]]
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=pd.to_datetime(selected_trade['timestamp']),
+                                    y=selected_trade['price_actual'],
+                                    mode='markers',
+                                    name='Selected BUY',
+                                    marker=dict(
+                                        symbol='triangle-up', 
+                                        size=25,
+                                        color='#28a745',
+                                        line=dict(color='#000000', width=4),
+                                        opacity=1.0
+                                    ),
+                                    customdata=[self.selected_trade_index],
+                                    hovertemplate='<b>SELECTED BUY Signal</b><br>Time: %{x}<br>Price: %{y:.2f} USDT<extra></extra>',
+                                    showlegend=False
+                                )
+                            )
+                            
+                    sell_trades = trades[trades['action'] == 'SHORT']
+                    if not sell_trades.empty:
+                        # Normale SELL Trades
+                        normal_sell_trades = sell_trades[~sell_trades.index.isin([self.selected_trade_index] if self.selected_trade_index is not None else [])]
+                        if not normal_sell_trades.empty:
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=pd.to_datetime(normal_sell_trades['timestamp']),
+                                    y=normal_sell_trades['price_actual'],
+                                    mode='markers',
+                                    name='SELL Signal',
+                                    marker=dict(
+                                        symbol='triangle-down', 
+                                        size=25,
+                                        color='#dc3545',
+                                        line=dict(color='#ffffff', width=4),
+                                        opacity=0.9
+                                    ),
+                                    customdata=normal_sell_trades.index.tolist(),
+                                    hovertemplate='<b>SELL Signal</b><br>Time: %{x}<br>Price: %{y:.2f} USDT<extra></extra>',
+                                    showlegend=True
+                                )
+                            )
+                        
+                        # Ausgewählter SELL Trade (falls vorhanden)
+                        if self.selected_trade_index is not None and self.selected_trade_index in sell_trades.index:
+                            selected_trade = sell_trades.loc[[self.selected_trade_index]]
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=pd.to_datetime(selected_trade['timestamp']),
+                                    y=selected_trade['price_actual'],
+                                    mode='markers',
+                                    name='Selected SELL',
+                                    marker=dict(
+                                        symbol='triangle-down', 
+                                        size=25,
+                                        color='#dc3545',
+                                        line=dict(color='#000000', width=4),
+                                        opacity=1.0
+                                    ),
+                                    customdata=[self.selected_trade_index],
+                                    hovertemplate='<b>SELECTED SELL Signal</b><br>Time: %{x}<br>Price: %{y:.2f} USDT<extra></extra>',
+                                    showlegend=False
+                                )
+                            )
+                except Exception as e:
+                    print(f"Fehler bei Trade-Signalen: {e}")
+            
+            # Layout-Update mit einfacheren Einstellungen
+            fig.update_layout(
+                title="",
+                xaxis_title="Time",
+                yaxis_title="Price (USDT)",
+                template="plotly_white",
+                showlegend=True,
+                uirevision='price-chart-stable',
+                hovermode='closest',
+                clickmode='event',
+                dragmode='zoom',  # Zoom wieder aktivieren
+                xaxis_rangeslider_visible=False  # Range slider deaktivieren
             )
-        )
-        
-        return fig
+            
+            return fig
+            
+        except Exception as e:
+            print(f"Schwerwiegender Fehler bei Chart-Erstellung: {e}")
+            # Absoluter Fallback
+            fig = go.Figure()
+            fig.update_layout(title="Chart Error - Please refresh")
+            return fig
 
     def create_indicator_subplots(self):
         """Erstellt dynamische Subplots basierend auf Plot-IDs."""
-        # Gruppiere Indikatoren nach Plot-ID (außer 0)
-        plot_groups = {}
-        for name, indicator_df in self.indicators_df.items():
-            if not indicator_df.empty:
-                plot_id = indicator_df.iloc[0]['plot_id']
-                if plot_id > 0:  # Plot-ID 0 ist im Hauptchart
-                    if plot_id not in plot_groups:
-                        plot_groups[plot_id] = []
-                    plot_groups[plot_id].append((name, indicator_df))
-        
-        # Erstelle Subplot-Components
-        subplot_components = []
-        for plot_id in sorted(plot_groups.keys()):
-            indicators_in_plot = plot_groups[plot_id]
+        try:
+            # Gruppiere Indikatoren nach Plot-ID (außer 0)
+            plot_groups = {}
+            for name, indicator_df in self.indicators_df.items():
+                if not indicator_df.empty:
+                    plot_id = indicator_df.iloc[0]['plot_id']
+                    if plot_id > 0:  # Plot-ID 0 ist im Hauptchart
+                        if plot_id not in plot_groups:
+                            plot_groups[plot_id] = []
+                        plot_groups[plot_id].append((name, indicator_df))
             
-            # Titel für den Subplot
-            indicator_names = [name for name, _ in indicators_in_plot]
-            subplot_title = f"Indikatoren: {', '.join(indicator_names)}"
+            # Wenn keine Indikatoren > Plot-ID 0, return leer
+            if not plot_groups:
+                return []
             
-            # Konvertiere plot_id zu Integer-String für gültige Dash-ID
-            plot_id_str = str(int(plot_id)) if isinstance(plot_id, float) else str(plot_id)
+            # Erstelle Subplot-Components
+            subplot_components = []
+            for plot_id in sorted(plot_groups.keys()):
+                indicators_in_plot = plot_groups[plot_id]
+                
+                # Konvertiere plot_id zu Integer-String für gültige Dash-ID
+                plot_id_str = str(int(plot_id)) if isinstance(plot_id, float) else str(plot_id)
+                
+                # Titel für den Subplot
+                indicator_names = [name for name, _ in indicators_in_plot]
+                
+                subplot_components.append(
+                    html.Div([
+                        html.H4(f"Indicators: {', '.join(indicator_names)}", style={
+                            'color': '#34495e', 
+                            'marginBottom': '10px',
+                            'fontFamily': 'Inter, system-ui, sans-serif',
+                            'fontWeight': '500'
+                        }),
+                        dcc.Graph(
+                            id=f'indicators-plot-{plot_id_str}',
+                            figure=self.create_subplot_figure(indicators_in_plot),
+                            style={'height': '350px'}
+                        )
+                    ], style={'margin': '20px 0'})
+                )
             
-            subplot_components.append(
-                html.Div([
-                    html.H4(f"Indicators: {', '.join(indicator_names)}", style={
-                        'color': '#34495e', 
-                        'marginBottom': '10px',
-                        'fontFamily': 'Inter, system-ui, sans-serif',
-                        'fontWeight': '500'
-                    }),
-                    dcc.Graph(
-                        id=f'indicators-plot-{plot_id_str}',
-                        figure=self.create_subplot_figure(indicators_in_plot),
-                        style={'height': '350px'}  # Vergrößert von 250px auf 350px
-                    )
-                ], style={'margin': '20px 0'})
-            )
-        
-        return subplot_components
+            return subplot_components
+        except Exception as e:
+            print(f"Fehler bei Indikator-Subplots: {e}")
+            return []
 
     def create_subplot_figure(self, indicators_list):
         """Erstellt Figure für einen Indikator-Subplot."""
@@ -614,48 +660,62 @@ class DashboardApp:
 
     def _register_indicator_sync_callbacks(self):
         """Registriert Synchronisation für alle Indikator-Subplots."""
-        # Ermittle alle Plot-IDs > 0 und konvertiere zu Integer
-        plot_ids = set()
-        for name, indicator_df in self.indicators_df.items():
-            if not indicator_df.empty:
-                plot_id = indicator_df.iloc[0]['plot_id']
-                if plot_id > 0:
-                    # Konvertiere zu Integer für konsistente Behandlung
-                    plot_id_int = int(plot_id) if isinstance(plot_id, float) else plot_id
-                    plot_ids.add(plot_id_int)
-        
-        # Erstelle Sync-Callbacks für jeden Subplot
-        for plot_id in plot_ids:
-            # Konvertiere plot_id zu String für gültige Dash-ID
-            plot_id_str = str(plot_id)
+        try:
+            # Ermittle alle Plot-IDs > 0 und konvertiere zu Integer
+            plot_ids = set()
+            for name, indicator_df in self.indicators_df.items():
+                if not indicator_df.empty:
+                    plot_id = indicator_df.iloc[0]['plot_id']
+                    if plot_id > 0:
+                        # Konvertiere zu Integer für konsistente Behandlung
+                        plot_id_int = int(plot_id) if isinstance(plot_id, float) else plot_id
+                        plot_ids.add(plot_id_int)
             
-            @self.app.callback(
-                Output(f'indicators-plot-{plot_id_str}', 'figure', allow_duplicate=True),
-                [Input('price-chart', 'relayoutData')],
-                prevent_initial_call=True
-            )
-            def sync_subplot_x_axis(relayout_data, current_plot_id=plot_id):
-                if relayout_data and ('xaxis.range[0]' in relayout_data and 'xaxis.range[1]' in relayout_data):
-                    x_range = [relayout_data['xaxis.range[0]'], relayout_data['xaxis.range[1]']]
-                    
-                    # Finde Indikatoren für diese Plot-ID
-                    indicators_for_plot = []
-                    for name, indicator_df in self.indicators_df.items():
-                        if not indicator_df.empty and int(indicator_df.iloc[0]['plot_id']) == current_plot_id:
-                            indicators_for_plot.append((name, indicator_df))
-                    
-                    # Erstelle neuen Chart mit synchronisierter X-Achse
-                    fig = self.create_subplot_figure(indicators_for_plot)
-                    fig.update_layout(xaxis_range=x_range)
-                    
-                    return fig
+            # Wenn keine Indikator-Subplots, return
+            if not plot_ids:
+                return
+            
+            # Erstelle Sync-Callbacks für jeden Subplot
+            for plot_id in plot_ids:
+                # Konvertiere plot_id zu String für gültige Dash-ID
+                plot_id_str = str(plot_id)
                 
-                # Fallback: aktuellen Chart zurückgeben
-                indicators_for_plot = []
-                for name, indicator_df in self.indicators_df.items():
-                    if not indicator_df.empty and int(indicator_df.iloc[0]['plot_id']) == current_plot_id:
-                        indicators_for_plot.append((name, indicator_df))
-                return self.create_subplot_figure(indicators_for_plot)
+                @self.app.callback(
+                    Output(f'indicators-plot-{plot_id_str}', 'figure', allow_duplicate=True),
+                    [Input('price-chart', 'relayoutData')],
+                    prevent_initial_call=True
+                )
+                def sync_subplot_x_axis(relayout_data, current_plot_id=plot_id):
+                    try:
+                        if relayout_data and ('xaxis.range[0]' in relayout_data and 'xaxis.range[1]' in relayout_data):
+                            x_range = [relayout_data['xaxis.range[0]'], relayout_data['xaxis.range[1]']]
+                            
+                            # Finde Indikatoren für diese Plot-ID
+                            indicators_for_plot = []
+                            for name, indicator_df in self.indicators_df.items():
+                                if not indicator_df.empty and int(indicator_df.iloc[0]['plot_id']) == current_plot_id:
+                                    indicators_for_plot.append((name, indicator_df))
+                            
+                            # Erstelle neuen Chart mit synchronisierter X-Achse
+                            fig = self.create_subplot_figure(indicators_for_plot)
+                            fig.update_layout(xaxis_range=x_range)
+                            
+                            return fig
+                        
+                        # Fallback: aktuellen Chart zurückgeben
+                        indicators_for_plot = []
+                        for name, indicator_df in self.indicators_df.items():
+                            if not indicator_df.empty and int(indicator_df.iloc[0]['plot_id']) == current_plot_id:
+                                indicators_for_plot.append((name, indicator_df))
+                        return self.create_subplot_figure(indicators_for_plot)
+                    
+                    except Exception as e:
+                        print(f"Fehler bei Subplot-Sync für Plot-ID {current_plot_id}: {e}")
+                        # Fallback - leerer Chart
+                        return go.Figure()
+        
+        except Exception as e:
+            print(f"Fehler bei Indikator-Sync-Callbacks: {e}")
 
     def create_metrics_table(self):
         """Erstellt professionelle Metriken-Tabelle mit Einheiten."""
