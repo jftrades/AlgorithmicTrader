@@ -10,8 +10,8 @@ from binance_historical_data import BinanceDataDumper
 
 # === 1. Konfiguration ===
 TICKER = "BTCUSDT"
-DATA_FREQUENCY_DOWNLOAD = "1m"
-DATA_FREQUENCY_FILENAME = "1MINUTE"
+DATA_FREQUENCY_DOWNLOAD = "5m"
+DATA_FREQUENCY_FILENAME = "5MINUTE"
 START_DATE = dt.date(2020, 1, 1)
 END_DATE = dt.date(2025, 6, 1)
 
