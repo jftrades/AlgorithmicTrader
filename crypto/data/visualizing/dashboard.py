@@ -450,7 +450,7 @@ class DashboardApp:
                                         symbol='triangle-up', 
                                         size=18,
                                         color='#28a745',
-                                        line=dict(color='#ffffff', width=4),
+                                        line=dict(color='#ffffff', width=1),
                                         opacity=0.9
                                     ),
                                     customdata=normal_buy_trades.index.tolist(),
@@ -472,7 +472,7 @@ class DashboardApp:
                                         symbol='triangle-up', 
                                         size=18,
                                         color='#28a745',
-                                        line=dict(color='#000000', width=4),
+                                        line=dict(color='#000000', width=1),
                                         opacity=1.0
                                     ),
                                     customdata=[self.selected_trade_index],
@@ -496,7 +496,7 @@ class DashboardApp:
                                         symbol='triangle-down', 
                                         size=18,
                                         color='#dc3545',
-                                        line=dict(color='#ffffff', width=4),
+                                        line=dict(color='#ffffff', width=1),
                                         opacity=0.9
                                     ),
                                     customdata=normal_sell_trades.index.tolist(),
@@ -518,7 +518,7 @@ class DashboardApp:
                                         symbol='triangle-down', 
                                         size=18,
                                         color='#dc3545',
-                                        line=dict(color='#000000', width=4),
+                                        line=dict(color='#000000', width=1),
                                         opacity=1.0
                                     ),
                                     customdata=[self.selected_trade_index],
@@ -541,6 +541,15 @@ class DashboardApp:
                 yaxis_title="Price (USDT)",
                 template="plotly_white",
                 showlegend=True,
+                legend=dict(
+                    x=0.01,  # Linke Seite (1% vom linken Rand)
+                    y=0.99,  # Obere Seite (99% von unten)
+                    bgcolor='rgba(255,255,255,0.9)',  # Weißer Hintergrund mit Transparenz
+                    bordercolor='rgba(0,0,0,0.1)',    # Dünner grauer Rand
+                    borderwidth=1,
+                    font=dict(family='Inter, system-ui, sans-serif', size=11)
+                ),
+                margin=dict(t=30, b=60, l=60, r=20),  # Gleiche Margins wie Indikator-Charts
                 uirevision='price-chart-stable',
                 hovermode='closest',
                 clickmode='event',
