@@ -159,92 +159,173 @@ class DashboardApp:
 
     def _create_layout(self):
         return html.Div([
-            html.H1("Algorithmic Trading Dashboard", style={
-                'textAlign': 'center', 
-                'color': '#2c3e50', 
-                'marginBottom': '30px',
-                'fontFamily': 'Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
-                'fontWeight': '600',
-                'letterSpacing': '-0.025em'
-            }),
-            
-            # Trade Details Panel (oberhalb des Charts als Overlay)
+            # Header mit Gradient-Background
             html.Div([
-                html.Div(id='trade-details-panel', children=[
-                    html.Div([
-                        html.H4("Trade Details", style={
-                            'color': '#34495e',
-                            'marginBottom': '10px',
-                            'fontFamily': 'Inter, system-ui, sans-serif',
-                            'fontWeight': '500',
-                            'textAlign': 'center',
-                            'fontSize': '16px'
-                        }),
-                        html.P("Click on a trade marker in the chart below to see details", style={
-                            'color': '#6c757d',
-                            'fontFamily': 'Inter, system-ui, sans-serif',
-                            'textAlign': 'center',
-                            'fontSize': '14px',
-                            'margin': '0'
-                        })
-                    ])
-                ])
-            ], style={
-                'backgroundColor': '#f8f9fa',
-                'border': '1px solid #dee2e6',
-                'borderRadius': '8px',
-                'padding': '15px',
-                'marginBottom': '20px',
-                'maxHeight': '300px',
-                'overflowY': 'auto'
-            }),
-
-            # Hauptchart für Bars und Trades (volle Breite)
-            html.Div([
-                html.H3("Price Data & Trading Signals", style={
-                    'color': '#34495e', 
-                    'marginBottom': '15px',
+                # Credits oben rechts
+                html.Div("by Raph & Ferdi", style={
+                    'position': 'absolute',
+                    'top': '8px',
+                    'right': '15px',
+                    'color': 'rgba(255,255,255,0.6)',
+                    'fontSize': '10px',
                     'fontFamily': 'Inter, system-ui, sans-serif',
-                    'fontWeight': '500'
+                    'fontWeight': '400',
+                    'letterSpacing': '0.5px'
                 }),
-                dcc.Graph(id='price-chart', style={'height': '650px'})
-            ], style={'margin': '20px 0'}),
-            
-            # Container für dynamische Indikator-Subplots
-            html.Div(id='indicators-container'),
-            
-            # Performance Metriken (professioneller)
-            html.Div([
-                html.H3("Performance Metrics", style={
-                    'color': '#34495e', 
-                    'marginBottom': '15px',
+                html.H1("Algorithmic Trading Dashboard", style={
+                    'textAlign': 'center', 
+                    'color': '#ffffff', 
+                    'marginBottom': '0px',
+                    'marginTop': '0px',  # Kein Abstand zur Oberkante
+                    'fontFamily': 'Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+                    'fontWeight': '700',
+                    'letterSpacing': '-0.02em',
+                    'fontSize': '2rem',
+                    'textShadow': '0 2px 4px rgba(0,0,0,0.1)'
+                }),
+                html.P("Professional Trading Analytics & Performance Monitoring", style={
+                    'textAlign': 'center',
+                    'color': 'rgba(255,255,255,0.9)',
                     'fontFamily': 'Inter, system-ui, sans-serif',
-                    'fontWeight': '500'
-                }),
-                html.Div(id='metrics-display', style={
-                    'backgroundColor': '#f8f9fa',
-                    'border': '1px solid #dee2e6',
-                    'borderRadius': '8px',
-                    'padding': '20px'
+                    'fontSize': '0.9rem',
+                    'fontWeight': '400',
+                    'margin': '5px 0 0 0',
+                    'letterSpacing': '0.01em'
                 })
-            ], style={'margin': '20px 0'}),
+            ], style={
+                'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                'padding': '15px 20px',  # Gleichmäßiges Padding oben und unten
+                'marginBottom': '0px',
+                'borderRadius': '0',
+                'boxShadow': '0 4px 16px rgba(0,0,0,0.1)',
+                'position': 'relative',
+                'display': 'flex',
+                'flexDirection': 'column',
+                'justifyContent': 'center',  # Inhalt vertikal zentrieren
+                'alignItems': 'center',
+                'minHeight': '85px'
+            }),
             
-            html.Button('Update Dashboard', id='refresh-btn', n_clicks=0,
-                        style={
-                            'margin': '20px auto',
-                            'padding': '12px 24px',
-                            'fontSize': '16px',
-                            'backgroundColor': '#3498db',
-                            'color': 'white',
-                            'border': 'none',
-                            'borderRadius': '6px',
-                            'cursor': 'pointer',
-                            'display': 'block',
+            # Main Content Container
+            html.Div([
+                # Trade Details Panel (professionell gestylt)
+                html.Div([
+                    html.Div(id='trade-details-panel', children=[
+                        html.Div([
+                            html.H4("Trade Details", style={
+                                'color': '#2c3e50',
+                                'marginBottom': '10px',
+                                'fontFamily': 'Inter, system-ui, sans-serif',
+                                'fontWeight': '600',
+                                'textAlign': 'center',
+                                'fontSize': '18px',
+                                'letterSpacing': '-0.01em'
+                            }),
+                            html.P("Click on a trade marker in the chart below to see details", style={
+                                'color': '#6c757d',
+                                'fontFamily': 'Inter, system-ui, sans-serif',
+                                'textAlign': 'center',
+                                'fontSize': '14px',
+                                'margin': '0',
+                                'fontWeight': '400'
+                            })
+                        ])
+                    ])
+                ], style={
+                    'background': 'linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%)',
+                    'border': '1px solid rgba(222, 226, 230, 0.6)',
+                    'borderRadius': '0 0 16px 16px',
+                    'padding': '20px',
+                    'marginBottom': '15px',
+                    'maxHeight': '300px',
+                    'overflowY': 'auto',
+                    'boxShadow': '0 4px 20px rgba(0,0,0,0.08)',
+                    'backdropFilter': 'blur(10px)',
+                    'position': 'relative'
+                }),
+
+                # Hauptchart für Bars und Trades (mit Card-Design)
+                html.Div([
+                    html.Div([
+                        html.H3("Price Data & Trading Signals", style={
+                            'color': '#2c3e50', 
+                            'marginBottom': '20px',
                             'fontFamily': 'Inter, system-ui, sans-serif',
-                            'fontWeight': '500'
+                            'fontWeight': '600',
+                            'fontSize': '20px',
+                            'letterSpacing': '-0.01em'
+                        }),
+                        dcc.Graph(id='price-chart', style={'height': '650px'})
+                    ], style={
+                        'background': '#ffffff',
+                        'borderRadius': '16px',
+                        'padding': '25px',
+                        'boxShadow': '0 4px 20px rgba(0,0,0,0.08)',
+                        'border': '1px solid rgba(222, 226, 230, 0.6)'
+                    })
+                ], style={'margin': '15px 20px'}),
+                
+                # Container für alle Indikator-Subplots (zusammengefasst)
+                html.Div([
+                    html.Div(id='indicators-container')
+                ], style={'margin': '10px 20px'}),
+                
+                # Performance Metriken (Premium Card Design)
+                html.Div([
+                    html.Div([
+                        html.H3("Performance Metrics", style={
+                            'color': '#2c3e50', 
+                            'marginBottom': '20px',
+                            'fontFamily': 'Inter, system-ui, sans-serif',
+                            'fontWeight': '600',
+                            'fontSize': '20px',
+                            'letterSpacing': '-0.01em'
+                        }),
+                        html.Div(id='metrics-display', style={
+                            'background': 'linear-gradient(145deg, #f8f9fa 0%, #ffffff 100%)',
+                            'border': '1px solid rgba(222, 226, 230, 0.6)',
+                            'borderRadius': '12px',
+                            'padding': '25px'
                         })
+                    ], style={
+                        'background': '#ffffff',
+                        'borderRadius': '16px',
+                        'padding': '25px',
+                        'boxShadow': '0 4px 20px rgba(0,0,0,0.08)',
+                        'border': '1px solid rgba(222, 226, 230, 0.6)'
+                    })
+                ], style={'margin': '15px 20px'}),
+                
+                # Refresh Button (moderne Version)
+                html.Div([
+                    html.Button('Update Dashboard', id='refresh-btn', n_clicks=0,
+                                style={
+                                    'padding': '14px 32px',
+                                    'fontSize': '16px',
+                                    'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                    'color': 'white',
+                                    'border': 'none',
+                                    'borderRadius': '25px',
+                                    'cursor': 'pointer',
+                                    'fontFamily': 'Inter, system-ui, sans-serif',
+                                    'fontWeight': '600',
+                                    'letterSpacing': '0.01em',
+                                    'boxShadow': '0 4px 15px rgba(102, 126, 234, 0.4)',
+                                    'transition': 'all 0.3s ease',
+                                    'textShadow': '0 1px 2px rgba(0,0,0,0.1)'
+                                })
+                ], style={
+                    'textAlign': 'center',
+                    'margin': '30px 0'
+                })
+            ], style={
+                'maxWidth': '100%',
+                'margin': '0',
+                'padding': '0'
+            })
         ], style={
-            'padding': '0 20px', 
+            'minHeight': '100vh',
+            'background': 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
             'fontFamily': 'Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif'
         })
 
@@ -409,7 +490,7 @@ class DashboardApp:
 
             # 2. Indikatoren mit Plot-ID 0 hinzufügen (gleicher Plot wie Bars)
             try:
-                indicator_colors = ['rgba(0,0,0,0.4)', 'rgba(64,64,64,0.8)', 'rgba(139,69,19,0.8)', 'rgba(114,9,183,0.8)']
+                indicator_colors = ['#000000', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.5)', 'rgba(64,64,64,0.8)']
                 color_idx = 0
                 for name, indicator_df in self.indicators_df.items():
                     try:
@@ -810,32 +891,47 @@ class DashboardApp:
             if not plot_groups:
                 return []
             
-            # Erstelle Subplot-Components
-            subplot_components = []
-            for plot_id in sorted(plot_groups.keys()):
-                indicators_in_plot = plot_groups[plot_id]
+            # Erstelle Subplot-Components - alle in einem großen Container
+            if plot_groups:
+                # Großer Container für alle Indikatoren
+                indicator_names_all = []
+                all_graphs = []
                 
-                # Konvertiere plot_id zu Integer-String für gültige Dash-ID
-                plot_id_str = str(int(plot_id)) if isinstance(plot_id, float) else str(plot_id)
-                
-                # Titel für den Subplot
-                indicator_names = [name for name, _ in indicators_in_plot]
-                
-                subplot_components.append(
-                    html.Div([
-                        html.H4(f"Indicators: {', '.join(indicator_names)}", style={
-                            'color': '#34495e', 
-                            'marginBottom': '10px',
-                            'fontFamily': 'Inter, system-ui, sans-serif',
-                            'fontWeight': '500'
-                        }),
+                for plot_id in sorted(plot_groups.keys()):
+                    indicators_in_plot = plot_groups[plot_id]
+                    plot_id_str = str(int(plot_id)) if isinstance(plot_id, float) else str(plot_id)
+                    indicator_names = [name for name, _ in indicators_in_plot]
+                    indicator_names_all.extend(indicator_names)
+                    
+                    all_graphs.append(
                         dcc.Graph(
                             id=f'indicators-plot-{plot_id_str}',
                             figure=self.create_subplot_figure(indicators_in_plot),
-                            style={'height': '350px'}
+                            style={'height': '300px', 'marginBottom': '10px'}
                         )
-                    ], style={'margin': '20px 0'})
-                )
+                    )
+                
+                subplot_components = [
+                    html.Div([
+                        html.H4(f"Technical Indicators: {', '.join(indicator_names_all)}", style={
+                            'color': '#2c3e50', 
+                            'marginBottom': '15px',
+                            'fontFamily': 'Inter, system-ui, sans-serif',
+                            'fontWeight': '600',
+                            'fontSize': '18px',
+                            'letterSpacing': '-0.01em'
+                        }),
+                        *all_graphs
+                    ], style={
+                        'background': '#ffffff',
+                        'borderRadius': '16px',
+                        'padding': '25px',
+                        'boxShadow': '0 4px 20px rgba(0,0,0,0.08)',
+                        'border': '1px solid rgba(222, 226, 230, 0.6)'
+                    })
+                ]
+            else:
+                subplot_components = []
             
             return subplot_components
         except Exception as e:
@@ -846,7 +942,7 @@ class DashboardApp:
         """Erstellt Figure für einen Indikator-Subplot."""
         fig = go.Figure()
         
-        colors = ['#3498db', '#e74c3c', '#f39c12', '#9b59b6', '#1abc9c']
+        colors = ['#000000', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.5)', 'rgba(64,64,64,0.8)', 'rgba(96,96,96,0.6)']
         for i, (name, indicator_df) in enumerate(indicators_list):
             fig.add_trace(
                 go.Scatter(
