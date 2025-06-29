@@ -24,7 +24,7 @@ if str(VIS_PATH) not in sys.path:
     sys.path.insert(0, str(VIS_PATH))
 
 from backtest_visualizer_prototype import BacktestDataCollector
-from AlgorithmicTrader.crypto.strategies.help_funcs import create_tags
+from help_funcs import create_tags
 from nautilus_trader.common.enums import LogColor
 
 # Weitere/Strategiespezifische Importe
@@ -110,8 +110,10 @@ class FVGStrategy(Strategy):
             
             if gap_low <= bar.low <= gap_high:
                 self.log.info(f"Retest bullische FVG: {gap}")
-                if position is not None and position.is_open:
-                    self.close_position()
+                if False:
+                    pass
+                #if position is not None and position.is_open:
+                #    self.close_position()
                 else:
                     order_side = OrderSide.BUY
                     account_id = AccountId("BINANCE-001")
@@ -198,10 +200,11 @@ class FVGStrategy(Strategy):
                         sl_trigger_price=Price(stop_loss, self.instrument.price_precision),
                         tp_price=Price(take_profit, self.instrument.price_precision),
                         time_in_force=TimeInForce.GTC,
-                        entry_tags=create_tags(action="BUY", type="BRACKET", sl=stop_loss, tp=take_profit)
+                        entry_tags=create_tags(action="BUY", type="OPEN", sl=stop_loss, tp=take_profit)
                     )
-                    self.submit_order_list(bracket_order)
+                    
                     # Add the entry order (first order in the bracket) to collector
+                    self.submit_order_list(bracket_order)
                     self.collector.add_trade(bracket_order.orders[0])
                 
                     self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}, USDT={usdt_balance}")
@@ -220,8 +223,10 @@ class FVGStrategy(Strategy):
 
             if gap_low <= bar.high <= gap_high:
                 self.log.info(f"Retest bearishe FVG: {gap}")
-                if position is not None and position.is_open:
-                    self.close_position()
+                if False:
+                    pass
+                #if position is not None and position.is_open:
+                #    self.close_position()
                 else:
                     order_side = OrderSide.SELL
                     account_id = AccountId("BINANCE-001")
@@ -302,8 +307,9 @@ class FVGStrategy(Strategy):
                         sl_trigger_price=Price(stop_loss, self.instrument.price_precision),
                         tp_price=Price(take_profit, self.instrument.price_precision),
                         time_in_force=TimeInForce.GTC,
-                        entry_tags=create_tags(action="SHORT", type="BRACKET", sl=stop_loss, tp=take_profit)
+                        entry_tags=create_tags(action="SHORT", type="OPEN", sl=stop_loss, tp=take_profit)
                     )
+
                     self.submit_order_list(bracket_order)
                     # Add the entry order (first order in the bracket) to collector
                     self.collector.add_trade(bracket_order.orders[0])
@@ -382,11 +388,8 @@ class FVGStrategy(Strategy):
 
         realized_pnl = position_closed.realized_pnl  # Realized PnL
         self.realized_pnl += float(realized_pnl) if realized_pnl else 0
-    
+        self.collector.add_closed_trade(position_closed)
 
-    def on_position_opened(self, position_opened) -> None:
-        realized_pnl = position_opened.realized_pnl  # Realized PnL
-        #self.realized_pnl += float(realized_pnl) if realized_pnl else 0
 
     def on_error(self, error: Exception) -> None:
         self.log.error(f"An error occurred: {error}")

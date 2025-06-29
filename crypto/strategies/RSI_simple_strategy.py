@@ -76,7 +76,9 @@ class RSISimpleStrategy(Strategy):
         self.collector.initialise_logging_indicator("position", 2)
         self.collector.initialise_logging_indicator("realized_pnl", 3)
         self.collector.initialise_logging_indicator("unrealized_pnl", 4)
-        self.collector.initialise_logging_indicator("balance", 5)
+        self.collector.initialise_logging_indicator("account_balance", 5)
+        #self.collector.initialise_logging_indicator("balance", 5)
+        
         
         # Get the account using the venue instead of account_id
         venue = self.instrument_id.venue
@@ -146,15 +148,16 @@ class RSISimpleStrategy(Strategy):
 
         net_position = self.portfolio.net_position(self.instrument_id)
         unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)  # Unrealized PnL
+        #realized_pnl = self.portfolio.realized_pnl(self.instrument_id)
         #self.log.info(f"position.quantity: {net_position}", LogColor.RED)
         
         # Get account balance using venue
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
-        #usdt_balance = account.balance_total(Currency.from_str("USDT")) if account else None
-        usdt_balance = account.balances_total()
+        usdt_balance = account.balance_total(Currency.from_str("USDT")).as_double() if account else None
         self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
 
+        self.collector.add_indicator(timestamp=bar.ts_event, name="account_balance", value=usdt_balance)
         self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="RSI", value=float(rsi_value) if rsi_value is not None else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
@@ -211,7 +214,13 @@ class RSISimpleStrategy(Strategy):
         #self.log.info(f"position.quantity: {net_position}", LogColor.RED)
         self.realized_pnl += unrealized_pnl+realized_pnl if unrealized_pnl is not None else 0
         unrealized_pnl = 0
+        venue = self.instrument_id.venue
+        account = self.portfolio.account(venue)
+        usdt_balance = account.balance_total(Currency.from_str("USDT")).as_double() 
+        self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
 
+
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="account_balance", value=usdt_balance)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
