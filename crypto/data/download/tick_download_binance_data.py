@@ -1,242 +1,158 @@
-import shutil
-import zipfile
-from datetime import datetime, timedelta
+import datetime as dt
 from pathlib import Path
 import pandas as pd
 import requests
-from typing import List, Optional
+import zipfile
+import traceback
 
-# API URLs
-BASE_URL = "https://data.binance.vision/data/spot/daily/trades"
-FUTURES_BASE_URL = "https://data.binance.vision/data/futures/um/daily/trades"
+# === 1. Konfiguration ===
+TICKER = "BTCUSDT"
+START_DATE = dt.date(2024, 1, 1)
+END_DATE = dt.date(2024, 1, 3)  # Kleiner Zeitraum zum Testen
+MARKET_TYPE = "futures"  # spot oder futures (geändert zu futures für BTCUSDT-PERP)
 
-# Config
-SYMBOL = "BTCUSDT"
-START_DATE = "2024-01-01"
-END_DATE = "2024-01-31"
-MARKET_TYPE = "spot"
+BASE_DATA_DIR = Path(__file__).resolve().parent.parent / "DATA_STORAGE"
+TEMP_DIR = BASE_DATA_DIR / "temp_tick_downloads"
+start_str = START_DATE.strftime("%Y-%m-%d")
+end_str = END_DATE.strftime("%Y-%m-%d")
+PROCESSED_DIR = BASE_DATA_DIR / f"processed_tick_data_{start_str}_to_{end_str}" / "csv"
 
-# Paths
-DOWNLOAD_DIR = Path(__file__).resolve().parent.parent / "DATA_STORAGE" / "raw_tick_data"
-PROCESSED_DIR = Path(__file__).resolve().parent.parent / "DATA_STORAGE" / "processed_tick_data"
+# Binance URLs
+SPOT_URL = "https://data.binance.vision/data/spot/daily/trades"
+FUTURES_URL = "https://data.binance.vision/data/futures/um/daily/trades"
 
-def create_directories():
-    """Create required directories"""
-    DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Directories created:")
-    print(f"  Download: {DOWNLOAD_DIR}")
-    print(f"  Processed: {PROCESSED_DIR}")
-
-def get_date_range(start_date: str, end_date: str) -> List[str]:
-    """Generate list of dates between start and end"""
-    start = datetime.strptime(start_date, "%Y-%m-%d")
-    end = datetime.strptime(end_date, "%Y-%m-%d")
-    dates = []
-    current = start
-    while current <= end:
-        dates.append(current.strftime("%Y-%m-%d"))
-        current += timedelta(days=1)
-    return dates
-
-def build_download_url(symbol: str, date: str, market_type: str = "spot") -> str:
-    """Build download URL for tick data"""
-    base_url = FUTURES_BASE_URL if market_type == "futures" else BASE_URL
-    filename = f"{symbol}-trades-{date}.zip"
-    return f"{base_url}/{symbol}/{filename}"
-
-def download_tick_file(url: str, local_path: Path) -> bool:
-    """Download tick file"""
+def download_tick_data_for_date(date_str: str) -> pd.DataFrame:
+    """Download und verarbeite Tick-Daten für ein spezifisches Datum"""
+    base_url = FUTURES_URL if MARKET_TYPE == "futures" else SPOT_URL
+    filename = f"{TICKER}-trades-{date_str}.zip"
+    url = f"{base_url}/{TICKER}/{filename}"
+    
+    zip_path = TEMP_DIR / filename
+    csv_path = TEMP_DIR / f"{TICKER}-trades-{date_str}.csv"
+    
     try:
-        print(f"Downloading: {url}")
-        response = requests.get(url, stream=True, timeout=60)
-        if response.status_code == 200:
-            with open(local_path, 'wb') as f:
-                shutil.copyfileobj(response.raw, f)
-            print(f"  ✅ Saved: {local_path.name}")
-            return True
-        else:
-            print(f"  ❌ Error {response.status_code}")
-            return False
-    except Exception as e:
-        print(f"  ❌ Download error: {e}")
-        return False
-
-def extract_zip_file(zip_path: Path, extract_dir: Path) -> Optional[Path]:
-    """Extract ZIP and return CSV path"""
-    try:
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(extract_dir)
-        for file in extract_dir.glob("*.csv"):
-            return file
-        print(f"  ❌ No CSV found in {zip_path.name}")
-        return None
-    except Exception as e:
-        print(f"  ❌ Extract error: {e}")
-        return None
-
-def process_tick_csv(csv_path: Path, symbol: str, date: str) -> Optional[pd.DataFrame]:
-    """Process tick CSV to structured DataFrame"""
-    try:
-        print(f"  Processing: {csv_path.name}")
+        print(f"📥 Download: {date_str}")
+        response = requests.get(url, timeout=60)
+        if response.status_code != 200:
+            print(f"❌ Error {response.status_code} for {date_str}")
+            return pd.DataFrame()
         
+        # ZIP speichern und extrahieren
+        with open(zip_path, 'wb') as f:
+            f.write(response.content)
+        
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(TEMP_DIR)
+        
+        # Prüfe welche CSV-Datei erstellt wurde
+        csv_files = list(TEMP_DIR.glob("*.csv"))
+        if not csv_files:
+            print(f"❌ Keine CSV-Datei gefunden für {date_str}")
+            return pd.DataFrame()
+        
+        csv_path = csv_files[0]  # Nimm die erste CSV-Datei
+        
+        # CSV lesen (Binance Tick Format) - sehr robust
         df = pd.read_csv(
             csv_path,
             names=['trade_id', 'price', 'quantity', 'base_quantity', 'timestamp', 'is_buyer_maker'],
-            dtype={
-                'trade_id': 'int64', 'price': 'float64', 'quantity': 'float64', 
-                'base_quantity': 'float64', 'timestamp': 'int64', 'is_buyer_maker': 'bool'
-            }
+            low_memory=False  # Verhindert DtypeWarning
         )
         
-        if df.empty:
-            print(f"  ❌ Empty CSV")
-            return None
+        # Datentypen sicher konvertieren ohne Int64 (das macht Probleme)
+        df['trade_id'] = pd.to_numeric(df['trade_id'], errors='coerce')
+        df['price'] = pd.to_numeric(df['price'], errors='coerce')
+        df['quantity'] = pd.to_numeric(df['quantity'], errors='coerce')
+        df['base_quantity'] = pd.to_numeric(df['base_quantity'], errors='coerce')
+        df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
+        df['is_buyer_maker'] = df['is_buyer_maker'].astype(str).str.lower() == 'true'
         
-        df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df['symbol'] = symbol
-        df['date'] = date
-        df['side'] = df['is_buyer_maker'].map({True: 'SELL', False: 'BUY'})
-        df = df.sort_values('timestamp').reset_index(drop=True)
+        # Ungültige Zeilen entfernen
+        df.dropna(subset=['price', 'quantity', 'timestamp'], inplace=True)
         
-        print(f"  ✅ {len(df):,} ticks processed")
+        # Nur sinnvolle Daten behalten
+        df = df[df['price'] > 0]
+        df = df[df['quantity'] > 0]
+        df = df[df['timestamp'] > 0]
+        
+        # Cleanup temp files
+        zip_path.unlink(missing_ok=True)
+        for csv_file in TEMP_DIR.glob("*.csv"):
+            csv_file.unlink(missing_ok=True)
+        
+        print(f"✅ {len(df):,} ticks für {date_str}")
         return df
         
     except Exception as e:
-        print(f"  ❌ CSV processing error: {e}")
-        return None
+        print(f"❌ Fehler für {date_str}: {e}")
+        return pd.DataFrame()
 
-def save_combined_tick_data(all_dataframes: List[pd.DataFrame], symbol: str, start_date: str, end_date: str) -> bool:
-    """Save all tick data as one combined Parquet file"""
-    try:
-        if not all_dataframes:
-            print("  ❌ No data to save")
-            return False
-        
-        print(f"📦 Combining {len(all_dataframes)} daily files...")
-        
-        combined_df = pd.concat(all_dataframes, ignore_index=True)
-        combined_df = combined_df.sort_values('timestamp').reset_index(drop=True)
-        
-        columns_order = ['datetime', 'timestamp', 'symbol', 'trade_id', 'price', 'quantity', 'side', 'is_buyer_maker']
-        df_output = combined_df[columns_order].copy()
-        
-        date_range = f"{start_date}_to_{end_date}"
-        output_file = PROCESSED_DIR / f"processed_tick_data_{symbol}_{date_range}.parquet"
-        
-        df_output.to_parquet(output_file, engine='pyarrow', compression='snappy', index=False)
-        
-        file_size = output_file.stat().st_size / (1024 * 1024)
-        print(f"  ✅ Combined file saved: {output_file.name}")
-        print(f"  📊 {len(df_output):,} ticks ({file_size:.1f} MB)")
-        
-        # Metadata for catalog
-        metadata = {
-            'symbol': symbol, 'start_date': start_date, 'end_date': end_date,
-            'market_type': MARKET_TYPE, 'total_ticks': len(df_output), 'date_range': date_range,
-            'file_size_mb': round(file_size, 2), 'data_type': 'tick_data',
-            'created_at': datetime.now().isoformat(), 'columns': list(df_output.columns),
-            'time_range': {
-                'start': df_output['datetime'].min().isoformat(),
-                'end': df_output['datetime'].max().isoformat()
-            }
-        }
-        
-        metadata_file = PROCESSED_DIR / f"processed_tick_data_{symbol}_{date_range}_metadata.json"
-        import json
-        with open(metadata_file, 'w') as f:
-            json.dump(metadata, f, indent=2)
-        
-        print(f"  ✅ Metadata saved: {metadata_file.name}")
-        return True
-        
-    except Exception as e:
-        print(f"  ❌ Save error: {e}")
-        return False
-
-def cleanup_temp_files(temp_dir: Path):
-    """Clean up temp files"""
-    try:
-        for file in temp_dir.glob("*"):
-            if file.is_file():
-                file.unlink()
-        print(f"  🧹 Temp files cleaned")
-    except Exception as e:
-        print(f"  ⚠️ Cleanup warning: {e}")
-
-def download_and_process_ticks():
-    """Main function: Download and process all tick data"""
+def main():
+    print(f"Starte Tick-Download für {TICKER} ({MARKET_TYPE}) von {START_DATE} bis {END_DATE}")
     
-    print("🚀 BINANCE TICK DATA DOWNLOAD & PROCESSING")
-    print("=" * 50)
-    print(f"Symbol: {SYMBOL} | Period: {START_DATE} to {END_DATE} | Market: {MARKET_TYPE}")
-    print("=" * 50)
+    # Verzeichnisse erstellen
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     
-    create_directories()
-    dates = get_date_range(START_DATE, END_DATE)
-    temp_dir = DOWNLOAD_DIR / "temp"
-    temp_dir.mkdir(exist_ok=True)
+    # Alle Daten sammeln
+    all_dfs = []
+    current_date = START_DATE
     
-    total_files = len(dates)
-    success_count = 0
-    failed_count = 0
-    total_ticks = 0
-    all_dataframes = []
-    
-    print(f"\n📅 Processing {total_files} days...")
-    
-    for i, date in enumerate(dates, 1):
-        print(f"\n[{i}/{total_files}] {date}")
+    while current_date <= END_DATE:
+        date_str = current_date.strftime("%Y-%m-%d")
+        df = download_tick_data_for_date(date_str)
         
-        url = build_download_url(SYMBOL, date, MARKET_TYPE)
-        zip_file = temp_dir / f"{SYMBOL}-trades-{date}.zip"
-        
-        if download_tick_file(url, zip_file):
-            csv_file = extract_zip_file(zip_file, temp_dir)
-            if csv_file:
-                df = process_tick_csv(csv_file, SYMBOL, date)
-                if df is not None:
-                    all_dataframes.append(df)
-                    success_count += 1
-                    total_ticks += len(df)
-                    print(f"  ✅ {len(df):,} ticks added to collection")
-                else:
-                    failed_count += 1
-                
-                if csv_file.exists():
-                    csv_file.unlink()
-            else:
-                failed_count += 1
+        if not df.empty:
+            df['date'] = date_str
+            # Doppelte Sicherstellung für timestamp - muss numerisch sein
+            df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
+            df = df.dropna(subset=['timestamp'])  # Entferne Zeilen mit ungültigen timestamps
+            df = df[df['timestamp'] > 0]  # Nur positive timestamps
             
-            if zip_file.exists():
-                zip_file.unlink()
-        else:
-            failed_count += 1
+            # Jetzt datetime erstellen
+            try:
+                df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
+                df['side'] = df['is_buyer_maker'].map({True: 'SELL', False: 'BUY'})
+                all_dfs.append(df)
+                print(f"  ✅ {len(df):,} valide Ticks hinzugefügt")
+            except Exception as e:
+                print(f"  ❌ Datetime-Fehler: {e}")
+                # Debug: Zeige ein paar timestamp-Werte
+                print(f"  Debug - timestamp dtype: {df['timestamp'].dtype}")
+                print(f"  Debug - erste 5 timestamps: {df['timestamp'].head().tolist()}")
+                print(f"  Debug - timestamp min/max: {df['timestamp'].min()}/{df['timestamp'].max()}")
+        
+        current_date += dt.timedelta(days=1)
     
-    cleanup_temp_files(temp_dir)
-    if temp_dir.exists():
-        temp_dir.rmdir()
+    if not all_dfs:
+        print("❌ Keine Daten heruntergeladen")
+        return
     
-    print(f"\n💾 Saving combined tick data...")
-    combined_success = save_combined_tick_data(all_dataframes, SYMBOL, START_DATE, END_DATE)
+    # Kombinieren und speichern
+    print("📦 Kombiniere alle Daten...")
+    combined_df = pd.concat(all_dfs, ignore_index=True)
+    combined_df = combined_df.sort_values('timestamp').reset_index(drop=True)
     
-    print("\n" + "=" * 50)
-    print("📊 DOWNLOAD SUMMARY")
-    print("=" * 50)
-    print(f"✅ Success: {success_count}/{total_files} days")
-    print(f"❌ Failed: {failed_count}/{total_files} days")
-    print(f"📈 Total ticks: {total_ticks:,}")
+    # Spalten für Nautilus vorbereiten
+    columns_order = ['timestamp', 'trade_id', 'price', 'quantity', 'side', 'is_buyer_maker']
+    final_df = combined_df[columns_order]
     
-    if success_count > 0:
-        avg_ticks = total_ticks // success_count
-        print(f"📊 Average: {avg_ticks:,} ticks/day")
+    # CSV speichern (ähnlich wie bei Bars)
+    output_file = PROCESSED_DIR / f"{TICKER}_TICKS_{start_str}_to_{end_str}.csv"
+    final_df.to_csv(output_file, index=False)
     
-    if combined_success:
-        date_range = f"{START_DATE}_to_{END_DATE}"
-        print(f"✅ Combined file: processed_tick_data_{SYMBOL}_{date_range}.parquet")
+    # Cleanup temp
+    if TEMP_DIR.exists():
+        import shutil
+        shutil.rmtree(TEMP_DIR)
     
-    print(f"💾 Output: {PROCESSED_DIR}")
-    print("\n🎯 Tick download completed!")
+    print(f"\n✅ Fertig!")
+    print(f"📊 {len(final_df):,} Ticks gespeichert")
+    print(f"💾 Datei: {output_file}")
 
 if __name__ == "__main__":
-    download_and_process_ticks()
+    try:
+        main()
+    except Exception as e:
+        print(f"❌ Hauptfehler: {e}")
+        traceback.print_exc()
