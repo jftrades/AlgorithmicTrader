@@ -33,7 +33,7 @@ from dashboard import TradingDashboard
 ###################
 
 # Hier die gleichen Parameter wie aus strategy aber halt anpassen
-symbol = Symbol("BTCUSDT-PERP")
+symbol = Symbol("BTCUSDT")
 venue = Venue("BINANCE")
 instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = "BTCUSDT-PERP.BINANCE"

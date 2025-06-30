@@ -1,5 +1,5 @@
 import dash
-from dash import dcc, html, Input, Output
+from dash import dcc, html, Input, Output, callback_context
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
@@ -138,82 +138,194 @@ class TradingDashboard:
                 bars_df=self.bars_df,
                 trades_df=self.trades_df,
                 indicators_df=self.indicators_df,
-                metrics=self.metrics
+                metrics=self.metrics,
+                nautilus_result=self.nautilus_result  # <-- Pass result for units
             )
             dashboard_app.run(debug=True, port=8050)
 
 # Dashboard App Klasse
 class DashboardApp:
-    def __init__(self, title="Simple Trading Dashboard", bars_df=None, trades_df=None, indicators_df=None, metrics=None):
-        self.app = dash.Dash(__name__)
+    def __init__(self, title="Simple Trading Dashboard", bars_df=None, trades_df=None, indicators_df=None, metrics=None, nautilus_result=None):
+        self.app = dash.Dash(__name__, suppress_callback_exceptions=True)
         self.app.title = title
         self.bars_df = bars_df
         self.trades_df = trades_df
         self.indicators_df = indicators_df or {}
         self.metrics = metrics or {}
+        self.nautilus_result = nautilus_result  # <-- Store result for units
+        self.selected_trade_index = None  # Für visuelles Feedback bei angeklickten Trades
         self.app.layout = self._create_layout()
         self._register_callbacks()
 
     def _create_layout(self):
         return html.Div([
-            html.H1("Professional Trading Dashboard", style={
-                'textAlign': 'center', 
-                'color': '#2c3e50', 
-                'marginBottom': '30px',
-                'fontFamily': 'Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
-                'fontWeight': '600',
-                'letterSpacing': '-0.025em'
+            # Header mit Gradient-Background
+            html.Div([
+                # Credits oben rechts
+                html.Div("by Raph & Ferdi", style={
+                    'position': 'absolute',
+                    'top': '8px',
+                    'right': '15px',
+                    'color': 'rgba(255,255,255,0.6)',
+                    'fontSize': '10px',
+                    'fontFamily': 'Inter, system-ui, sans-serif',
+                    'fontWeight': '400',
+                    'letterSpacing': '0.5px'
+                }),
+                html.H1("Algorithmic Trading Dashboard", style={
+                    'textAlign': 'center', 
+                    'color': '#ffffff', 
+                    'marginBottom': '0px',
+                    'marginTop': '0px',  # Kein Abstand zur Oberkante
+                    'fontFamily': 'Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+                    'fontWeight': '700',
+                    'letterSpacing': '-0.02em',
+                    'fontSize': '2rem',
+                    'textShadow': '0 2px 4px rgba(0,0,0,0.1)'
+                }),
+                html.P("Professional Trading Analytics & Performance Monitoring", style={
+                    'textAlign': 'center',
+                    'color': 'rgba(255,255,255,0.9)',
+                    'fontFamily': 'Inter, system-ui, sans-serif',
+                    'fontSize': '0.9rem',
+                    'fontWeight': '400',
+                    'margin': '5px 0 0 0',
+                    'letterSpacing': '0.01em'
+                })
+            ], style={
+                'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                'padding': '15px 20px',  # Gleichmäßiges Padding oben und unten
+                'marginBottom': '0px',
+                'borderRadius': '0',
+                'boxShadow': '0 4px 16px rgba(0,0,0,0.1)',
+                'position': 'relative',
+                'display': 'flex',
+                'flexDirection': 'column',
+                'justifyContent': 'center',  # Inhalt vertikal zentrieren
+                'alignItems': 'center',
+                'minHeight': '85px'
             }),
             
-            # Hauptchart für Bars und Trades (größer)
+            # Main Content Container
             html.Div([
-                html.H3("Price Data & Trading Signals", style={
-                    'color': '#34495e', 
-                    'marginBottom': '15px',
-                    'fontFamily': 'Inter, system-ui, sans-serif',
-                    'fontWeight': '500'
-                }),
-                # Container für Chart ohne Overlay-Infobox
+                # Trade Details Panel (professionell gestylt)
                 html.Div([
-                    dcc.Graph(id='price-chart', style={'height': '650px'})
-                ], style={'position': 'relative'})
-            ], style={'margin': '20px 0'}),
-            
-            # Container für dynamische Indikator-Subplots
-            html.Div(id='indicators-container'),
-            
-            # Performance Metriken (professioneller)
-            html.Div([
-                html.H3("Performance Metrics", style={
-                    'color': '#34495e', 
+                    html.Div(id='trade-details-panel', children=[
+                        html.Div([
+                            html.H4("Trade Details", style={
+                                'color': '#2c3e50',
+                                'marginBottom': '10px',
+                                'fontFamily': 'Inter, system-ui, sans-serif',
+                                'fontWeight': '600',
+                                'textAlign': 'center',
+                                'fontSize': '18px',
+                                'letterSpacing': '-0.01em'
+                            }),
+                            html.P("Click on a trade marker in the chart below to see details", style={
+                                'color': '#6c757d',
+                                'fontFamily': 'Inter, system-ui, sans-serif',
+                                'textAlign': 'center',
+                                'fontSize': '14px',
+                                'margin': '0',
+                                'fontWeight': '400'
+                            })
+                        ])
+                    ])
+                ], style={
+                    'background': 'linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%)',
+                    'border': '1px solid rgba(222, 226, 230, 0.6)',
+                    'borderRadius': '0 0 16px 16px',
+                    'padding': '20px',
                     'marginBottom': '15px',
-                    'fontFamily': 'Inter, system-ui, sans-serif',
-                    'fontWeight': '500'
+                    'maxHeight': '300px',
+                    'overflowY': 'auto',
+                    'boxShadow': '0 4px 20px rgba(0,0,0,0.08)',
+                    'backdropFilter': 'blur(10px)',
+                    'position': 'relative'
                 }),
-                html.Div(id='metrics-display', style={
-                    'backgroundColor': '#f8f9fa',
-                    'border': '1px solid #dee2e6',
-                    'borderRadius': '8px',
-                    'padding': '20px'
-                })
-            ], style={'margin': '20px 0'}),
-            
-            html.Button('Update Dashboard', id='refresh-btn', n_clicks=0,
-                        style={
-                            'margin': '20px auto',
-                            'padding': '12px 24px',
-                            'fontSize': '16px',
-                            'backgroundColor': '#3498db',
-                            'color': 'white',
-                            'border': 'none',
-                            'borderRadius': '6px',
-                            'cursor': 'pointer',
-                            'display': 'block',
+
+                # Hauptchart für Bars und Trades (mit Card-Design)
+                html.Div([
+                    html.Div([
+                        html.H3("Price Data & Trading Signals", style={
+                            'color': '#2c3e50', 
+                            'marginBottom': '20px',
                             'fontFamily': 'Inter, system-ui, sans-serif',
-                            'fontWeight': '500'
+                            'fontWeight': '600',
+                            'fontSize': '20px',
+                            'letterSpacing': '-0.01em'
+                        }),
+                        dcc.Graph(id='price-chart', style={'height': '650px'})
+                    ], style={
+                        'background': '#ffffff',
+                        'borderRadius': '16px',
+                        'padding': '25px',
+                        'boxShadow': '0 4px 20px rgba(0,0,0,0.08)',
+                        'border': '1px solid rgba(222, 226, 230, 0.6)'
+                    })
+                ], style={'margin': '15px 20px'}),
+                
+                # Container für alle Indikator-Subplots (zusammengefasst)
+                html.Div([
+                    html.Div(id='indicators-container')
+                ], style={'margin': '10px 20px'}),
+                
+                # Performance Metriken (Premium Card Design)
+                html.Div([
+                    html.Div([
+                        html.H3("Performance Metrics", style={
+                            'color': '#2c3e50', 
+                            'marginBottom': '20px',
+                            'fontFamily': 'Inter, system-ui, sans-serif',
+                            'fontWeight': '600',
+                            'fontSize': '20px',
+                            'letterSpacing': '-0.01em'
+                        }),
+                        html.Div(id='metrics-display', style={
+                            'background': 'linear-gradient(145deg, #f8f9fa 0%, #ffffff 100%)',
+                            'border': '1px solid rgba(222, 226, 230, 0.6)',
+                            'borderRadius': '12px',
+                            'padding': '25px'
                         })
+                    ], style={
+                        'background': '#ffffff',
+                        'borderRadius': '16px',
+                        'padding': '25px',
+                        'boxShadow': '0 4px 20px rgba(0,0,0,0.08)',
+                        'border': '1px solid rgba(222, 226, 230, 0.6)'
+                    })
+                ], style={'margin': '15px 20px'}),
+                
+                # Refresh Button (moderne Version)
+                html.Div([
+                    html.Button('Update Dashboard', id='refresh-btn', n_clicks=0,
+                                style={
+                                    'padding': '14px 32px',
+                                    'fontSize': '16px',
+                                    'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                    'color': 'white',
+                                    'border': 'none',
+                                    'borderRadius': '25px',
+                                    'cursor': 'pointer',
+                                    'fontFamily': 'Inter, system-ui, sans-serif',
+                                    'fontWeight': '600',
+                                    'letterSpacing': '0.01em',
+                                    'boxShadow': '0 4px 15px rgba(102, 126, 234, 0.4)',
+                                    'transition': 'all 0.3s ease',
+                                    'textShadow': '0 1px 2px rgba(0,0,0,0.1)'
+                                })
+                ], style={
+                    'textAlign': 'center',
+                    'margin': '30px 0'
+                })
+            ], style={
+                'maxWidth': '100%',
+                'margin': '0',
+                'padding': '0'
+            })
         ], style={
-            'padding': '0 20px', 
+            'minHeight': '100vh',
+            'background': 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
             'fontFamily': 'Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif'
         })
 
@@ -221,242 +333,616 @@ class DashboardApp:
         @self.app.callback(
             [Output('price-chart', 'figure'),
              Output('indicators-container', 'children'),
-             Output('metrics-display', 'children')],
-            [Input('refresh-btn', 'n_clicks')]
+             Output('metrics-display', 'children'),
+             Output('trade-details-panel', 'children')],
+            [Input('refresh-btn', 'n_clicks'),
+             Input('price-chart', 'clickData')],
+            prevent_initial_call=False
         )
-        def update_dashboard(n_clicks):
-            # Charts erstellen
-            price_fig = self.create_price_chart()
-            indicators_components = self.create_indicator_subplots()
-            
-            # Metriken in professioneller Tabelle
-            metrics_table = self.create_metrics_table()
+        def update_dashboard(refresh_clicks, clickData):
+            try:
+                # Bestimme welcher Input getriggert wurde
+                ctx = dash.callback_context
+                if not ctx.triggered:
+                    triggered_id = 'refresh-btn'
+                else:
+                    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
                 
-            return price_fig, indicators_components, metrics_table
+                # Basis-Charts und Metriken erstellen
+                try:
+                    indicators_components = self.create_indicator_subplots()
+                except Exception as e:
+                    print(f"Fehler bei Indikatoren: {e}")
+                    indicators_components = []
+                
+                try:
+                    metrics_table = self.create_metrics_table()
+                except Exception as e:
+                    print(f"Fehler bei Metriken: {e}")
+                    metrics_table = html.Div("Metrics could not be loaded")
+                
+                # Trade-Details und Chart basierend auf Click-Data
+                if triggered_id == 'price-chart' and clickData and self.trades_df is not None and not self.trades_df.empty:
+                    try:
+                        # Suche nach Trade-Marker mit customdata in allen Points
+                        trade_point = None
+                        for point in clickData['points']:
+                            if 'customdata' in point:
+                                trade_point = point
+                                break
+                        
+                        if trade_point is not None:
+                            trade_index = trade_point['customdata']
+                            if trade_index < len(self.trades_df):
+                                # Setze ausgewählten Trade
+                                self.selected_trade_index = trade_index
+                                trade_data = self.trades_df.iloc[trade_index]
+                                trade_details = self.create_trade_details_content(trade_data)
+                            else:
+                                self.selected_trade_index = None
+                                trade_details = self.get_default_trade_details()
+                        else:
+                            # Klick war nicht auf Trade-Marker - Reset Selection
+                            self.selected_trade_index = None
+                            trade_details = self.get_default_trade_details_with_message()
+                    except Exception as e:
+                        print(f"Fehler bei Trade-Details: {e}")
+                        self.selected_trade_index = None
+                        trade_details = self.get_default_trade_details()
+                else:
+                    # Refresh oder kein Click-Data
+                    self.selected_trade_index = None
+                    trade_details = self.get_default_trade_details()
+                
+                # Chart mit aktuellem Selection-State erstellen
+                try:
+                    price_fig = self.create_price_chart()
+                except Exception as e:
+                    print(f"Fehler bei Chart-Erstellung: {e}")
+                    # Fallback - leerer Chart
+                    price_fig = go.Figure()
+                    price_fig.update_layout(title="Chart could not be loaded")
+                
+                return price_fig, indicators_components, metrics_table, trade_details
+            
+            except Exception as e:
+                print(f"Allgemeiner Callback-Fehler: {e}")
+                # Fallback-Rückgabe
+                empty_fig = go.Figure()
+                empty_fig.update_layout(title="Error loading dashboard")
+                return empty_fig, [], html.Div("Error"), self.get_default_trade_details()
 
-        # Dynamische Callbacks für Indikator-Subplots
-        self._register_indicator_sync_callbacks()
+        # Dynamische Callbacks für Indikator-Subplots nur wenn Indikatoren vorhanden
+        try:
+            self._register_indicator_sync_callbacks()
+        except Exception as e:
+            print(f"Fehler bei Indikator-Callbacks: {e}")
+    
+    def get_default_trade_details(self):
+        """Standard Trade-Details Anzeige."""
+        return [
+            html.Div([
+                html.H4("Trade Details", style={
+                    'color': '#34495e',
+                    'marginBottom': '10px',
+                    'fontFamily': 'Inter, system-ui, sans-serif',
+                    'fontWeight': '500',
+                    'textAlign': 'center',
+                    'fontSize': '16px'
+                }),
+                html.P("Click on a trade marker in the chart below to see details", style={
+                    'color': '#6c757d',
+                    'fontFamily': 'Inter, system-ui, sans-serif',
+                    'textAlign': 'center',
+                    'fontSize': '14px',
+                    'margin': '0'
+                })
+            ])
+        ]
+    
+    def get_default_trade_details_with_message(self):
+        """Trade-Details mit Hinweis-Message."""
+        return [
+            html.Div([
+                html.H4("Trade Details", style={
+                    'color': '#34495e',
+                    'marginBottom': '10px',
+                    'fontFamily': 'Inter, system-ui, sans-serif',
+                    'fontWeight': '500',
+                    'textAlign': 'center',
+                    'fontSize': '16px'
+                }),
+                html.P("Please click directly on a trade marker (triangle) to see details", style={
+                    'color': '#dc3545',
+                    'fontFamily': 'Inter, system-ui, sans-serif',
+                    'textAlign': 'center',
+                    'fontSize': '14px'
+                })
+            ])
+        ]
 
     def create_price_chart(self):
         """Erstellt Chart für Bars und Trades + Indikatoren mit Plot-ID 0."""
-        fig = go.Figure()
-        
-        # 1. OHLC Chart falls Bars vorhanden - professionelle Farben (Basis-Layer)
-        if self.bars_df is not None and not self.bars_df.empty:
-            bars = self.bars_df
-            fig.add_trace(
-                go.Candlestick(
-                    x=pd.to_datetime(bars['timestamp']),
-                    open=bars['open'],
-                    high=bars['high'], 
-                    low=bars['low'],
-                    close=bars['close'],
-                    name='OHLC',
-                    increasing_line_color='#26a69a',
-                    decreasing_line_color='#ef5350',
-                    increasing_fillcolor='#26a69a',
-                    decreasing_fillcolor='#ef5350',
-                    showlegend=True,
-                    hoverlabel=dict(
-                        bgcolor="rgba(255,255,255,0.97)",
-                        bordercolor="#666",
-                        font=dict(size=12, color="#222")
+        try:
+            fig = go.Figure()
+            
+            # 1. OHLC Chart falls Bars vorhanden - professionelle Farben (Basis-Layer)
+            if self.bars_df is not None and not self.bars_df.empty:
+                try:
+                    bars = self.bars_df
+                    fig.add_trace(
+                        go.Candlestick(
+                            x=pd.to_datetime(bars['timestamp']),
+                            open=bars['open'],
+                            high=bars['high'], 
+                            low=bars['low'],
+                            close=bars['close'],
+                            name='OHLC',
+                            increasing_line_color='#26a69a',
+                            decreasing_line_color='#ef5350',
+                            increasing_fillcolor='#26a69a',
+                            decreasing_fillcolor='#ef5350',
+                            showlegend=True
+                        )
                     )
-                )
+                except Exception as e:
+                    print(f"Fehler bei OHLC-Chart: {e}")
+
+            # 2. Indikatoren mit Plot-ID 0 hinzufügen (gleicher Plot wie Bars)
+            try:
+                indicator_colors = ['#000000', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.5)', 'rgba(64,64,64,0.8)']
+                color_idx = 0
+                for name, indicator_df in self.indicators_df.items():
+                    try:
+                        if not indicator_df.empty and indicator_df.iloc[0]['plot_id'] == 0:
+                            line_color = indicator_colors[color_idx % len(indicator_colors)]
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=pd.to_datetime(indicator_df['timestamp']),
+                                    y=indicator_df['value'],
+                                    mode='lines',
+                                    name=f"{name.upper()}",
+                                    line=dict(color=line_color, width=2.5),
+                                    showlegend=True
+                                )
+                            )
+                            color_idx += 1
+                    except Exception as e:
+                        print(f"Fehler bei Indikator {name}: {e}")
+            except Exception as e:
+                print(f"Fehler bei Indikatoren: {e}")
+            
+            # 3. Trade-Signale falls Trades vorhanden
+            if self.trades_df is not None and not self.trades_df.empty:
+                try:
+                    trades = self.trades_df
+                    buy_trades = trades[trades['action'] == 'BUY']
+                    if not buy_trades.empty:
+                        # Normale BUY Trades
+                        normal_buy_trades = buy_trades[~buy_trades.index.isin([self.selected_trade_index] if self.selected_trade_index is not None else [])]
+                        if not normal_buy_trades.empty:
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=pd.to_datetime(normal_buy_trades['timestamp']),
+                                    y=normal_buy_trades.get('open_price_actual', normal_buy_trades.get('price_actual', 0)),
+                                    mode='markers',
+                                    name='BUY Signal',
+                                    marker=dict(
+                                        symbol='triangle-up', 
+                                        size=18,
+                                        color='#28a745',
+                                        line=dict(color='#ffffff', width=1),
+                                        opacity=0.9
+                                    ),
+                                    customdata=normal_buy_trades.index.tolist(),
+                                    hovertemplate='<b>BUY Signal</b><br>Time: %{x}<br>Price: %{y:.2f} USDT<extra></extra>',
+                                    showlegend=True
+                                )
+                            )
+                        
+                        # Ausgewählter BUY Trade (falls vorhanden)
+                        if self.selected_trade_index is not None and self.selected_trade_index in buy_trades.index:
+                            selected_trade = buy_trades.loc[[self.selected_trade_index]]
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=pd.to_datetime(selected_trade['timestamp']),
+                                    y=selected_trade.get('open_price_actual', selected_trade.get('price_actual', 0)),
+                                    mode='markers',
+                                    name='Selected BUY',
+                                    marker=dict(
+                                        symbol='triangle-up', 
+                                        size=18,
+                                        color='#28a745',
+                                        line=dict(color='#000000', width=1),
+                                        opacity=1.0
+                                    ),
+                                    customdata=[self.selected_trade_index],
+                                    hovertemplate='<b>SELECTED BUY Signal</b><br>Time: %{x}<br>Price: %{y:.2f} USDT<extra></extra>',
+                                    showlegend=False
+                                )
+                            )
+                            
+                    sell_trades = trades[trades['action'] == 'SHORT']
+                    if not sell_trades.empty:
+                        # Normale SELL Trades
+                        normal_sell_trades = sell_trades[~sell_trades.index.isin([self.selected_trade_index] if self.selected_trade_index is not None else [])]
+                        if not normal_sell_trades.empty:
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=pd.to_datetime(normal_sell_trades['timestamp']),
+                                    y=normal_sell_trades.get('open_price_actual', normal_sell_trades.get('price_actual', 0)),
+                                    mode='markers',
+                                    name='SELL Signal',
+                                    marker=dict(
+                                        symbol='triangle-down', 
+                                        size=18,
+                                        color='#dc3545',
+                                        line=dict(color='#ffffff', width=1),
+                                        opacity=0.9
+                                    ),
+                                    customdata=normal_sell_trades.index.tolist(),
+                                    hovertemplate='<b>SELL Signal</b><br>Time: %{x}<br>Price: %{y:.2f} USDT<extra></extra>',
+                                    showlegend=True
+                                )
+                            )
+                        
+                        # Ausgewählter SELL Trade (falls vorhanden)
+                        if self.selected_trade_index is not None and self.selected_trade_index in sell_trades.index:
+                            selected_trade = sell_trades.loc[[self.selected_trade_index]]
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=pd.to_datetime(selected_trade['timestamp']),
+                                    y=selected_trade.get('open_price_actual', selected_trade.get('price_actual', 0)),
+                                    mode='markers',
+                                    name='Selected SELL',
+                                    marker=dict(
+                                        symbol='triangle-down', 
+                                        size=18,
+                                        color='#dc3545',
+                                        line=dict(color='#000000', width=1),
+                                        opacity=1.0
+                                    ),
+                                    customdata=[self.selected_trade_index],
+                                    hovertemplate='<b>SELECTED SELL Signal</b><br>Time: %{x}<br>Price: %{y:.2f} USDT<extra></extra>',
+                                    showlegend=False
+                                )
+                            )
+                    
+                    
+                    # Trade-Visualisierung für ausgewählten Trade (Entry/Exit Linien und TP/SL Boxen)
+                    if self.selected_trade_index is not None:
+                        self.add_trade_visualization(fig, self.selected_trade_index)
+                except Exception as e:
+                    print(f"Fehler bei Trade-Signalen: {e}")
+            
+            # Layout-Update mit einfacheren Einstellungen
+            fig.update_layout(
+                title="",
+                xaxis_title="Time",
+                yaxis_title="Price (USDT)",
+                template="plotly_white",
+                showlegend=True,
+                legend=dict(
+                    x=0.01,  # Linke Seite (1% vom linken Rand)
+                    y=0.99,  # Obere Seite (99% von unten)
+                    bgcolor='rgba(255,255,255,0.9)',  # Weißer Hintergrund mit Transparenz
+                    bordercolor='rgba(0,0,0,0.1)',    # Dünner grauer Rand
+                    borderwidth=1,
+                    font=dict(family='Inter, system-ui, sans-serif', size=11)
+                ),
+                margin=dict(t=30, b=60, l=60, r=20),  # Gleiche Margins wie Indikator-Charts
+                uirevision='price-chart-stable',
+                hovermode='closest',
+                clickmode='event',
+                dragmode='zoom',  # Zoom wieder aktivieren
+                xaxis_rangeslider_visible=False  # Range slider deaktivieren
             )
-            # Unsichtbarer Scatter für individuelles Hover-Kästchen
+            
+            return fig
+            
+        except Exception as e:
+            print(f"Schwerwiegender Fehler bei Chart-Erstellung: {e}")
+            # Absoluter Fallback
+            fig = go.Figure()
+            fig.update_layout(title="Chart Error - Please refresh")
+            return fig
+
+    def add_trade_visualization(self, fig, trade_index):
+        """
+        Fügt professionelle Trade-Visualisierung hinzu:
+        - Entry und Exit Linien (gestrichelt, schwarz, über ganzen Chart)
+        - TP/SL Boxen (falls vorhanden)
+        - Exit-Marker (kleines schwarzes X)
+        """
+        try:
+            if self.trades_df is None or trade_index not in self.trades_df.index:
+                return
+            
+            trade = self.trades_df.loc[trade_index]
+            
+            # Trade-Daten extrahieren mit neuen CSV-Spaltennamen
+            entry_time = pd.to_datetime(trade['timestamp'])
+            entry_price = trade.get('open_price_actual', trade.get('price_actual', None))  # Fallback für alte Daten
+            action = trade['action']  # BUY oder SHORT
+            
+            # Exit-Daten (falls vorhanden)
+            exit_time = None
+            exit_price = None
+            if pd.notna(trade.get('closed_timestamp', None)) and pd.notna(trade.get('close_price_actual', None)):
+                exit_time = pd.to_datetime(trade['closed_timestamp'])
+                exit_price = trade['close_price_actual']
+            
+            # TP/SL Daten
+            tp = trade.get('tp', None)
+            sl = trade.get('sl', None)
+            
+            # 1. Entry-Linie (gestrichelt, schwarz, über ganzen Chart)
+            if entry_price is not None:
+                self._add_price_line_full_chart(fig, entry_price, "Entry", "#000000", dash="dash")
+            
+            # 2. Exit-Linie und Exit-Marker (falls vorhanden)
+            if exit_time is not None and exit_price is not None:
+                self._add_price_line_full_chart(fig, exit_price, "Exit", "#000000", dash="dash")
+                self._add_exit_marker_small(fig, exit_time, exit_price)
+            
+            # 3. TP/SL Boxen (falls vorhanden)
+            if exit_time is not None and entry_price is not None and (pd.notna(tp) or pd.notna(sl)):
+                self._add_tp_sl_boxes(fig, entry_time, exit_time, entry_price, action, tp, sl)
+                
+        except Exception as e:
+            print(f"Fehler bei Trade-Visualisierung: {e}")
+    
+    def _add_price_line_full_chart(self, fig, price, name, color, dash="solid"):
+        """Fügt eine horizontale Preis-Linie über den ganzen Chart hinzu."""
+        try:
+            # Bestimme den vollen Zeitbereich des Charts
+            if self.bars_df is not None and not self.bars_df.empty:
+                min_time = pd.to_datetime(self.bars_df['timestamp'].min())
+                max_time = pd.to_datetime(self.bars_df['timestamp'].max())
+            else:
+                # Fallback: 24 Stunden Bereich
+                now = pd.Timestamp.now()
+                min_time = now - pd.Timedelta(hours=12)
+                max_time = now + pd.Timedelta(hours=12)
+            
             fig.add_trace(
                 go.Scatter(
-                    x=pd.to_datetime(bars['timestamp']),
-                    y=bars['close'],
-                    mode='markers',
-                    marker=dict(opacity=0),
-                    name='Bar Info',
-                    hovertemplate='<b>Datum:</b> %{x|%Y-%m-%d %H:%M:%S}<br><b>Preis:</b> %{y:.2f}<extra></extra>',
-                    showlegend=False
+                    x=[min_time, max_time],
+                    y=[price, price],
+                    mode='lines',
+                    name=f"{name} Line",
+                    line=dict(color=color, width=1, dash=dash),
+                    showlegend=False,
+                    hovertemplate=f'<b>{name} Price</b><br>Price: {price:.4f} USDT<extra></extra>'
                 )
             )
+        except Exception as e:
+            print(f"Fehler bei Vollchart-Preis-Linie: {e}")
 
-        # 2. Indikatoren mit Plot-ID 0 hinzufügen (gleicher Plot wie Bars) - EMA als durchgezogene Linien
-        # Neutrale Farbpalette mit angepasster Transparenz für bessere Sichtbarkeit der Bars
-        indicator_colors = [
-            'rgba(0,0,0,0.4)',      # Schwarz (erste EMA) - deutlich transparenter
-            'rgba(64,64,64,0.8)',   # Dunkelgrau (zweite EMA)
-            'rgba(139,69,19,0.8)',  # Braun (dritte EMA)
-            'rgba(114,9,183,0.8)'   # Lila (vierte EMA)
-        ]
-        
-        color_idx = 0
-        for name, indicator_df in self.indicators_df.items():
-            if not indicator_df.empty and indicator_df.iloc[0]['plot_id'] == 0:
-                line_color = indicator_colors[color_idx % len(indicator_colors)]
-                fig.add_trace(
-                    go.Scatter(
-                        x=pd.to_datetime(indicator_df['timestamp']),
-                        y=indicator_df['value'],
-                        mode='lines',  # Keine Marker!
-                        name=f"{name.upper()}",
-                        line=dict(
-                            color=line_color, 
-                            width=2.5,
-                            dash='solid'
-                        ),
-                        hoverinfo='skip',  # Keine Hover-Symbole
-                        hovertemplate=None,
-                        showlegend=True,
-                        hoverlabel=dict(
-                            bgcolor="rgba(0,0,0,0)",
-                            bordercolor="rgba(0,0,0,0)",
-                            font=dict(size=1, color="rgba(0,0,0,0)")
-                        )
-                    )
+    def _add_price_line(self, fig, time, price, name, color, dash="solid"):
+        """Fügt eine horizontale Preis-Linie hinzu."""
+        try:
+            # Bestimme Zeitbereich für die Linie (erweitert um 10% der sichtbaren Zeit)
+            if self.bars_df is not None and not self.bars_df.empty:
+                min_time = pd.to_datetime(self.bars_df['timestamp'].min())
+                max_time = pd.to_datetime(self.bars_df['timestamp'].max())
+                time_range = max_time - min_time
+                extension = time_range * 0.1
+                
+                start_time = max(min_time, time - extension)
+                end_time = min(max_time, time + extension)
+            else:
+                # Fallback: 1 Stunde vor und nach dem Trade
+                start_time = time - pd.Timedelta(hours=1)
+                end_time = time + pd.Timedelta(hours=1)
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=[start_time, end_time],
+                    y=[price, price],
+                    mode='lines',
+                    name=f"{name} Line",
+                    line=dict(color=color, width=2, dash=dash),
+                    showlegend=False,
+                    hovertemplate=f'<b>{name} Price</b><br>Price: {price:.2f} USDT<extra></extra>'
                 )
-                color_idx += 1
-        
-        # 3. Trade-Signale falls Trades vorhanden - Im Vordergrund (Top-Layer)
-        if self.trades_df is not None and not self.trades_df.empty:
-            trades = self.trades_df
-            buy_trades = trades[trades['action'] == 'BUY']
-            if not buy_trades.empty:
-                fig.add_trace(
-                    go.Scatter(
-                        x=pd.to_datetime(buy_trades['timestamp']),
-                        y=buy_trades['price_actual'],
-                        mode='markers',
-                        name='BUY Signal',
-                        marker=dict(
-                            symbol='triangle-up', 
-                            size=20,
-                            color='#28a745',
-                            line=dict(color='#ffffff', width=3)
-                        ),
-                        hoverinfo='skip',
-                        hovertemplate=None,
-                        showlegend=True,
-                        hoverlabel=dict(
-                            bgcolor="rgba(0,0,0,0)",
-                            bordercolor="rgba(0,0,0,0)",
-                            font=dict(size=1, color="rgba(0,0,0,0)")
-                        )
-                    )
-                )
-            sell_trades = trades[trades['action'] == 'SHORT']
-            if not sell_trades.empty:
-                fig.add_trace(
-                    go.Scatter(
-                        x=pd.to_datetime(sell_trades['timestamp']),
-                        y=sell_trades['price_actual'],
-                        mode='markers',
-                        name='SELL Signal',
-                        marker=dict(
-                            symbol='triangle-down', 
-                            size=20,
-                            color='#dc3545',
-                            line=dict(color='#ffffff', width=3)
-                        ),
-                        hoverinfo='skip',
-                        hovertemplate=None,
-                        showlegend=True,
-                        hoverlabel=dict(
-                            bgcolor="rgba(0,0,0,0)",
-                            bordercolor="rgba(0,0,0,0)",
-                            font=dict(size=1, color="rgba(0,0,0,0)")
-                        )
-                    )
-                )
-        
-        fig.update_layout(
-            title="",
-            xaxis_title="Time",
-            yaxis_title="Price (USDT)",
-            xaxis_rangeslider_visible=False,
-            template="plotly_white",
-            showlegend=True,
-            legend=dict(
-                x=0, 
-                y=1, 
-                bgcolor='rgba(255,255,255,0.95)',
-                bordercolor='rgba(0,0,0,0.1)',
-                borderwidth=1,
-                font=dict(family='Inter, system-ui, sans-serif', size=12)
-            ),
-            uirevision='price-chart',
-            hovermode='x',  # Crosshair-Linien beim Hover wieder aktiv
-            margin=dict(t=30, b=60, l=60, r=120),  # rechter Rand erhöht
-            font=dict(family='Inter, system-ui', size=12),
-            # Crosshair-Linien aktivieren
-            xaxis=dict(
-                showspikes=True,
-                spikecolor="#666666",
-                spikethickness=1,
-                spikedash="solid",
-                spikemode="across"
-            ),
-            yaxis=dict(
-                showspikes=True,
-                spikecolor="#666666", 
-                spikethickness=1,
-                spikedash="solid",
-                spikemode="across"
-            ),
-            # Hover-Labels komplett unsichtbar machen
-            hoverlabel=dict(
-                bgcolor="rgba(0,0,0,0)",
-                bordercolor="rgba(0,0,0,0)",
-                font_size=1,
-                font_color="rgba(0,0,0,0)"
             )
-        )
-        
-        return fig
+        except Exception as e:
+            print(f"Fehler bei Preis-Linie: {e}")
+    
+    def _add_exit_marker_small(self, fig, exit_time, exit_price):
+        """Fügt einen kleinen schwarzen X-Marker am Exit-Punkt hinzu."""
+        try:
+            fig.add_trace(
+                go.Scatter(
+                    x=[exit_time],
+                    y=[exit_price],
+                    mode='markers',
+                    name='Trade Exit',
+                    marker=dict(
+                        symbol='x',
+                        size=10,  # Kleiner als vorher
+                        color='#000000',
+                        line=dict(color='#ffffff', width=1)
+                    ),
+                    showlegend=False,
+                    hovertemplate='<b>Trade Exit</b><br>Time: %{x}<br>Price: %{y:.4f} USDT<extra></extra>'
+                )
+            )
+        except Exception as e:
+            print(f"Fehler bei kleinem Exit-Marker: {e}")
+
+    def _add_exit_marker(self, fig, exit_time, exit_price):
+        """Fügt einen schwarzen X-Marker am Exit-Punkt hinzu."""
+        try:
+            fig.add_trace(
+                go.Scatter(
+                    x=[exit_time],
+                    y=[exit_price],
+                    mode='markers',
+                    name='Trade Exit',
+                    marker=dict(
+                        symbol='x',
+                        size=15,
+                        color='#000000',
+                        line=dict(color='#ffffff', width=2)
+                    ),
+                    showlegend=False,
+                    hovertemplate='<b>Trade Exit</b><br>Time: %{x}<br>Price: %{y:.2f} USDT<extra></extra>'
+                )
+            )
+        except Exception as e:
+            print(f"Fehler bei Exit-Marker: {e}")
+    
+    def _add_tp_sl_boxes(self, fig, entry_time, exit_time, entry_price, action, tp, sl):
+        """Fügt TP/SL Boxen wie im professionellen Trading-Interface hinzu."""
+        try:
+            is_long = action == 'BUY'
+            
+            # TP Box (Take Profit)
+            if pd.notna(tp) and tp > 0:
+                if is_long:
+                    # Long: TP ist oberhalb Entry (grün)
+                    box_color = "rgba(76, 175, 80, 0.2)"  # Grün
+                    line_color = "#4CAF50"
+                    tp_y_top = max(tp, entry_price)
+                    tp_y_bottom = min(tp, entry_price)
+                else:
+                    # Short: TP ist unterhalb Entry (grün für Short)
+                    box_color = "rgba(76, 175, 80, 0.2)"  # Grün
+                    line_color = "#4CAF50"
+                    tp_y_top = max(tp, entry_price)
+                    tp_y_bottom = min(tp, entry_price)
+                
+                self._add_box(fig, entry_time, exit_time, tp_y_bottom, tp_y_top, 
+                             box_color, line_color, "TP")
+            
+            # SL Box (Stop Loss)
+            if pd.notna(sl) and sl > 0:
+                if is_long:
+                    # Long: SL ist unterhalb Entry (rot)
+                    box_color = "rgba(244, 67, 54, 0.2)"  # Rot
+                    line_color = "#F44336"
+                    sl_y_top = max(sl, entry_price)
+                    sl_y_bottom = min(sl, entry_price)
+                else:
+                    # Short: SL ist oberhalb Entry (rot für Short)
+                    box_color = "rgba(244, 67, 54, 0.2)"  # Rot
+                    line_color = "#F44336"
+                    sl_y_top = max(sl, entry_price)
+                    sl_y_bottom = min(sl, entry_price)
+                
+                self._add_box(fig, entry_time, exit_time, sl_y_bottom, sl_y_top, 
+                             box_color, line_color, "SL")
+                
+        except Exception as e:
+            print(f"Fehler bei TP/SL Boxen: {e}")
+    
+    def _add_box(self, fig, start_time, end_time, y_bottom, y_top, fill_color, line_color, label):
+        """Fügt eine rechteckige Box hinzu."""
+        try:
+            # Box als gefüllte Fläche
+            fig.add_trace(
+                go.Scatter(
+                    x=[start_time, end_time, end_time, start_time, start_time],
+                    y=[y_bottom, y_bottom, y_top, y_top, y_bottom],
+                    fill="toself",
+                    fillcolor=fill_color,
+                    line=dict(color=line_color, width=1),
+                    mode='lines',
+                    name=f"{label} Zone",
+                    showlegend=False,
+                    hovertemplate=f'<b>{label} Zone</b><br>Range: {y_bottom:.2f} - {y_top:.2f} USDT<extra></extra>'
+                )
+            )
+            
+            # Label für die Box
+            mid_time = start_time + (end_time - start_time) / 2
+            mid_price = (y_bottom + y_top) / 2
+            
+            fig.add_annotation(
+                x=mid_time,
+                y=mid_price,
+                text=label,
+                showarrow=False,
+                font=dict(color=line_color, size=12, family="Inter, system-ui, sans-serif"),
+                bgcolor="rgba(255,255,255,0.8)",
+                bordercolor=line_color,
+                borderwidth=1
+            )
+            
+        except Exception as e:
+            print(f"Fehler bei Box-Erstellung: {e}")
 
     def create_indicator_subplots(self):
         """Erstellt dynamische Subplots basierend auf Plot-IDs."""
-        # Gruppiere Indikatoren nach Plot-ID (außer 0)
-        plot_groups = {}
-        for name, indicator_df in self.indicators_df.items():
-            if not indicator_df.empty:
-                plot_id = indicator_df.iloc[0]['plot_id']
-                if plot_id > 0:  # Plot-ID 0 ist im Hauptchart
-                    if plot_id not in plot_groups:
-                        plot_groups[plot_id] = []
-                    plot_groups[plot_id].append((name, indicator_df))
-        
-        # Erstelle Subplot-Components
-        subplot_components = []
-        for plot_id in sorted(plot_groups.keys()):
-            indicators_in_plot = plot_groups[plot_id]
+        try:
+            # Gruppiere Indikatoren nach Plot-ID (außer 0)
+            plot_groups = {}
+            for name, indicator_df in self.indicators_df.items():
+                if not indicator_df.empty:
+                    plot_id = indicator_df.iloc[0]['plot_id']
+                    if plot_id > 0:  # Plot-ID 0 ist im Hauptchart
+                        if plot_id not in plot_groups:
+                            plot_groups[plot_id] = []
+                        plot_groups[plot_id].append((name, indicator_df))
             
-            # Titel für den Subplot
-            indicator_names = [name for name, _ in indicators_in_plot]
-            subplot_title = f"Indikatoren: {', '.join(indicator_names)}"
+            # Wenn keine Indikatoren > Plot-ID 0, return leer
+            if not plot_groups:
+                return []
             
-            # Konvertiere plot_id zu Integer-String für gültige Dash-ID
-            plot_id_str = str(int(plot_id)) if isinstance(plot_id, float) else str(plot_id)
-            
-            subplot_components.append(
-                html.Div([
-                    html.H4(f"Indicators: {', '.join(indicator_names)}", style={
-                        'color': '#34495e', 
-                        'marginBottom': '10px',
-                        'fontFamily': 'Inter, system-ui, sans-serif',
-                        'fontWeight': '500'
-                    }),
-                    dcc.Graph(
-                        id=f'indicators-plot-{plot_id_str}',
-                        figure=self.create_subplot_figure(indicators_in_plot),
-                        style={'height': '350px'}  # Vergrößert von 250px auf 350px
+            # Erstelle Subplot-Components - alle in einem großen Container
+            if plot_groups:
+                # Großer Container für alle Indikatoren
+                indicator_names_all = []
+                all_graphs = []
+                
+                for plot_id in sorted(plot_groups.keys()):
+                    indicators_in_plot = plot_groups[plot_id]
+                    plot_id_str = str(int(plot_id)) if isinstance(plot_id, float) else str(plot_id)
+                    indicator_names = [name for name, _ in indicators_in_plot]
+                    indicator_names_all.extend(indicator_names)
+                    
+                    all_graphs.append(
+                        dcc.Graph(
+                            id=f'indicators-plot-{plot_id_str}',
+                            figure=self.create_subplot_figure(indicators_in_plot),
+                            style={'height': '300px', 'marginBottom': '10px'}
+                        )
                     )
-                ], style={'margin': '20px 0'})
-            )
-        
-        return subplot_components
+                
+                subplot_components = [
+                    html.Div([
+                        html.H4(f"Technical Indicators: {', '.join(indicator_names_all)}", style={
+                            'color': '#2c3e50', 
+                            'marginBottom': '15px',
+                            'fontFamily': 'Inter, system-ui, sans-serif',
+                            'fontWeight': '600',
+                            'fontSize': '18px',
+                            'letterSpacing': '-0.01em'
+                        }),
+                        *all_graphs
+                    ], style={
+                        'background': '#ffffff',
+                        'borderRadius': '16px',
+                        'padding': '25px',
+                        'boxShadow': '0 4px 20px rgba(0,0,0,0.08)',
+                        'border': '1px solid rgba(222, 226, 230, 0.6)'
+                    })
+                ]
+            else:
+                subplot_components = []
+            
+            return subplot_components
+        except Exception as e:
+            print(f"Fehler bei Indikator-Subplots: {e}")
+            return []
 
     def create_subplot_figure(self, indicators_list):
         """Erstellt Figure für einen Indikator-Subplot."""
         fig = go.Figure()
         
-        colors = ['#3498db', '#e74c3c', '#f39c12', '#9b59b6', '#1abc9c']
+        colors = ['#000000', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.5)', 'rgba(64,64,64,0.8)', 'rgba(96,96,96,0.6)']
         for i, (name, indicator_df) in enumerate(indicators_list):
             fig.add_trace(
                 go.Scatter(
@@ -465,13 +951,15 @@ class DashboardApp:
                     mode='lines',  # Keine Marker!
                     name=name,
                     line=dict(color=colors[i % len(colors)], width=2),
-                    hoverinfo='skip',
-                    hovertemplate=None,
+                    hovertemplate='<b>%{fullData.name}</b><br>' +
+                                'Zeit: %{x|%Y-%m-%d %H:%M:%S}<br>' +
+                                'Wert: %{y:.4f}<br>' +
+                                '<extra></extra>',
                     showlegend=True,
                     hoverlabel=dict(
-                        bgcolor="rgba(0,0,0,0)",
-                        bordercolor="rgba(0,0,0,0)",
-                        font=dict(size=1, color="rgba(0,0,0,0)")
+                        bgcolor="rgba(255,255,255,0.95)",
+                        bordercolor="#666",
+                        font=dict(size=12, color="#222", family='Inter, system-ui, sans-serif')
                     )
                 )
             )
@@ -490,28 +978,18 @@ class DashboardApp:
             ),
             uirevision=f'indicators-subplot',
             font=dict(family='Inter, system-ui, sans-serif', size=11),
-            hovermode='x',  # Crosshair-Linien beim Hover wieder aktiv
+            hovermode='x unified',  # Unified hover für alle Linien gleichzeitig
+            margin=dict(t=30, b=60, l=60, r=20),  # Gleiche Margins wie Hauptchart
             # Crosshair-Linien auch für Subplots
             xaxis=dict(
                 showspikes=True,
-                spikecolor="#666666",
-                spikethickness=1,
-                spikedash="solid",
-                spikemode="across"
+                spikecolor="#333333",
+                spikethickness=2,
+                spikedash="dot",
+                spikemode="across+toaxis"
             ),
             yaxis=dict(
-                showspikes=True,
-                spikecolor="#666666", 
-                spikethickness=1,
-                spikedash="solid",
-                spikemode="across"
-            ),
-            # Hover-Labels komplett unsichtbar machen (auch für Subplots)
-            hoverlabel=dict(
-                bgcolor="rgba(0,0,0,0)",
-                bordercolor="rgba(0,0,0,0)",
-                font_size=1,
-                font_color="rgba(0,0,0,0)"
+                showspikes=False  # Kein horizontaler Crosshair in Indikator-Charts
             )
         )
         
@@ -519,51 +997,65 @@ class DashboardApp:
 
     def _register_indicator_sync_callbacks(self):
         """Registriert Synchronisation für alle Indikator-Subplots."""
-        # Ermittle alle Plot-IDs > 0 und konvertiere zu Integer
-        plot_ids = set()
-        for name, indicator_df in self.indicators_df.items():
-            if not indicator_df.empty:
-                plot_id = indicator_df.iloc[0]['plot_id']
-                if plot_id > 0:
-                    # Konvertiere zu Integer für konsistente Behandlung
-                    plot_id_int = int(plot_id) if isinstance(plot_id, float) else plot_id
-                    plot_ids.add(plot_id_int)
-        
-        # Erstelle Sync-Callbacks für jeden Subplot
-        for plot_id in plot_ids:
-            # Konvertiere plot_id zu String für gültige Dash-ID
-            plot_id_str = str(plot_id)
+        try:
+            # Ermittle alle Plot-IDs > 0 und konvertiere zu Integer
+            plot_ids = set()
+            for name, indicator_df in self.indicators_df.items():
+                if not indicator_df.empty:
+                    plot_id = indicator_df.iloc[0]['plot_id']
+                    if plot_id > 0:
+                        # Konvertiere zu Integer für konsistente Behandlung
+                        plot_id_int = int(plot_id) if isinstance(plot_id, float) else plot_id
+                        plot_ids.add(plot_id_int)
             
-            @self.app.callback(
-                Output(f'indicators-plot-{plot_id_str}', 'figure', allow_duplicate=True),
-                [Input('price-chart', 'relayoutData')],
-                prevent_initial_call=True
-            )
-            def sync_subplot_x_axis(relayout_data, current_plot_id=plot_id):
-                if relayout_data and ('xaxis.range[0]' in relayout_data and 'xaxis.range[1]' in relayout_data):
-                    x_range = [relayout_data['xaxis.range[0]'], relayout_data['xaxis.range[1]']]
-                    
-                    # Finde Indikatoren für diese Plot-ID
-                    indicators_for_plot = []
-                    for name, indicator_df in self.indicators_df.items():
-                        if not indicator_df.empty and int(indicator_df.iloc[0]['plot_id']) == current_plot_id:
-                            indicators_for_plot.append((name, indicator_df))
-                    
-                    # Erstelle neuen Chart mit synchronisierter X-Achse
-                    fig = self.create_subplot_figure(indicators_for_plot)
-                    fig.update_layout(xaxis_range=x_range)
-                    
-                    return fig
+            # Wenn keine Indikator-Subplots, return
+            if not plot_ids:
+                return
+            
+            # Erstelle Sync-Callbacks für jeden Subplot
+            for plot_id in plot_ids:
+                # Konvertiere plot_id zu String für gültige Dash-ID
+                plot_id_str = str(plot_id)
                 
-                # Fallback: aktuellen Chart zurückgeben
-                indicators_for_plot = []
-                for name, indicator_df in self.indicators_df.items():
-                    if not indicator_df.empty and int(indicator_df.iloc[0]['plot_id']) == current_plot_id:
-                        indicators_for_plot.append((name, indicator_df))
-                return self.create_subplot_figure(indicators_for_plot)
+                @self.app.callback(
+                    Output(f'indicators-plot-{plot_id_str}', 'figure', allow_duplicate=True),
+                    [Input('price-chart', 'relayoutData')],
+                    prevent_initial_call=True
+                )
+                def sync_subplot_x_axis(relayout_data, current_plot_id=plot_id):
+                    try:
+                        if relayout_data and ('xaxis.range[0]' in relayout_data and 'xaxis.range[1]' in relayout_data):
+                            x_range = [relayout_data['xaxis.range[0]'], relayout_data['xaxis.range[1]']]
+                            
+                            # Finde Indikatoren für diese Plot-ID
+                            indicators_for_plot = []
+                            for name, indicator_df in self.indicators_df.items():
+                                if not indicator_df.empty and int(indicator_df.iloc[0]['plot_id']) == current_plot_id:
+                                    indicators_for_plot.append((name, indicator_df))
+                            
+                            # Erstelle neuen Chart mit synchronisierter X-Achse
+                            fig = self.create_subplot_figure(indicators_for_plot)
+                            fig.update_layout(xaxis_range=x_range)
+                            
+                            return fig
+                        
+                        # Fallback: aktuellen Chart zurückgeben
+                        indicators_for_plot = []
+                        for name, indicator_df in self.indicators_df.items():
+                            if not indicator_df.empty and int(indicator_df.iloc[0]['plot_id']) == current_plot_id:
+                                indicators_for_plot.append((name, indicator_df))
+                        return self.create_subplot_figure(indicators_for_plot)
+                    
+                    except Exception as e:
+                        print(f"Fehler bei Subplot-Sync für Plot-ID {current_plot_id}: {e}")
+                        # Fallback - leerer Chart
+                        return go.Figure()
+        
+        except Exception as e:
+            print(f"Fehler bei Indikator-Sync-Callbacks: {e}")
 
     def create_metrics_table(self):
-        """Erstellt professionelle Metriken-Tabelle ohne Emojis."""
+        """Erstellt professionelle Metriken-Tabelle mit Einheiten."""
         if not self.metrics:
             return html.Div("No metrics available", style={
                 'textAlign': 'center', 
@@ -571,6 +1063,48 @@ class DashboardApp:
                 'fontFamily': 'Inter, system-ui, sans-serif',
                 'padding': '20px'
             })
+        
+        # Einheiten aus result extrahieren, falls vorhanden
+        units = {}
+        if self.nautilus_result and len(self.nautilus_result) > 0:
+            result_obj = self.nautilus_result[0]
+            # Mapping für spezifische Metriken basierend auf ihrem Namen
+            # PnL-Metriken in USDT
+            if hasattr(result_obj, 'stats_pnls') and 'USDT' in result_obj.stats_pnls:
+                for key in result_obj.stats_pnls['USDT'].keys():
+                    metric_name = key.replace('_', ' ').title()
+                    if 'pnl' in key.lower() and 'pnl%' not in key.lower():
+                        units[metric_name] = 'USDT'
+                    elif 'pnl%' in key.lower():
+                        units[metric_name] = '%'
+            
+            # Return-Statistiken und Ratios in Prozent
+            if hasattr(result_obj, 'stats_returns'):
+                for key in result_obj.stats_returns.keys():
+                    metric_name = key.replace('_', ' ').title()
+                    # Alle Return-Metriken sind Prozentsätze, außer spezifische Ausnahmen
+                    if any(term in key.lower() for term in ['volatility', 'average', 'sharpe', 'sortino']):
+                        units[metric_name] = '%'
+            
+            # Spezielle Behandlung für bekannte Metriken
+            special_units = {
+                'Win Rate': '',  # Win Rate ist bereits ein Dezimalwert (0.625 = 62.5%)
+                'Profit Factor': '',  # Profit Factor ist ein Verhältnis 
+                'Risk Return Ratio': '',  # Ist ein Verhältnis
+                'Total Positions': '',  # Anzahl, keine Einheit
+                'Total Orders': '',  # Anzahl, keine Einheit
+                'Total Events': '',  # Anzahl, keine Einheit
+                'Iterations': '',  # Anzahl, keine Einheit
+                'Elapsed Time (s)': 'time',  # Spezielle Behandlung für Zeit
+                'Max Winner': 'USDT',  # Gewinn in USDT
+                'Avg Winner': 'USDT',  # Gewinn in USDT
+                'Min Winner': 'USDT',  # Gewinn in USDT
+                'Max Loser': 'USDT',   # Verlust in USDT
+                'Avg Loser': 'USDT',   # Verlust in USDT
+                'Min Loser': 'USDT',   # Verlust in USDT
+                'Expectancy': 'USDT',  # Erwarteter Gewinn in USDT
+            }
+            units.update(special_units)
         
         # Organisiere Metriken in Kategorien
         performance_metrics = {}
@@ -587,6 +1121,59 @@ class DashboardApp:
                 general_info[key] = value
         
         def create_metric_row(key, value):
+            einheit = units.get(key, '')
+            formatted_value = value
+            
+            # Spezielle Formatierung für verschiedene Metriken
+            if key == 'Win Rate':
+                # Win Rate von Dezimal zu Prozent umwandeln (0.625 -> 62.5%)
+                try:
+                    formatted_value = f"{float(value)*100:.1f}%"
+                except Exception:
+                    formatted_value = f"{value}"
+            elif key == 'Elapsed Time (s)':
+                # Zeit von Sekunden in lesbares Format umwandeln
+                try:
+                    seconds = float(value)
+                    if seconds < 60:
+                        formatted_value = f"{seconds:.1f}s"
+                    elif seconds < 3600:
+                        minutes = seconds / 60
+                        formatted_value = f"{minutes:.1f}m"
+                    elif seconds < 86400:
+                        hours = seconds / 3600
+                        formatted_value = f"{hours:.1f}h"
+                    else:
+                        days = seconds / 86400
+                        remaining_hours = (seconds % 86400) / 3600
+                        if remaining_hours >= 1:
+                            formatted_value = f"{int(days)}d {int(remaining_hours)}h"
+                        else:
+                            formatted_value = f"{int(days)}d"
+                except Exception:
+                    formatted_value = f"{value}"
+            elif key in ['Profit Factor', 'Risk Return Ratio']:
+                # Ratios als Dezimalwerte anzeigen
+                try:
+                    formatted_value = f"{float(value):.2f}"
+                except Exception:
+                    formatted_value = f"{value}"
+            elif 'Ratio' in key or 'Volatility' in key or 'Average' in key and einheit == '%':
+                # Andere Prozent-Metriken
+                try:
+                    if float(value) < 1:  # Wenn Wert < 1, dann zu Prozent umwandeln
+                        formatted_value = f"{float(value)*100:.2f}%"
+                    else:  # Wenn Wert >= 1, dann bereits als Prozent interpretieren
+                        formatted_value = f"{float(value):.2f}%"
+                except Exception:
+                    formatted_value = f"{value}%"
+            elif einheit:
+                # Andere Metriken mit Einheiten
+                try:
+                    formatted_value = f"{float(value):.2f} {einheit}"
+                except Exception:
+                    formatted_value = f"{value} {einheit}"
+            
             return html.Tr([
                 html.Td(key, style={
                     'padding': '12px 16px', 
@@ -595,7 +1182,7 @@ class DashboardApp:
                     'fontFamily': 'Inter, system-ui, sans-serif',
                     'borderBottom': '1px solid #e9ecef'
                 }),
-                html.Td(str(value), style={
+                html.Td(str(formatted_value), style={
                     'padding': '12px 16px', 
                     'color': '#495057',
                     'fontFamily': 'Inter, system-ui, sans-serif',
@@ -634,6 +1221,137 @@ class DashboardApp:
             create_section("Trading", trade_metrics, '#f8f9fa'),
             create_section("General", general_info, '#f8f9fa')
         ])
+
+    def create_trade_details_content(self, trade_data):
+        """Erstellt den Inhalt für das Trade-Details Panel (kompakt für oberhalb des Charts)."""
+        
+        def format_value(key, value):
+            """Formatiert Werte basierend auf dem Feldtyp."""
+            if pd.isna(value) or value is None:
+                return "N/A"
+            
+            key_lower = key.lower()
+            
+            # Timestamp-Felder
+            if 'timestamp' in key_lower:
+                try:
+                    if isinstance(value, (int, float)) and value > 1e15:
+                        return pd.to_datetime(value, unit='ns').strftime('%Y-%m-%d %H:%M:%S')
+                    else:
+                        return pd.to_datetime(value).strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    return str(value)
+            
+            # Preis-Felder
+            elif any(term in key_lower for term in ['price', 'sl', 'tp']):
+                try:
+                    return f"{float(value):.4f}"
+                except:
+                    return str(value)
+            
+            # P&L-Felder (mit +/- Vorzeichen)
+            elif 'pnl' in key_lower or 'p&l' in key_lower:
+                try:
+                    pnl_value = float(value)
+                    sign = "+" if pnl_value >= 0 else ""
+                    return f"{sign}{pnl_value:.4f}"
+                except:
+                    return str(value)
+            
+            # Gebühren-Felder  
+            elif 'fee' in key_lower:
+                try:
+                    return f"{float(value):.6f}"
+                except:
+                    return str(value)
+            
+            # Größe/Menge
+            elif 'size' in key_lower or 'quantity' in key_lower:
+                try:
+                    return f"{float(value):.6f}"
+                except:
+                    return str(value)
+            
+            # Boolean-ähnliche Werte
+            elif key_lower in ['type', 'action']:
+                return str(value).upper()
+            
+            # Default
+            else:
+                return str(value)
+        
+        # Action-basierte Farbe
+        action = str(trade_data.get('action', '')).upper()
+        action_color = '#28a745' if action == 'BUY' else '#dc3545'
+        
+        # Kompakte horizontale Darstellung für wichtigste Felder
+        key_fields = ['timestamp', 'action', 'open_price_actual', 'close_price_actual', 'closed_timestamp', 'tradesize', 'sl', 'tp', 'realized_pnl', 'fee']
+        
+        main_info = []
+        for field in key_fields:
+            if field in trade_data and not pd.isna(trade_data[field]):
+                label = {
+                    'timestamp': 'Entry Time',
+                    'action': 'Action', 
+                    'open_price_actual': 'Open Price',
+                    'close_price_actual': 'Close Price',
+                    'closed_timestamp': 'Exit Time',
+                    'tradesize': 'Size',
+                    'sl': 'SL',
+                    'tp': 'TP',
+                    'realized_pnl': 'P&L',
+                    'fee': 'Fee'
+                }.get(field, field)
+                
+                value = format_value(field, trade_data[field])
+                main_info.append(f"{label}: {value}")
+        
+        # Erstelle kompakte horizontale Anzeige
+        return [
+            html.Div([
+                # Header mit Action
+                html.Div([
+                    html.Span(f"{action} SIGNAL", style={
+                        'backgroundColor': action_color,
+                        'color': 'white',
+                        'padding': '4px 12px',
+                        'borderRadius': '15px',
+                        'fontSize': '12px',
+                        'fontWeight': '600',
+                        'fontFamily': 'Inter, system-ui, sans-serif',
+                        'marginRight': '15px'
+                    }),
+                    html.Span(f"ID: {trade_data.get('id', 'N/A')}", style={
+                        'color': '#6c757d',
+                        'fontSize': '12px',
+                        'fontFamily': 'Inter, system-ui, sans-serif'
+                    })
+                ], style={
+                    'display': 'flex',
+                    'alignItems': 'center',
+                    'marginBottom': '10px'
+                }),
+                
+                # Hauptinformationen in Grid
+                html.Div([
+                    html.Div(info, style={
+                        'backgroundColor': 'white',
+                        'padding': '8px 12px',
+                        'borderRadius': '6px',
+                        'border': '1px solid #e9ecef',
+                        'fontSize': '13px',
+                        'fontFamily': 'Inter, system-ui, sans-serif',
+                        'color': '#28a745' if 'P&L: +' in info else '#dc3545' if 'P&L: -' in info else '#495057',
+                        'textAlign': 'center',
+                        'margin': '3px'
+                    }) for info in main_info
+                ], style={
+                    'display': 'flex',
+                    'flexWrap': 'wrap',
+                    'gap': '5px'
+                })
+            ])
+        ]
 
     def run(self, **kwargs):
         self.app.run(**kwargs)
