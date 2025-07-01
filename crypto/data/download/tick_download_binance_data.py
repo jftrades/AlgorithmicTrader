@@ -8,8 +8,12 @@ import traceback
 # === 1. Konfiguration ===
 TICKER = "BTCUSDT"
 START_DATE = dt.date(2024, 1, 1)
-END_DATE = dt.date(2024, 1, 3)  # Kleiner Zeitraum zum Testen
+END_DATE = dt.date(2024, 2, 1)  # Kleiner Zeitraum zum Testen
 MARKET_TYPE = "futures"  # spot oder futures (geändert zu futures für BTCUSDT-PERP)
+
+# Memory-Management Konfiguration
+CHUNK_DAYS = 30  # Verarbeite 30 Tage auf einmal (Memory-schonend)
+CHUNK_SIZE = 100000  # Ticks pro Chunk beim CSV-Schreiben
 
 BASE_DATA_DIR = Path(__file__).resolve().parent.parent / "DATA_STORAGE"
 TEMP_DIR = BASE_DATA_DIR / "temp_tick_downloads"
@@ -87,68 +91,139 @@ def download_tick_data_for_date(date_str: str) -> pd.DataFrame:
         print(f"❌ Fehler für {date_str}: {e}")
         return pd.DataFrame()
 
-def main():
-    print(f"Starte Tick-Download für {TICKER} ({MARKET_TYPE}) von {START_DATE} bis {END_DATE}")
+def write_chunk_to_csv(chunk_df: pd.DataFrame, output_file: Path, is_first_chunk: bool = False):
+    """Schreibt einen Chunk direkt in die CSV (Memory-effizient)"""
+    mode = 'w' if is_first_chunk else 'a'
+    header = is_first_chunk
     
-    # Verzeichnisse erstellen
-    TEMP_DIR.mkdir(parents=True, exist_ok=True)
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        chunk_df.to_csv(output_file, mode=mode, header=header, index=False)
+        print(f"  📝 {len(chunk_df):,} Ticks geschrieben")
+    except Exception as e:
+        print(f"  ❌ CSV-Schreibfehler: {e}")
+
+def process_date_range_chunk(start_date: dt.date, end_date: dt.date, output_file: Path, is_first_chunk: bool = False):
+    """Verarbeitet einen Datumsbereich chunk-weise ohne alles im RAM zu sammeln"""
+    chunk_ticks = []
+    total_ticks = 0
     
-    # Alle Daten sammeln
-    all_dfs = []
-    current_date = START_DATE
-    
-    while current_date <= END_DATE:
+    current_date = start_date
+    while current_date <= end_date:
         date_str = current_date.strftime("%Y-%m-%d")
         df = download_tick_data_for_date(date_str)
         
         if not df.empty:
             df['date'] = date_str
-            # Doppelte Sicherstellung für timestamp - muss numerisch sein
             df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
-            df = df.dropna(subset=['timestamp'])  # Entferne Zeilen mit ungültigen timestamps
-            df = df[df['timestamp'] > 0]  # Nur positive timestamps
+            df = df.dropna(subset=['timestamp'])
+            df = df[df['timestamp'] > 0]
             
-            # Jetzt datetime erstellen
             try:
                 df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
                 df['side'] = df['is_buyer_maker'].map({True: 'SELL', False: 'BUY'})
-                all_dfs.append(df)
-                print(f"  ✅ {len(df):,} valide Ticks hinzugefügt")
+                
+                # Spalten für Nautilus vorbereiten
+                columns_order = ['timestamp', 'trade_id', 'price', 'quantity', 'side', 'is_buyer_maker']
+                processed_df = df[columns_order].copy()
+                
+                chunk_ticks.append(processed_df)
+                total_ticks += len(processed_df)
+                
+                # Memory-Management: Schreibe Chunk wenn zu groß
+                if total_ticks >= CHUNK_SIZE:
+                    combined_chunk = pd.concat(chunk_ticks, ignore_index=True)
+                    combined_chunk = combined_chunk.sort_values('timestamp').reset_index(drop=True)
+                    write_chunk_to_csv(combined_chunk, output_file, is_first_chunk)
+                    
+                    # Memory cleanup
+                    chunk_ticks.clear()
+                    del combined_chunk
+                    total_ticks = 0
+                    is_first_chunk = False
+                    
             except Exception as e:
-                print(f"  ❌ Datetime-Fehler: {e}")
-                # Debug: Zeige ein paar timestamp-Werte
-                print(f"  Debug - timestamp dtype: {df['timestamp'].dtype}")
-                print(f"  Debug - erste 5 timestamps: {df['timestamp'].head().tolist()}")
-                print(f"  Debug - timestamp min/max: {df['timestamp'].min()}/{df['timestamp'].max()}")
+                print(f"  ❌ Verarbeitungsfehler für {date_str}: {e}")
         
         current_date += dt.timedelta(days=1)
     
-    if not all_dfs:
-        print("❌ Keine Daten heruntergeladen")
-        return
+    # Restliche Ticks schreiben
+    if chunk_ticks:
+        combined_chunk = pd.concat(chunk_ticks, ignore_index=True)
+        combined_chunk = combined_chunk.sort_values('timestamp').reset_index(drop=True)
+        write_chunk_to_csv(combined_chunk, output_file, is_first_chunk)
+        
+        # Memory cleanup
+        chunk_ticks.clear()
+        del combined_chunk
     
-    # Kombinieren und speichern
-    print("📦 Kombiniere alle Daten...")
-    combined_df = pd.concat(all_dfs, ignore_index=True)
-    combined_df = combined_df.sort_values('timestamp').reset_index(drop=True)
+    return total_ticks
+
+def main():
+    """Chunk-weise Download für sehr große Zeiträume (Memory-effizient)"""
+    print(f"🚀 Starte CHUNK-WEISEN Tick-Download für {TICKER} ({MARKET_TYPE})")
+    print(f"📅 Zeitraum: {START_DATE} bis {END_DATE}")
+    print(f"⚙️  Chunk-Größe: {CHUNK_DAYS} Tage, {CHUNK_SIZE:,} Ticks pro Schreibvorgang")
     
-    # Spalten für Nautilus vorbereiten
-    columns_order = ['timestamp', 'trade_id', 'price', 'quantity', 'side', 'is_buyer_maker']
-    final_df = combined_df[columns_order]
+    # Verzeichnisse erstellen
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     
-    # CSV speichern (ähnlich wie bei Bars)
+    # Output-Datei definieren
+    start_str = START_DATE.strftime("%Y-%m-%d")
+    end_str = END_DATE.strftime("%Y-%m-%d")
     output_file = PROCESSED_DIR / f"{TICKER}_TICKS_{start_str}_to_{end_str}.csv"
-    final_df.to_csv(output_file, index=False)
     
-    # Cleanup temp
+    # Falls Datei existiert, lösche sie (fresh start)
+    if output_file.exists():
+        output_file.unlink()
+        print(f"🗑️  Alte Datei gelöscht")
+    
+    total_days = (END_DATE - START_DATE).days + 1
+    processed_days = 0
+    total_ticks_written = 0
+    is_first_chunk = True
+    
+    # Chunk-weise Verarbeitung
+    current_start = START_DATE
+    while current_start <= END_DATE:
+        current_end = min(current_start + dt.timedelta(days=CHUNK_DAYS - 1), END_DATE)
+        chunk_days = (current_end - current_start).days + 1
+        
+        print(f"\n📦 CHUNK {processed_days // CHUNK_DAYS + 1}: {current_start} bis {current_end} ({chunk_days} Tage)")
+        
+        try:
+            chunk_ticks = process_date_range_chunk(current_start, current_end, output_file, is_first_chunk)
+            total_ticks_written += chunk_ticks
+            processed_days += chunk_days
+            is_first_chunk = False
+            
+            # Fortschritt anzeigen
+            progress = (processed_days / total_days) * 100
+            print(f"  ✅ Chunk abgeschlossen: {chunk_ticks:,} Ticks")
+            print(f"  📊 Fortschritt: {processed_days}/{total_days} Tage ({progress:.1f}%)")
+            print(f"  🎯 Gesamt Ticks bisher: {total_ticks_written:,}")
+            
+            # Memory cleanup zwischen Chunks
+            import gc
+            gc.collect()
+            
+        except Exception as e:
+            print(f"  ❌ Chunk-Fehler: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        current_start = current_end + dt.timedelta(days=1)
+    
+    # Cleanup temp directory
     if TEMP_DIR.exists():
         import shutil
         shutil.rmtree(TEMP_DIR)
+        print(f"🗑️  Temp-Verzeichnis bereinigt")
     
-    print(f"\n✅ Fertig!")
-    print(f"📊 {len(final_df):,} Ticks gespeichert")
+    print(f"\n🎯 DOWNLOAD ABGESCHLOSSEN!")
+    print(f"📊 Gesamt: {total_ticks_written:,} Ticks in {processed_days} Tagen")
     print(f"💾 Datei: {output_file}")
+    print(f"📏 Dateigröße: {output_file.stat().st_size / (1024**3):.2f} GB")
 
 if __name__ == "__main__":
     try:

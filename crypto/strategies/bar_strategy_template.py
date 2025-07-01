@@ -54,8 +54,6 @@ class NameDerStrategy(Strategy):
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
         self.subscribe_bars(self.bar_type)
-        self.subscribe_trade_ticks(self.instrument_id)
-        self.subscribe_quote_ticks(self.instrument_id)
         self.log.info("Strategy started!")
 
         self.collector = BacktestDataCollector()
@@ -73,9 +71,6 @@ class NameDerStrategy(Strategy):
 
     def on_bar(self, bar: Bar) -> None: 
         self.bar_counter += 1
-        
-        # in on_bar kommt die Handelslogik der Strategie + meistens Positionsmanagement wenn nicht in on_order_event / on_position_event
-        
         # Beispiel für USDT Balance holen:
         # account_id = AccountId("BINANCE-001")
         # account = self.cache.account(account_id)
@@ -110,15 +105,6 @@ class NameDerStrategy(Strategy):
         self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
 
     # die weiteren on_Methoden...
-    def on_trade_tick(self, tick: TradeTick) -> None:
-        pass
-    
-    def on_quote_tick(self, tick: QuoteTick) -> None:
-        pass
-
-    def on_order_book(self, order_book: OrderBook) -> None:
-        pass
-
     def on_order_event(self, event: OrderEvent) -> None:
         pass
 
