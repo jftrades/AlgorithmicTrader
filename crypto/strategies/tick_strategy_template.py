@@ -35,7 +35,7 @@ VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
 if str(VIS_PATH) not in sys.path:
     sys.path.insert(0, str(VIS_PATH))
 
-from backtest_visualizer_prototype import BacktestDataCollector
+# from backtest_visualizer_prototype import BacktestDataCollector  # Optional visualization
 from AlgorithmicTrader.crypto.strategies.help_funcs import create_tags
 from nautilus_trader.common.enums import LogColor
 
@@ -71,11 +71,20 @@ class NameDerTickStrategy(Strategy):
         self.subscribe_trade_ticks(self.instrument_id)
         self.log.info("Tick Strategy started!")
 
-        self.collector = BacktestDataCollector()
+        # self.collector = BacktestDataCollector()  # Optional visualization
         self.collector.initialise_logging_indicator("position", 1)
         self.collector.initialise_logging_indicator("realized_pnl", 2)
         self.collector.initialise_logging_indicator("unrealized_pnl", 3)
         self.collector.initialise_logging_indicator("balance", 4)
+
+    # Get the account using the venue instead of account_id
+        venue = self.instrument_id.venue
+        account = self.portfolio.account(venue)
+        if account:
+            usdt_balance = account.balance_total(Currency.from_str("USDT"))
+            self.log.info(f"USDT balance: {usdt_balance}")
+        else:
+            self.log.warning(f"No account found for venue: {venue}")
 
     def get_position(self):
         if hasattr(self, "cache") and self.cache is not None:

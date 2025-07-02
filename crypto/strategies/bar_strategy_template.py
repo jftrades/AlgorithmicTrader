@@ -7,13 +7,12 @@ from pathlib import Path
 # Nautilus Kern offizielle Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
-from nautilus_trader.model.data import Bar, BarType, TradeTick, QuoteTick
+from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.objects import Money, Price, Quantity
 from nautilus_trader.model.orders import MarketOrder, LimitOrder, StopMarketOrder
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.events import OrderEvent, PositionEvent
-from nautilus_trader.model.book import OrderBook
 from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.currencies import USDT, BTC
 
