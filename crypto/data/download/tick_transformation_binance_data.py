@@ -9,14 +9,19 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from nautilus_trader.persistence.wranglers_v2 import TradeTickDataWranglerV2
 from nautilus_trader.persistence.catalog.types import CatalogWriteMode
 
-CSV_PATH = Path(__file__).resolve().parent.parent / "DATA_STORAGE" / "processed_tick_data_2024-01-01_to_2024-02-01" / "csv" / "BTCUSDT_TICKS_2024-01-01_to_2024-02-01.csv"
+CSV_PATH = Path(__file__).resolve().parent.parent / "DATA_STORAGE" / "processed_tick_data_2024-01-01_to_2024-01-03" / "csv" / "BTCUSDT_TICKS_2024-01-01_to_2024-01-03.csv"
 CATALOG_ROOT_PATH = Path(__file__).resolve().parent.parent / "DATA_STORAGE" / "data_catalog_wrangled"
 CHUNK_SIZE = 1_000_000
 WRITE_BATCH_SIZE = 10_000_000  # Optimized batch size for better performance
 
 def write_data_with_retry(catalog, tick_buffer, basename_template):
     current_template = basename_template
-    
+
+    # Debug-Ausgabe: Buffer-Typ und Inhalt
+    print(f"[DEBUG] Buffer-Type: {type(tick_buffer)}, Length: {len(tick_buffer)}")
+    if len(tick_buffer) > 0:
+        print(f"[DEBUG] First element type: {type(tick_buffer[0])}")
+
     for attempt in range(5):
         try:
             catalog.write_data(data=tick_buffer, basename_template=current_template, mode=CatalogWriteMode.APPEND)
@@ -41,7 +46,7 @@ def write_data_with_retry(catalog, tick_buffer, basename_template):
             else:
                 print(f"    Write error: {e}")
                 raise e
-    
+
     return False, current_template
 
 def generate_unique_basename_template():
@@ -105,6 +110,9 @@ def process_tick_data_official_append():
                 })
             elif 'aggressor_side' not in chunk_df.columns:
                 chunk_df['aggressor_side'] = AggressorSide.NO_AGGRESSOR
+            
+            # ADD INSTRUMENT_ID COLUMN - CRITICAL FOR NAUTILUS CATALOG!
+            chunk_df['instrument_id'] = "BTCUSDT-PERP.BINANCE"
             
             try:
                 # TradeTickDataWranglerV2.from_pandas expects columns, not index

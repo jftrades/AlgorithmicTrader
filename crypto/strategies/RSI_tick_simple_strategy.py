@@ -25,8 +25,8 @@ VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
 if str(VIS_PATH) not in sys.path:
     sys.path.insert(0, str(VIS_PATH))
 
-# from backtest_visualizer_prototype import BacktestDataCollector  # Optional visualization
-from AlgorithmicTrader.crypto.strategies.help_funcs import create_tags
+from backtest_visualizer_prototype import BacktestDataCollector  # Optional visualization
+from help_funcs import create_tags
 from nautilus_trader.common.enums import LogColor
 
 # Weitere/Strategiespezifische Importe
@@ -36,10 +36,10 @@ from nautilus_trader.model.objects import Currency
 class RSITickSimpleStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     trade_size: Decimal
-    tick_buffer_size: int = 1000
     rsi_period: int
     rsi_overbought: float
     rsi_oversold: float
+    tick_buffer_size: int = 1000
     close_positions_on_stop: bool = True 
     
 class RSITickSimpleStrategy(Strategy):
@@ -69,7 +69,7 @@ class RSITickSimpleStrategy(Strategy):
         self.subscribe_trade_ticks(self.instrument_id)
         self.log.info("Tick Strategy started!")
 
-        # self.collector = BacktestDataCollector()  # Optional visualization
+        self.collector = BacktestDataCollector()  # Optional visualization
         self.collector.initialise_logging_indicator("position", 1)
         self.collector.initialise_logging_indicator("realized_pnl", 2)
         self.collector.initialise_logging_indicator("unrealized_pnl", 3)
@@ -247,13 +247,10 @@ class RSITickSimpleStrategy(Strategy):
         self.log.info(f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
 
     def on_position_closed(self, position_closed) -> None:
-        realized_pnl = position_closed.realized_pnl
+        realized_pnl = position_closed.realized_pnl  # Realized PnL
         self.realized_pnl += float(realized_pnl) if realized_pnl else 0
-
-    def on_position_opened(self, position_opened) -> None:
-        realized_pnl = position_opened.realized_pnl
-        #self.realized_pnl += float(realized_pnl) if realized_pnl else 0
-
+        self.collector.add_closed_trade(position_closed)
+    
     def on_error(self, error: Exception) -> None:
         self.log.error(f"An error occurred: {error}")
         position = self.get_position()

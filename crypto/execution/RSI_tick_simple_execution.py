@@ -48,8 +48,8 @@ data_config = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:TradeTick",  # ← TradeTick statt Bar
     catalog_path=catalogPath,
     instrument_ids=[instrument_id_str],  # ← instrument_ids statt bar_types
-    start_time="2021-01-01",
-    end_time="2021-03-01",
+    start_time="2024-01-01",
+    end_time="2024-01-03",
     # Optional: start_time, end_time, filter_expr, etc.
 )
 

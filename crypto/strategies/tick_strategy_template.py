@@ -45,7 +45,6 @@ from nautilus_trader.common.enums import LogColor
 class NameDerTickStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     trade_size: Decimal
-    tick_buffer_size: int = 1000
     #...
     close_positions_on_stop: bool = True 
     
@@ -167,12 +166,9 @@ class NameDerTickStrategy(Strategy):
         self.log.info(f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
 
     def on_position_closed(self, position_closed) -> None:
-        realized_pnl = position_closed.realized_pnl
+        realized_pnl = position_closed.realized_pnl  # Realized PnL
         self.realized_pnl += float(realized_pnl) if realized_pnl else 0
-
-    def on_position_opened(self, position_opened) -> None:
-        realized_pnl = position_opened.realized_pnl
-        #self.realized_pnl += float(realized_pnl) if realized_pnl else 0
+        self.collector.add_closed_trade(position_closed)
 
     def on_error(self, error: Exception) -> None:
         self.log.error(f"An error occurred: {error}")
