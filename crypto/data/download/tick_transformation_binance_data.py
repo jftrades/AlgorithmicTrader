@@ -24,7 +24,12 @@ def write_data_with_retry(catalog, tick_buffer, basename_template):
 
     for attempt in range(5):
         try:
-            catalog.write_data(data=tick_buffer, basename_template=current_template, mode=CatalogWriteMode.APPEND)
+            catalog.write_data(
+                data=tick_buffer, 
+                basename_template=current_template, 
+                mode=CatalogWriteMode.APPEND,
+                metadata={"data_cls": "nautilus_trader.model.data:TradeTick"}
+            )
             return True, current_template
         except Exception as e:
             if "1224" in str(e) or "geöffneten Bereich" in str(e):
@@ -38,7 +43,12 @@ def write_data_with_retry(catalog, tick_buffer, basename_template):
                     current_template = generate_unique_basename_template()
                     print(f"    Persistent lock - using new template: {current_template}")
                     try:
-                        catalog.write_data(data=tick_buffer, basename_template=current_template, mode=CatalogWriteMode.APPEND)
+                        catalog.write_data(
+                            data=tick_buffer, 
+                            basename_template=current_template, 
+                            mode=CatalogWriteMode.APPEND,
+                            metadata={"data_cls": "nautilus_trader.model.data:TradeTick"}
+                        )
                         return True, current_template
                     except Exception as retry_e:
                         print(f"    New template failed: {retry_e}")

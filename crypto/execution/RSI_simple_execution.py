@@ -55,7 +55,6 @@ if str(STRATEGY_PATH) not in sys.path:
 
 catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 
-
 # DataConfig
 data_config = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:Bar", # Traditioneller Pfad, der für Deserialisierung funktionierte
