@@ -11,7 +11,7 @@ from nautilus_trader.model.identifiers import InstrumentId, Venue
 from nautilus_trader.model.objects import Money, Price, Quantity, Currency
 from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.model.enums import OrderSide, TimeInForce
-from AlgorithmicTrader.crypto.strategies.help_funcs import create_tags
+from help_funcs import create_tags
 from nautilus_trader.common.enums import LogColor
 
 # Nautilus Strategie spezifische Importe
@@ -137,6 +137,9 @@ class RSISimpleStrategy(Strategy):
                 self.collector.add_trade(order)
             self.last_rsi_cross = "rsi_oversold"
 
+
+        
+        
         # Debug: Alle Portfolio-Methoden anzeigen
         #if hasattr(self, 'portfolio'):
         #    portfolio_methods = [method for method in dir(self.portfolio) if not method.startswith('_')]
@@ -152,7 +155,7 @@ class RSISimpleStrategy(Strategy):
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         usdt_balance = account.balance_total(Currency.from_str("USDT")).as_double() if account else None
-        self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
+        #self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
 
         self.collector.add_indicator(timestamp=bar.ts_event, name="account_balance", value=usdt_balance)
         self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
@@ -263,5 +266,4 @@ class RSISimpleStrategy(Strategy):
         # sind hier theoreitisch nicht notwendig, da sie nur für die Fehlerbehandlung und das Logging
         # genutzt werden. Ausser natürlich unser Code wird komplexer und wir brauchen sie
         # trotzdem für Praxis genau wie on_start einfach in die Projekt mit einfügen ig
-
 

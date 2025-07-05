@@ -131,7 +131,7 @@ class RSITickSimpleStrategy(Strategy):
                     order_side=OrderSide.SELL,
                     quantity=Quantity(self.trade_size, self.instrument.size_precision),
                     time_in_force=TimeInForce.GTC,
-                    tags=create_tags(action="SHORT", type="TICK_RSI_OPEN", signal_price=str(tick.price))
+                    tags=create_tags(action="SHORT", type="OPEN")
                 )
                 self.submit_order(order)
                 self.collector.add_trade(order)
@@ -145,7 +145,7 @@ class RSITickSimpleStrategy(Strategy):
                     order_side=OrderSide.BUY,
                     quantity=Quantity(self.trade_size, self.instrument.size_precision),
                     time_in_force=TimeInForce.GTC,
-                    tags=create_tags(action="BUY", type="TICK_RSI_OPEN", signal_price=str(tick.price))
+                    tags=create_tags(action="BUY", type="OPEN")
                 )
                 self.submit_order(order)
                 self.collector.add_trade(order)

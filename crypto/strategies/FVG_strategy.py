@@ -385,6 +385,7 @@ class FVGStrategy(Strategy):
         
 
     def on_position_closed(self, position_closed) -> None:
+
         realized_pnl = position_closed.realized_pnl  # Realized PnL
         self.realized_pnl += float(realized_pnl) if realized_pnl else 0
         self.collector.add_closed_trade(position_closed)

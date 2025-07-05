@@ -8,7 +8,7 @@ import traceback
 # === 1. Konfiguration ===
 TICKER = "BTCUSDT"
 START_DATE = dt.date(2024, 1, 1)
-END_DATE = dt.date(2024, 1, 3)  # Kleiner Zeitraum zum Testen
+END_DATE = dt.date(2024, 1, 2)  # Kleiner Zeitraum zum Testen
 MARKET_TYPE = "futures"  # spot oder futures (geändert zu futures für BTCUSDT-PERP)
 
 # Memory-Management Konfiguration
@@ -113,37 +113,28 @@ def process_date_range_chunk(start_date: dt.date, end_date: dt.date, output_file
         df = download_tick_data_for_date(date_str)
         
         if not df.empty:
-            df['date'] = date_str
-            df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
-            df = df.dropna(subset=['timestamp'])
-            df = df[df['timestamp'] > 0]
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms').dt.tz_localize('UTC')  # ISO 8601 mit Zeitzone
+            df['buyer_maker'] = df['is_buyer_maker']  # Spaltenname ändern
             
-            try:
-                df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
-                df['side'] = df['is_buyer_maker'].map({True: 'SELL', False: 'BUY'})
+            # Spalten für das gewünschte Format vorbereiten
+            columns_order = ['timestamp', 'trade_id', 'price', 'quantity', 'buyer_maker']
+            processed_df = df[columns_order].copy()
+            
+            chunk_ticks.append(processed_df)
+            total_ticks += len(processed_df)
+            
+            # Memory-Management: Schreibe Chunk wenn zu groß
+            if total_ticks >= CHUNK_SIZE:
+                combined_chunk = pd.concat(chunk_ticks, ignore_index=True)
+                combined_chunk = combined_chunk.sort_values('timestamp').reset_index(drop=True)
+                write_chunk_to_csv(combined_chunk, output_file, is_first_chunk)
                 
-                # Spalten für Nautilus vorbereiten
-                columns_order = ['timestamp', 'trade_id', 'price', 'quantity', 'side', 'is_buyer_maker']
-                processed_df = df[columns_order].copy()
+                # Memory cleanup
+                chunk_ticks.clear()
+                del combined_chunk
+                total_ticks = 0
+                is_first_chunk = False
                 
-                chunk_ticks.append(processed_df)
-                total_ticks += len(processed_df)
-                
-                # Memory-Management: Schreibe Chunk wenn zu groß
-                if total_ticks >= CHUNK_SIZE:
-                    combined_chunk = pd.concat(chunk_ticks, ignore_index=True)
-                    combined_chunk = combined_chunk.sort_values('timestamp').reset_index(drop=True)
-                    write_chunk_to_csv(combined_chunk, output_file, is_first_chunk)
-                    
-                    # Memory cleanup
-                    chunk_ticks.clear()
-                    del combined_chunk
-                    total_ticks = 0
-                    is_first_chunk = False
-                    
-            except Exception as e:
-                print(f"  ❌ Verarbeitungsfehler für {date_str}: {e}")
-        
         current_date += dt.timedelta(days=1)
     
     # Restliche Ticks schreiben
@@ -157,7 +148,6 @@ def process_date_range_chunk(start_date: dt.date, end_date: dt.date, output_file
         del combined_chunk
     
     return total_ticks
-
 def main():
     """Chunk-weise Download für sehr große Zeiträume (Memory-effizient)"""
     print(f"🚀 Starte CHUNK-WEISEN Tick-Download für {TICKER} ({MARKET_TYPE})")

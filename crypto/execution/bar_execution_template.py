@@ -32,7 +32,8 @@ instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = "BTCUSDT-PERP.BINANCE"
 bar_type_str_for_configs = "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
 trade_size = Decimal("0.01")
-#...
+start_date = "2024-10-01T00:00:00Z"
+end_date = "2024-10-31T00:00:00Z"
 close_positions_on_stop = True
 
 # Strategien-Ordner hinzufügen (catalogPath nach Daten anpassen)
@@ -80,12 +81,7 @@ engine_config = BacktestEngineConfig(
 )
 
 # RunConfig
-run_config = BacktestRunConfig(
-    data=[data_config],
-    venues=[venue_config],
-    engine=engine_config,
-    # Optional: start, end, etc.
-)
+run_config = BacktestRunConfig(data=[data_config], venues=[venue_config], engine=engine_config, start=start_date, end=end_date)
 
 # Backtest ausführen mit vorab initialisiertem Dashboard
 results = run_backtest_and_visualize(run_config, TradingDashboard)

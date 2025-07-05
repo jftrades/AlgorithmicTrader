@@ -28,6 +28,9 @@ TradingDashboard = setup_visualizer()
 # catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 # catalog = ParquetDataCatalog(catalogPath)
 
+start_date = "2024-01-01T00:00:00Z"
+end_date = "2024-01-1T02:00:00Z"
+
 # Parameter 
 symbol = Symbol("BTCUSDT")
 venue = Venue("BINANCE")
@@ -45,13 +48,14 @@ STRATEGY_PATH = Path(__file__).resolve().parents[1] / "strategies"
 if str(STRATEGY_PATH) not in sys.path:
     sys.path.insert(0, str(STRATEGY_PATH))
 
-# DataConfig für eigene csv  Tickdaten im Testdaten-Ordner 
-custom_csv_path = "binance/BTCUSDT_TICKS_2024-01-01_to_2024-01-03.csv"
+catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
+
+
 
 data_config = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:TradeTick",
     instrument_id="BTCUSDT-PERP.BINANCE",
-    data=TestDataProvider().read_csv_ticks(custom_csv_path),
+    catalog_path=catalogPath,
 )
 
 # Passe die IDs und Parameter für BTCUSDT Perpetual Futures an
@@ -89,11 +93,7 @@ engine_config = BacktestEngineConfig(
     strategies=[strategy_config],
 )
 
-# RunConfig
-run_config = BacktestRunConfig(
-    data=[data_config],
-    venues=[venue_config],
-    engine=engine_config,
-)
+
+run_config = BacktestRunConfig(data=[data_config], venues=[venue_config], engine=engine_config, start=start_date, end=end_date)
 
 results = run_backtest_and_visualize(run_config, TradingDashboard)

@@ -96,7 +96,7 @@ class NameDerStrategy(Strategy):
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         usdt_balance = account.balances_total()
-        self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
+        #self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
 
         self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
@@ -136,8 +136,10 @@ class NameDerStrategy(Strategy):
         self.log.info(f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
 
     def on_position_closed(self, position_closed) -> None:
-        realized_pnl = position_closed.realized_pnl
+
+        realized_pnl = position_closed.realized_pnl  # Realized PnL
         self.realized_pnl += float(realized_pnl) if realized_pnl else 0
+        self.collector.add_closed_trade(position_closed)
 
     def on_position_opened(self, position_opened) -> None:
         realized_pnl = position_opened.realized_pnl
