@@ -29,7 +29,7 @@ TradingDashboard = setup_visualizer()
 # catalog = ParquetDataCatalog(catalogPath)
 
 start_date = "2024-01-01T00:00:00Z"
-end_date = "2024-01-1T02:00:00Z"
+end_date = "2024-01-1T03:00:00Z"
 
 # Parameter 
 symbol = Symbol("BTCUSDT")

@@ -26,8 +26,8 @@ print(f"Lese CSV-Datei: {CSV_PATH}")
 Instrument = TestInstrumentProvider.btcusdt_perp_binance()
 wrangler = TradeTickDataWrangler(instrument=Instrument)
 
-# Zielordner für Parquet-Dateien
-TICK_OUT_DIR = CATALOG_ROOT_PATH / "data" / "tick"
+# Zielordner für Parquet-Dateien (jetzt pro InstrumentId und mit 'TradeTick' statt 'tick')
+TICK_OUT_DIR = CATALOG_ROOT_PATH / "data" / "TradeTick" / instrument_for_meta.id.value
 TICK_OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 chunk_size = 100_000_000

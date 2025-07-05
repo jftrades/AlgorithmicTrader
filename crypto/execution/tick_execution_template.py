@@ -33,9 +33,8 @@ from help_funcs_exe import run_backtest_and_visualize, setup_visualizer
 # Pre-Visualizer Aktivierung
 TradingDashboard = setup_visualizer()
 
-# TICK-DATEN CATALOG PATH (Ihre lokalen Tick-Daten!)
-catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
-catalog = ParquetDataCatalog(catalogPath)
+start_date = "2024-01-01T00:00:00Z"
+end_date = "2024-01-1T03:00:00Z"
 
 # Parameter - anpassen für deine Tick-Strategie
 symbol = Symbol("BTCUSDT-PERP")
@@ -45,23 +44,26 @@ instrument_id_str = "BTCUSDT-PERP.BINANCE"
 trade_size = Decimal("0.01")
 tick_buffer_size = 1000
 close_positions_on_stop = True
-start_date = "2024-10-01T00:00:00Z"
-end_date = "2024-10-31T00:00:00Z"
 
 # Strategien-Ordner hinzufügen (catalogPath nach Daten anpassen)
 STRATEGY_PATH = Path(__file__).resolve().parents[1] / "strategies"
 if str(STRATEGY_PATH) not in sys.path:
     sys.path.insert(0, str(STRATEGY_PATH))
 
+catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
+
 # DataConfig
 data_config = BacktestDataConfig(
-    data_cls="nautilus_trader.model.data:TradeTick",  # ← TradeTick statt Bar
+    data_cls="nautilus_trader.model.data:TradeTick", 
+    instrument_id="BTCUSDT-PERP.BINANCE",
     catalog_path=catalogPath,
-    instrument_ids=[instrument_id_str],  # ← instrument_ids statt bar_types
-    start_time="2024-01-01",
-    end_time="2024-01-15",
-    # Optional: start_time, end_time, filter_expr, etc.
 )
+
+# Passe die IDs und Parameter für BTCUSDT Perpetual Futures an
+symbol = Symbol("BTCUSDT-PERP")
+venue = Venue("BINANCE")
+instrument_id = InstrumentId(symbol, venue)
+instrument_id_str = "BTCUSDT-PERP.BINANCE"
 
 # VenueConfig - MARGIN für Futures/Crypto Trading
 venue_config = BacktestVenueConfig(
