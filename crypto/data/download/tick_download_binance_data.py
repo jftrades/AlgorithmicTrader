@@ -8,7 +8,7 @@ import traceback
 # === 1. Konfiguration ===
 TICKER = "BTCUSDT"
 START_DATE = dt.date(2024, 1, 1)
-END_DATE = dt.date(2024, 1, 2)  # Kleiner Zeitraum zum Testen
+END_DATE = dt.date(2024, 1, 3)  # Kleiner Zeitraum zum Testen
 MARKET_TYPE = "futures"  # spot oder futures (geändert zu futures für BTCUSDT-PERP)
 
 # Memory-Management Konfiguration
