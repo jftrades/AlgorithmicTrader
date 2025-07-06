@@ -1,1 +1,0 @@
-# das hier ist das execution skript für die FVG_tick_strategy :)

@@ -2,12 +2,12 @@
 from download_logic import TickDownloader, BarDownloader, TickTransformer, BarTransformer, find_csv_file
 from pathlib import Path
 from datetime import datetime
+import shutil
 
 # Parameter hier anpassen
 symbol = "BTCUSDT"
 start_date = "2024-01-01"
 end_date = "2024-01-03"
-# base_data_dir zeigt jetzt auf das zentrale data/DATA_STORAGE-Verzeichnis
 base_data_dir = str(Path(__file__).resolve().parent.parent.parent / "data" / "DATA_STORAGE")
 datatype = "tick"  # oder "bar"
 interval = "1m"    # nur für Bars relevant
@@ -39,6 +39,12 @@ class CombinedCryptoDataDownloader:
                 catalog_root_path=catalog_root_path
             )
             tick_transformer.run()
+            # Nach Verarbeitung: processed_dir löschen
+            try:
+                shutil.rmtree(Path(self.base_data_dir) / f"processed_tick_data_{self.start_date}_to_{self.end_date}")
+                print(f"[INFO] Tick-Ordner gelöscht: {Path(self.base_data_dir) / f'processed_tick_data_{self.start_date}_to_{self.end_date}'}")
+            except Exception as e:
+                print(f"[WARN] Tick-Ordner konnte nicht gelöscht werden: {e}")
         elif self.datatype == "bar":
             print("[INFO] Starte Bar-Download und -Transformation...")
             bar_downloader = BarDownloader(
@@ -79,6 +85,12 @@ class CombinedCryptoDataDownloader:
                 output_columns=output_columns,
             )
             bar_transformer.run()
+            # Nach Verarbeitung: processed_dir löschen
+            try:
+                shutil.rmtree(Path(self.base_data_dir) / f"processed_bar_data_{self.start_date}_to_{self.end_date}")
+                print(f"[INFO] Bar-Ordner gelöscht: {Path(self.base_data_dir) / f'processed_bar_data_{self.start_date}_to_{self.end_date}'}")
+            except Exception as e:
+                print(f"[WARN] Bar-Ordner konnte nicht gelöscht werden: {e}")
         else:
             raise ValueError(f"Unbekannter Datentyp: {self.datatype}")
 
