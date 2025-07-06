@@ -1,16 +1,7 @@
 # ================================================================================
 # TICK STRATEGY TEMPLATE - Nautilus Trader
-# ================================================================================
 # Minimales Template für Tick-basierte Strategien mit Nautilus Trader
-# 
-# FEATURES:
-# - Reine Tick-Verarbeitung (kein Bar-Logic)
-# - Integrierte BacktestDataCollector-Visualisierung
-# - Beispiele für Bracket Orders und Balance-Checks (auskommentiert)
-# - Tick-Buffer für Performance-Optimierung
-# - Clean, minimal, und leicht erweiterbar
 # ================================================================================
-
 # Standard Library Importe
 from decimal import Decimal
 from typing import Any
@@ -35,17 +26,19 @@ VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
 if str(VIS_PATH) not in sys.path:
     sys.path.insert(0, str(VIS_PATH))
 
-# from backtest_visualizer_prototype import BacktestDataCollector  # Optional visualization
-from AlgorithmicTrader.crypto.strategies.help_funcs import create_tags
+from backtest_visualizer_prototype import BacktestDataCollector  # Optional visualization
+from help_funcs import create_tags
 from nautilus_trader.common.enums import LogColor
 
 # Weitere/Strategiespezifische Importe
+from nautilus_trader.model.objects import Currency
 # from nautilus_trader...
 
 class NameDerTickStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     trade_size: Decimal
     #...
+    tick_buffer_size: int = 1000
     close_positions_on_stop: bool = True 
     
 class NameDerTickStrategy(Strategy):
@@ -58,16 +51,17 @@ class NameDerTickStrategy(Strategy):
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
         self.realized_pnl = 0
-        # weitere wichtige tick-spezfische Methoden
+        self.stopped = False  # Flag to indicate if the strategy has been stopped
         self.tick_counter = 0
         self.trade_ticks = []
-        # wenn man mit den Tick Daten eigene Bars erstellt, dann brauchen wir noch zb folgendes bzw anpassen
-        #self.current_bar = None
-        #self.bar_duration_ns = 60 * 1_000_000_000 #1 Minute in Nanosekunden
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
         self.subscribe_trade_ticks(self.instrument_id)
+        # wenn wir mit aggregierten Bars arbeiten:
+        #bar_type = BarType.from_str(f"{self.instrument_id}-5-MINUTE-LAST-INTERNAL")
+        #self.subscribe_bars(bar_type)
+        #self.subscribe_trade_ticks(self.instrument_id)
         self.log.info("Tick Strategy started!")
 
         # self.collector = BacktestDataCollector()  # Optional visualization
@@ -91,6 +85,10 @@ class NameDerTickStrategy(Strategy):
             if positions:
                 return positions[0]
         return None
+    # wenn wir mit aggregierten Bars arbeiten:
+    # def on_bar(self, bar: Bar):
+       # self.rsi.handle_bar(bar)
+        # self.last_rsi = self.rsi.value if self.rsi.initialized else None
 
     def on_trade_tick(self, tick: TradeTick) -> None:  
         self.tick_counter += 1
@@ -100,8 +98,10 @@ class NameDerTickStrategy(Strategy):
         if len(self.trade_ticks) > self.tick_buffer_size:
             self.trade_ticks.pop(0)
         
-        # Optional: Eigene Bars aus Ticks erstellen
-        #self.update_custom_bar(tick)
+        # Prüfe, ob bereits eine Order offen ist (pending), um Endlos-Orders zu vermeiden
+        # open_orders = self.cache.orders_open(instrument_id=self.instrument_id)
+        #if open_orders:
+        #    return  # Warten, bis Order ausgeführt ist
         
         # Beispiel für USDT Balance holen:
         # account_id = AccountId("BINANCE-001")
@@ -130,12 +130,14 @@ class NameDerTickStrategy(Strategy):
         account = self.portfolio.account(venue)
         usdt_balance = account.balances_total()
         #self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
-           
-        self.collector.add_indicator(timestamp=tick.ts_event, name="position", value=net_position)
-        self.collector.add_indicator(timestamp=tick.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
-        self.collector.add_indicator(timestamp=tick.ts_event, name="realized_pnl", value=float(self.realized_pnl))
-        self.collector.add_bar(timestamp=tick.ts_event, open_=tick.price, high=tick.price, low=tick.price, close=tick.price)
-
+        
+        self.tick_counter += 1
+        if self.tick_counter % 1000 == 0:
+            self.collector.add_indicator(timestamp=tick.ts_event, name="position", value=net_position)
+            self.collector.add_indicator(timestamp=tick.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
+            self.collector.add_indicator(timestamp=tick.ts_event, name="realized_pnl", value=float(self.realized_pnl))
+            self.collector.add_indicator(timestamp=tick.ts_event, name="balance", value=usdt_balance)
+    
     # weitere on methoden z.B.
     def on_position_event(self, event: PositionEvent) -> None:
         pass

@@ -6,6 +6,8 @@ from decimal import Decimal
 from typing import Any
 import sys
 from pathlib import Path
+from collections import deque
+from datetime import datetime, timedelta, timezone
 
 # Nautilus Kern offizielle Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
@@ -57,15 +59,15 @@ class RSITickSimpleStrategy(Strategy):
         self.venue = self.instrument_id.venue
         self.realized_pnl = 0
         self.stopped = False  # Flag to indicate if the strategy has been stopped
-        # weitere wichtige tick-spezfische Methoden
         self.tick_counter = 0
         self.trade_ticks = []
-        # wenn man mit den Tick Daten eigene Bars erstellt, dann brauchen wir noch zb folgendes bzw anpassen
-        #self.current_bar = None
-        #self.bar_duration_ns = 60 * 1_000_000_000 #1 Minute in Nanosekunden
+
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
+        self.subscribe_trade_ticks(self.instrument_id)
+        bar_type = BarType.from_str(f"{self.instrument_id}-5-MINUTE-LAST-INTERNAL")
+        self.subscribe_bars(bar_type)
         self.subscribe_trade_ticks(self.instrument_id)
         self.log.info("Tick Strategy started!")
 
@@ -91,38 +93,27 @@ class RSITickSimpleStrategy(Strategy):
                 return positions[0]
         return None
 
-    def on_trade_tick(self, tick: TradeTick) -> None:  
-        self.tick_counter += 1
+    def on_bar(self, bar: Bar):
+        self.rsi.handle_bar(bar)
+        self.last_rsi = self.rsi.value if self.rsi.initialized else None
+        self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
+        
 
-        # Tick zu Buffer hinzufügen
+    def on_trade_tick(self, tick: TradeTick) -> None:  
+        rsi_value = self.rsi.value if self.rsi.initialized else None
+        if rsi_value is None:
+            return  # RSI noch nicht initialisiert, daher keine Logik ausführen
+        self.tick_counter += 1
         self.trade_ticks.append(tick)
         if len(self.trade_ticks) > self.tick_buffer_size:
             self.trade_ticks.pop(0)
-        
-        # RSI Update: Synthetic Bar aus Tick erstellen (Hybrid-Approach)
-        synthetic_bar = Bar(
-            bar_type=BarType.from_str(f"{self.instrument_id}-1-TICK-LAST-EXTERNAL"),
-            open=Price(tick.price.as_double(), self.instrument.price_precision),  
-            high=Price(tick.price.as_double(), self.instrument.price_precision),
-            low=Price(tick.price.as_double(), self.instrument.price_precision),
-            close=Price(tick.price.as_double(), self.instrument.price_precision),
-            volume=tick.size,
-            ts_event=tick.ts_event,
-            ts_init=tick.ts_init
-        )
-        
-        self.rsi.handle_bar(synthetic_bar)
-        if not self.rsi.initialized:
-            return
-        
-        rsi_value = self.rsi.value
         
         # Prüfe, ob bereits eine Order offen ist (pending), um Endlos-Orders zu vermeiden
         open_orders = self.cache.orders_open(instrument_id=self.instrument_id)
         if open_orders:
             return  # Warten, bis Order ausgeführt ist
-        
-        # Entry/Exit-Logik - sofortige Tick-basierte Entscheidungen
+
+        # Entry/Exit-Logik - tick-genau
         if rsi_value > self.rsi_overbought:
             if self.last_rsi_cross != "rsi_overbought":
                 self.close_position()
@@ -136,7 +127,6 @@ class RSITickSimpleStrategy(Strategy):
                 self.submit_order(order)
                 self.collector.add_trade(order)
             self.last_rsi_cross = "rsi_overbought"
-            
         elif rsi_value < self.rsi_oversold:
             if self.last_rsi_cross != "rsi_oversold":
                 self.close_position()
@@ -154,18 +144,18 @@ class RSITickSimpleStrategy(Strategy):
         # VISUALIZER UPDATE - Jeden Tick für vollständige Tick-Daten
         net_position = self.portfolio.net_position(self.instrument_id)
         unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
-        
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         usdt_balance = account.balances_total()
         #self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
-           
-        self.collector.add_indicator(timestamp=tick.ts_event, name="position", value=net_position)
-        self.collector.add_indicator(timestamp=tick.ts_event, name="RSI", value=float(rsi_value))
-        self.collector.add_indicator(timestamp=tick.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
-        self.collector.add_indicator(timestamp=tick.ts_event, name="realized_pnl", value=float(self.realized_pnl))
-        self.collector.add_indicator(timestamp=tick.ts_event, name="balance", value=usdt_balance)
-        self.collector.add_bar(timestamp=tick.ts_event, open_=tick.price, high=tick.price, low=tick.price, close=tick.price)
+        
+        self.tick_counter += 1
+        if self.tick_counter % 1000 == 0:
+            self.collector.add_indicator(timestamp=tick.ts_event, name="position", value=net_position)
+            self.collector.add_indicator(timestamp=tick.ts_event, name="RSI", value=float(rsi_value))
+            self.collector.add_indicator(timestamp=tick.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
+            self.collector.add_indicator(timestamp=tick.ts_event, name="realized_pnl", value=float(self.realized_pnl))
+            self.collector.add_indicator(timestamp=tick.ts_event, name="balance", value=usdt_balance)
 
     # weitere on methoden z.B.
     def on_position_event(self, event: PositionEvent) -> None:

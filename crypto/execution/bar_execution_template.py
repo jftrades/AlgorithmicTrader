@@ -1,11 +1,16 @@
+# ================================================================================
+# BAR EXECUTION TEMPLATE - Nautilus Trader
+# Minimales Template für Bar-basierte Backtests mit Nautilus Trader
+# ================================================================================
 # Standard Library Importe
 import sys
+import time
+import pandas as pd
 from pathlib import Path
 from decimal import Decimal
 
 # Nautilus Kern Importe
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue, AccountId
-from nautilus_trader.model.data import BarType
 from nautilus_trader.model.objects import Money
 from nautilus_trader.model.currencies import USDT, BTC
 from nautilus_trader.backtest.config import (BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig, BacktestRunConfig)
@@ -20,20 +25,20 @@ from nautilus_trader.trading.config import ImportableStrategyConfig
 from help_funcs_exe import run_backtest_and_visualize, setup_visualizer
 
 # Pre-Visualizer Aktivierung
-TradingDashboard = setup_visualizer()  # ← () ausführen, nicht nur zuweisen!
+TradingDashboard = setup_visualizer()
 
-catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
-catalog = ParquetDataCatalog(catalogPath)
+start_date = "2024-01-01T00:00:00Z"
+end_date = "2024-01-03T23:59:59Z"
 
-# Parameter - anpassen für deine Strategie
+
+# Parameter - anpassen für deine Tick-Strategie
 symbol = Symbol("BTCUSDT-PERP")
 venue = Venue("BINANCE")
 instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = "BTCUSDT-PERP.BINANCE"
 bar_type_str_for_configs = "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
 trade_size = Decimal("0.01")
-start_date = "2024-10-01T00:00:00Z"
-end_date = "2024-10-31T00:00:00Z"
+tick_buffer_size = 1000
 close_positions_on_stop = True
 
 # Strategien-Ordner hinzufügen (catalogPath nach Daten anpassen)
@@ -41,15 +46,20 @@ STRATEGY_PATH = Path(__file__).resolve().parents[1] / "strategies"
 if str(STRATEGY_PATH) not in sys.path:
     sys.path.insert(0, str(STRATEGY_PATH))
 
+catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
+
 # DataConfig
 data_config = BacktestDataConfig(
-    data_cls="nautilus_trader.model.data:Bar",
+    data_cls="nautilus_trader.model.data:Bar", # Traditioneller Pfad, der für Deserialisierung funktionierte
     catalog_path=catalogPath,
-    bar_types=[bar_type_str_for_configs],
-    start_time="2021-01-01",
-    end_time="2021-03-01",
-    # Optional: start_time, end_time, instrument_ids, filter_expr, etc.
+    bar_types=[bar_type_str_for_configs]
 )
+
+# Passe die IDs und Parameter für BTCUSDT Perpetual Futures an
+symbol = Symbol("BTCUSDT-PERP")
+venue = Venue("BINANCE")
+instrument_id = InstrumentId(symbol, venue)
+instrument_id_str = "BTCUSDT-PERP.BINANCE"
 
 # VenueConfig - MARGIN für Futures/Crypto Trading
 venue_config = BacktestVenueConfig(
@@ -61,15 +71,14 @@ venue_config = BacktestVenueConfig(
     # Optional: base_currency, default_leverage, leverages, book_type, etc.
 )
 
-# StrategyConfig - ANPASSEN für deine Strategie!
+# StrategyConfig - ANPASSEN für deine Tick-Strategie!
 strategy_config = ImportableStrategyConfig(
-    strategy_path="Name_Der_Strategy:NameDerStrategy",  # <--- ANPASSEN!
-    config_path="Name_Der_Strategy:NameDerStrategyConfig",  # <--- ANPASSEN!
+    strategy_path="bar_strategy_template:BarStrategy",  # <--- ANPASSEN!
+    config_path="bar_strategy_template:BarStrategyConfig",  # <--- ANPASSEN!
     config={
         "instrument_id": instrument_id_str,
-        "bar_type": bar_type_str_for_configs,
         "trade_size": str(trade_size),
-        #...
+        "tick_buffer_size": tick_buffer_size,
         "close_positions_on_stop": close_positions_on_stop,
     }
 )

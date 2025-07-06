@@ -1,3 +1,7 @@
+# ================================================================================
+# BAR STRATEGY TEMPLATE - Nautilus Trader
+# Minimales Template für Bar-basierte Strategien mit Nautilus Trader
+# ================================================================================
 # Standard Library Importe
 from decimal import Decimal
 from typing import Any

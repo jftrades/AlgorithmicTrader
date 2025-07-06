@@ -24,12 +24,8 @@ from help_funcs_exe import run_backtest_and_visualize, setup_visualizer
 # Pre-Visualizer Aktivierung
 TradingDashboard = setup_visualizer()
 
-# TICK-DATEN CATALOG PATH (Ihre lokalen Tick-Daten!)
-# catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
-# catalog = ParquetDataCatalog(catalogPath)
-
 start_date = "2024-01-01T00:00:00Z"
-end_date = "2024-01-1T03:00:00Z"
+end_date = "2024-01-03T23:59:59Z"
 
 # Parameter 
 symbol = Symbol("BTCUSDT")
@@ -37,6 +33,7 @@ venue = Venue("BINANCE")
 instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = "BTCUSDT-PERP.BINANCE"
 trade_size = Decimal("0.01")
+bar_types = ["BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-INTERNAL"]
 tick_buffer_size = 1000
 rsi_period = 14
 rsi_overbought = 0.8

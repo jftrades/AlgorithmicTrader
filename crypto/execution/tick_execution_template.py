@@ -1,15 +1,7 @@
 # ================================================================================
 # TICK EXECUTION TEMPLATE - Nautilus Trader
-# ================================================================================
 # Minimales Template für Tick-basierte Backtests mit Nautilus Trader
-# 
-# WICHTIG: 
-# - Alle lokalen Tick-Daten müssen im Pfad 'data/DATA_STORAGE/data_catalog_wrangled' liegen
-# - Nautilus lädt automatisch alle relevanten Tick-Parquet-Dateien für das Instrument
-# - Konfiguration ist für TradeTick optimiert (nicht Bar-Daten)
-# - Template funktioniert sofort mit der tick_strategy_template.py
 # ================================================================================
-
 # Standard Library Importe
 import sys
 from pathlib import Path
@@ -34,7 +26,8 @@ from help_funcs_exe import run_backtest_and_visualize, setup_visualizer
 TradingDashboard = setup_visualizer()
 
 start_date = "2024-01-01T00:00:00Z"
-end_date = "2024-01-1T03:00:00Z"
+end_date = "2024-01-03T23:59:59Z"
+
 
 # Parameter - anpassen für deine Tick-Strategie
 symbol = Symbol("BTCUSDT-PERP")
@@ -42,6 +35,7 @@ venue = Venue("BINANCE")
 instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = "BTCUSDT-PERP.BINANCE"
 trade_size = Decimal("0.01")
+#bar_types = ["BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-INTERNAL"] -> für aggregierte bars
 tick_buffer_size = 1000
 close_positions_on_stop = True
 
