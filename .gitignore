@@ -3,3 +3,5 @@
 __pycache__/
 *.pyc
 crypto/data/DATA_STORAGE/
+*.env
+index/data/DATA_STORAGE/
