@@ -5,21 +5,17 @@ from pathlib import Path
 
 # Nautilus Kern Importe
 from nautilus_trader.backtest.node import BacktestNode
+from core.visualizing.dashboard import TradingDashboard
 
 def setup_visualizer():
     """
     Setzt den Visualizer-Pfad und importiert TradingDashboard
-    
     Returns:
         TradingDashboard: Dashboard Klasse
     """
-    VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
-    if str(VIS_PATH) not in sys.path:
-        sys.path.insert(0, str(VIS_PATH))
-    
-    from dashboard import TradingDashboard
+    # VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
+    # sys.path hack entfernt, da Import jetzt zentral ist
     return TradingDashboard
-
 
 def run_backtest_and_visualize(run_config, TradingDashboard=None):
     """

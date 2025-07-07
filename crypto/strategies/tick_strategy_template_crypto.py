@@ -23,10 +23,8 @@ from nautilus_trader.model.enums import AggressorSide  # für BUY/SELL
 
 # Nautilus Kern eigene Importe !!! immer
 VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
-if str(VIS_PATH) not in sys.path:
-    sys.path.insert(0, str(VIS_PATH))
 
-from backtest_visualizer_prototype import BacktestDataCollector  # Optional visualization
+from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector  # Optional visualization
 from AlgorithmicTrader.crypto.strategies.help_funcs_strategy_crypto import create_tags
 from nautilus_trader.common.enums import LogColor
 

@@ -29,7 +29,7 @@ VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
 if str(VIS_PATH) not in sys.path:
     sys.path.insert(0, str(VIS_PATH))
 
-from dashboard import TradingDashboard
+from core.visualizing.dashboard import TradingDashboard
 ###################
 
 # Hier die gleichen Parameter wie aus strategy aber halt anpassen

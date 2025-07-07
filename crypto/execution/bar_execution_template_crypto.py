@@ -23,6 +23,7 @@ from nautilus_trader.trading.config import ImportableStrategyConfig
 
 # Execution Helper Funktionen
 from AlgorithmicTrader.crypto.execution.help_funcs_execution_crypto import run_backtest_and_visualize, setup_visualizer
+from core.visualizing.dashboard import TradingDashboard
 
 # Pre-Visualizer Aktivierung
 TradingDashboard = setup_visualizer()

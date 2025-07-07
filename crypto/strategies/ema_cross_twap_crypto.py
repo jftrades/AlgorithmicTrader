@@ -39,19 +39,7 @@ from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.trading.strategy import Strategy
 from nautilus_trader.core.datetime import dt_to_unix_nanos, unix_nanos_to_dt
 from AlgorithmicTrader.crypto.strategies.help_funcs_strategy_crypto import create_tags
-
-
-################
-import sys
-from pathlib import Path
-
-# Pfad zum visualizing-Ordner hinzufügen
-VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
-if str(VIS_PATH) not in sys.path:
-    sys.path.insert(0, str(VIS_PATH))
-
-from backtest_visualizer_prototype import BacktestDataCollector
-###################
+from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 
 
 # *** THIS IS A TEST STRATEGY WITH NO ALPHA ADVANTAGE WHATSOEVER. ***

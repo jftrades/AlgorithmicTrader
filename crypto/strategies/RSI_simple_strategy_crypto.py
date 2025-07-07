@@ -16,19 +16,7 @@ from nautilus_trader.common.enums import LogColor
 
 # Nautilus Strategie spezifische Importe
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
-
-################
-import sys
-from pathlib import Path
-
-# Pfad zum visualizing-Ordner hinzufügen
-VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
-if str(VIS_PATH) not in sys.path:
-    sys.path.insert(0, str(VIS_PATH))
-
-from backtest_visualizer_prototype import BacktestDataCollector
-###################
-
+from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 
 # ab hier der Code für die Strategie
 class RSISimpleStrategyConfig(StrategyConfig):
