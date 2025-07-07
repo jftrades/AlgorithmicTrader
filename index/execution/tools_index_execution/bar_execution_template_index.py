@@ -12,7 +12,7 @@ from decimal import Decimal
 # Nautilus Kern Importe
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue, AccountId
 from nautilus_trader.model.objects import Money
-from nautilus_trader.model.currencies import USDT, BTC
+from nautilus_trader.model.currencies import USDT
 from nautilus_trader.backtest.config import (BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig, BacktestRunConfig)
 from nautilus_trader.backtest.node import BacktestNode
 from nautilus_trader.backtest.results import BacktestResult
@@ -22,7 +22,7 @@ from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.trading.config import ImportableStrategyConfig
 
 # Execution Helper Funktionen
-from AlgorithmicTrader.crypto.execution.help_funcs_execution_crypto import run_backtest_and_visualize, setup_visualizer
+from AlgorithmicTrader.index.execution.tools_index_execution.help_funcs_execution_index import run_backtest_and_visualize, setup_visualizer
 from core.visualizing.dashboard import TradingDashboard
 
 # Pre-Visualizer Aktivierung

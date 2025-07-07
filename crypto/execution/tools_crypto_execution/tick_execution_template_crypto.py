@@ -20,7 +20,7 @@ from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.trading.config import ImportableStrategyConfig
 
 # Execution Helper Funktionen
-from AlgorithmicTrader.crypto.execution.help_funcs_execution_crypto import run_backtest_and_visualize, setup_visualizer
+from AlgorithmicTrader.crypto.execution.tools_crypto_execution.help_funcs_execution_crypto import run_backtest_and_visualize, setup_visualizer
 from core.visualizing.dashboard import TradingDashboard
 
 # Pre-Visualizer Aktivierung
