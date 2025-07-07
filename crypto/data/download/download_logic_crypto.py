@@ -1,3 +1,7 @@
+"""
+Download- und Transformationslogik für Index-Daten via Databento
+Kompatibel zu NautilusTrader 1.219
+"""
 # die Importe aller Dateien
 import datetime as dt
 from pathlib import Path

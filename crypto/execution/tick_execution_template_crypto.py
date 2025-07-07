@@ -1,11 +1,9 @@
 # ================================================================================
-# BAR EXECUTION TEMPLATE - Nautilus Trader
-# Minimales Template für Bar-basierte Backtests mit Nautilus Trader
+# TICK EXECUTION TEMPLATE - Nautilus Trader
+# Minimales Template für Tick-basierte Backtests mit Nautilus Trader
 # ================================================================================
 # Standard Library Importe
 import sys
-import time
-import pandas as pd
 from pathlib import Path
 from decimal import Decimal
 
@@ -22,7 +20,7 @@ from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.trading.config import ImportableStrategyConfig
 
 # Execution Helper Funktionen
-from help_funcs_exe import run_backtest_and_visualize, setup_visualizer
+from AlgorithmicTrader.crypto.execution.help_funcs_execution_crypto import run_backtest_and_visualize, setup_visualizer
 
 # Pre-Visualizer Aktivierung
 TradingDashboard = setup_visualizer()
@@ -36,8 +34,8 @@ symbol = Symbol("BTCUSDT-PERP")
 venue = Venue("BINANCE")
 instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = "BTCUSDT-PERP.BINANCE"
-bar_type_str_for_configs = "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
 trade_size = Decimal("0.01")
+#bar_types = ["BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-INTERNAL"] -> für aggregierte bars
 tick_buffer_size = 1000
 close_positions_on_stop = True
 
@@ -50,9 +48,9 @@ catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAG
 
 # DataConfig
 data_config = BacktestDataConfig(
-    data_cls="nautilus_trader.model.data:Bar", # Traditioneller Pfad, der für Deserialisierung funktionierte
+    data_cls="nautilus_trader.model.data:TradeTick", 
+    instrument_id="BTCUSDT-PERP.BINANCE",
     catalog_path=catalogPath,
-    bar_types=[bar_type_str_for_configs]
 )
 
 # Passe die IDs und Parameter für BTCUSDT Perpetual Futures an
@@ -73,8 +71,8 @@ venue_config = BacktestVenueConfig(
 
 # StrategyConfig - ANPASSEN für deine Tick-Strategie!
 strategy_config = ImportableStrategyConfig(
-    strategy_path="bar_strategy_template:BarStrategy",  # <--- ANPASSEN!
-    config_path="bar_strategy_template:BarStrategyConfig",  # <--- ANPASSEN!
+    strategy_path="tick_strategy_template:TickStrategy",  # <--- ANPASSEN!
+    config_path="tick_strategy_template:TickStrategyConfig",  # <--- ANPASSEN!
     config={
         "instrument_id": instrument_id_str,
         "trade_size": str(trade_size),

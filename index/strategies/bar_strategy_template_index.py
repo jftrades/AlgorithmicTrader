@@ -26,7 +26,7 @@ if str(VIS_PATH) not in sys.path:
     sys.path.insert(0, str(VIS_PATH))
 
 from backtest_visualizer_prototype import BacktestDataCollector
-from AlgorithmicTrader.crypto.strategies.help_funcs import create_tags
+from AlgorithmicTrader.crypto.strategies.help_funcs_strategy_crypto import create_tags
 from nautilus_trader.common.enums import LogColor
 
 # Weitere/Strategiespezifische Importe

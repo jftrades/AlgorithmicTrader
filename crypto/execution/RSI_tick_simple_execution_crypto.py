@@ -19,7 +19,7 @@ from nautilus_trader.persistence.loaders import CSVTickDataLoader
 from nautilus_trader.trading.config import ImportableStrategyConfig
 
 # Execution Helper Funktionen
-from help_funcs_exe import run_backtest_and_visualize, setup_visualizer
+from AlgorithmicTrader.crypto.execution.help_funcs_execution_crypto import run_backtest_and_visualize, setup_visualizer
 
 # Pre-Visualizer Aktivierung
 TradingDashboard = setup_visualizer()
