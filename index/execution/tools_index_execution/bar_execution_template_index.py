@@ -22,11 +22,8 @@ from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.trading.config import ImportableStrategyConfig
 
 # Execution Helper Funktionen
-from AlgorithmicTrader.index.execution.tools_index_execution.help_funcs_execution_index import run_backtest_and_visualize, setup_visualizer
+from index.execution.tools_index_execution.help_funcs_execution_index import run_backtest_and_visualize, setup_visualizer
 from core.visualizing.dashboard import TradingDashboard
-
-# Pre-Visualizer Aktivierung
-TradingDashboard = setup_visualizer()
 
 start_date = "2024-01-01T00:00:00Z"
 end_date = "2024-01-03T23:59:59Z"

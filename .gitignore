@@ -5,3 +5,4 @@ __pycache__/
 crypto/data/DATA_STORAGE/
 *.env
 index/data/DATA_STORAGE/
+AlgorithmicTrader.egg-info/

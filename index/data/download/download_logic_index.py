@@ -16,7 +16,7 @@ import shutil
 def download_dbn(symbol, start_date, end_date, dataset, schema, encoding, api_key, raw_dir):
     raw_dir = Path(raw_dir)
     raw_dir.mkdir(parents=True, exist_ok=True)
-    print(f"[INFO] Starte Batch-Job für DBN-Download von Databento...")
+    print("[INFO] Starte Batch-Job für DBN-Download von Databento...")
     client = db.Historical(api_key)
     new_job = client.batch.submit_job(
         dataset=dataset,
@@ -35,7 +35,7 @@ def download_dbn(symbol, start_date, end_date, dataset, schema, encoding, api_ke
         if new_job_id in done_jobs:
             break
         time.sleep(1.0)
-    print(f"[INFO] Batch-Job abgeschlossen. Lade Dateien...")
+    print("[INFO] Batch-Job abgeschlossen. Lade Dateien...")
     downloaded_files = client.batch.download(
         job_id=new_job_id,
         output_dir=raw_dir,

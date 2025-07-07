@@ -3,7 +3,7 @@
 Zentrale Steuerung für crypto-Daten-Download und -Transformation via Binance
 Kompatibel zu NautilusTrader 1.219
 """
-from download_logic import TickDownloader, BarDownloader, TickTransformer, BarTransformer, find_csv_file
+from crypto.data.download.download_logic_crypto import TickDownloader, BarDownloader, TickTransformer, BarTransformer, find_csv_file
 from pathlib import Path
 from datetime import datetime
 import shutil

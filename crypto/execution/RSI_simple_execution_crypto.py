@@ -20,17 +20,7 @@ from nautilus_trader.backtest.config import BacktestDataConfig, BacktestVenueCon
 from nautilus_trader.backtest.node import BacktestNode
 from nautilus_trader.backtest.results import BacktestResult
 
-################
-import sys
-from pathlib import Path
-
-# Pfad zum visualizing-Ordner hinzufügen
-VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
-if str(VIS_PATH) not in sys.path:
-    sys.path.insert(0, str(VIS_PATH))
-
 from core.visualizing.dashboard import TradingDashboard
-###################
 
 # Hier die gleichen Parameter wie aus strategy aber halt anpassen
 symbol = Symbol("BTCUSDT")
@@ -74,8 +64,8 @@ venue_config = BacktestVenueConfig(
 
 # StrategyConfig - IMMER anpassen!!
 strategy_config = ImportableStrategyConfig(
-    strategy_path = "RSI_simple_strategy:RSISimpleStrategy",
-    config_path = "RSI_simple_strategy:RSISimpleStrategyConfig",
+    strategy_path = "RSI_simple_strategy_crypto:RSISimpleStrategy",
+    config_path = "RSI_simple_strategy_crypto:RSISimpleStrategyConfig",
 
     config={
         "instrument_id": instrument_id_str,

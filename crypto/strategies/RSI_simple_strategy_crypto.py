@@ -11,12 +11,12 @@ from nautilus_trader.model.identifiers import InstrumentId, Venue
 from nautilus_trader.model.objects import Money, Price, Quantity, Currency
 from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.model.enums import OrderSide, TimeInForce
-from AlgorithmicTrader.crypto.strategies.help_funcs_strategy_crypto import create_tags
 from nautilus_trader.common.enums import LogColor
 
 # Nautilus Strategie spezifische Importe
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
+from crypto.strategies.tools_crypto_strategies.help_funcs_strategy_crypto import create_tags
 
 # ab hier der Code für die Strategie
 class RSISimpleStrategyConfig(StrategyConfig):

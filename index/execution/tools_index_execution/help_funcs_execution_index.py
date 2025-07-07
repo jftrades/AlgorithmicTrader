@@ -36,7 +36,7 @@ def run_backtest_and_visualize(run_config, TradingDashboard=None):
     # Backtest ausführen
     try:
         node = BacktestNode(configs=[run_config])
-        print(f"Starte Backtest...")
+        print("Starte Backtest...")
         results = node.run()
     except Exception as e:
         print(f"FEHLER: {e}")

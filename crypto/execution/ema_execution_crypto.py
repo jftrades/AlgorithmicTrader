@@ -15,17 +15,9 @@ from nautilus_trader.model.currencies import USDT, BTC
 import time
 from nautilus_trader.backtest.results import BacktestResult
 
-################
 import sys
-from pathlib import Path
 
-# Pfad zum visualizing-Ordner hinzufügen
-VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
-if str(VIS_PATH) not in sys.path:
-    sys.path.insert(0, str(VIS_PATH))
-
-from dashboard import TradingDashboard
-###################
+from core.visualizing.dashboard import TradingDashboard
 
 # --- Konfigurationen ---
 # Diese Strings müssen exakt zu dem passen, was der Transformer geschrieben hat
@@ -63,8 +55,8 @@ venue_config = BacktestVenueConfig(
 
 # StrategyConfig (Importable)
 strategy_config = ImportableStrategyConfig(
-    strategy_path = "ema_cross_twap:EMACrossTWAP",
-    config_path = "ema_cross_twap:EMACrossTWAPConfig",
+    strategy_path = "ema_cross_twap_crypto:EMACrossTWAP",
+    config_path = "ema_cross_twap_crypto:EMACrossTWAPConfig",
 
     config={
         "instrument_id": instrument_id_str,

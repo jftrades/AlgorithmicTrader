@@ -18,12 +18,7 @@ from nautilus_trader.backtest.node import BacktestNode
 from nautilus_trader.backtest.results import BacktestResult
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
-# Nautilus Kern eigene Importe !!! immer
-VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
-if str(VIS_PATH) not in sys.path:
-    sys.path.insert(0, str(VIS_PATH))
-from dashboard import TradingDashboard
-
+from core.visualizing.dashboard import TradingDashboard
 # Weitere/Strategiespezifische Importe
 from nautilus_trader.trading.config import ImportableStrategyConfig
 
@@ -68,8 +63,8 @@ venue_config = BacktestVenueConfig(
 
 # StrategyConfig - IMMER anpassen!!
 strategy_config = ImportableStrategyConfig(
-    strategy_path="FVG_strategy:FVGStrategy",        
-    config_path="FVG_strategy:FVGStrategyConfig",     
+    strategy_path="FVG_strategy_crypto:FVGStrategy",        
+    config_path="FVG_strategy_crypto:FVGStrategyConfig",     
     config={
         "instrument_id": instrument_id_str,
         "bar_type": bar_type_str_for_configs,

@@ -17,13 +17,10 @@ from nautilus_trader.model.events import OrderEvent, PositionEvent
 from nautilus_trader.model.book import OrderBook
 from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.currencies import USDT, BTC
-
-# Nautilus Kern eigene Importe !!! immer
-VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
+from nautilus_trader.common.enums import LogColor
 
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
-from AlgorithmicTrader.crypto.strategies.help_funcs_strategy_crypto import create_tags
-from nautilus_trader.common.enums import LogColor
+from crypto.strategies.tools_crypto_strategies.help_funcs_strategy_crypto import create_tags
 
 # Weitere/Strategiespezifische Importe
 # from nautilus_trader...

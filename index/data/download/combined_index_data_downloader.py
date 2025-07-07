@@ -6,7 +6,7 @@ API-Key wird sicher aus .env/Umgebung geladen (niemals im Code speichern!)
 from pathlib import Path
 from dotenv import load_dotenv
 import os
-from download_logic import download_dbn, transform_dbn_to_parquet
+from index.data.download.download_logic_index import download_dbn, transform_dbn_to_parquet
 
 # .env laden (falls vorhanden)
 load_dotenv()

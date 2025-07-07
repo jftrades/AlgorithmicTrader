@@ -25,8 +25,8 @@ from nautilus_trader.model.enums import AggressorSide  # für BUY/SELL
 VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
 
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector  # Optional visualization
-from AlgorithmicTrader.crypto.strategies.tools_crypto_strategies.help_funcs_strategy_crypto import create_tags
-from nautilus_trader.common.enums import LogColor
+from crypto.strategies.tools_crypto_strategies.help_funcs_strategy_crypto import create_tags
+from common.enums import LogColor
 
 # Weitere/Strategiespezifische Importe
 from nautilus_trader.model.objects import Currency

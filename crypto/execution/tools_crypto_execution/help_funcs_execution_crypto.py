@@ -1,7 +1,5 @@
 # Standard Library Importe
-import sys
 import time
-from pathlib import Path
 
 # Nautilus Kern Importe
 from nautilus_trader.backtest.node import BacktestNode
@@ -31,7 +29,7 @@ def run_backtest_and_visualize(run_config, TradingDashboard=None):
     # Backtest ausführen
     try:
         node = BacktestNode(configs=[run_config])
-        print(f"Starte Backtest...")
+        print("Starte Backtest...")
         results = node.run()
     except Exception as e:
         print(f"FEHLER: {e}")
