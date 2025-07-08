@@ -56,6 +56,7 @@ class RSITickSimpleStrategy(Strategy):
         self.stopped = False  # Flag to indicate if the strategy has been stopped
         self.tick_counter = 0
         self.trade_ticks = []
+        self.last_logged_balance = None  # Track last logged balance
 
 
     def on_start(self) -> None:
@@ -67,16 +68,18 @@ class RSITickSimpleStrategy(Strategy):
         self.log.info("Tick Strategy started!")
 
         self.collector = BacktestDataCollector()  # Optional visualization
-        self.collector.initialise_logging_indicator("position", 1)
-        self.collector.initialise_logging_indicator("realized_pnl", 2)
-        self.collector.initialise_logging_indicator("unrealized_pnl", 3)
-        self.collector.initialise_logging_indicator("balance", 4)
+        self.collector.initialise_logging_indicator("RSI", 1)
+        self.collector.initialise_logging_indicator("position", 2)
+        self.collector.initialise_logging_indicator("realized_pnl", 3)
+        self.collector.initialise_logging_indicator("unrealized_pnl", 4)
+        self.collector.initialise_logging_indicator("balance", 5)
 
         # Get the account using the venue instead of account_id
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         if account:
-            usdt_balance = account.balance_total(Currency.from_str("USDT"))
+            usdt_balance = account.balance_total(Currency.from_str("USDT")).as_double()
+            self.last_logged_balance = usdt_balance
             self.log.info(f"USDT balance: {usdt_balance}")
         else:
             self.log.warning(f"No account found for venue: {venue}")
@@ -210,16 +213,16 @@ class RSITickSimpleStrategy(Strategy):
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         usdt_balance = account.balance_total(Currency.from_str("USDT")).as_double() 
-        self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
+        
 
 
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="account_balance", value=usdt_balance)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usdt_balance)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="RSI", value=float(self.last_rsi) if self.last_rsi is not None else None)
         logging_message = self.collector.save_data()
         self.log.info(logging_message, color=LogColor.GREEN)
-
         #self.collector.visualize()  # Visualize the data if enabled
 
 
@@ -235,7 +238,7 @@ class RSITickSimpleStrategy(Strategy):
         realized_pnl = position_closed.realized_pnl  # Realized PnL
         self.realized_pnl += float(realized_pnl) if realized_pnl else 0
         self.collector.add_closed_trade(position_closed)
-    
+
     def on_error(self, error: Exception) -> None:
         self.log.error(f"An error occurred: {error}")
         position = self.get_position()

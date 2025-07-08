@@ -495,6 +495,10 @@ class DashboardApp:
                 for name, indicator_df in self.indicators_df.items():
                     try:
                         if not indicator_df.empty and indicator_df.iloc[0]['plot_id'] == 0:
+                            # ACCOUNT_BALANCE nicht im Preis-Chart plotten
+                            if name.upper() == "ACCOUNT_BALANCE":
+                                # print(f"ACCOUNT_BALANCE wird nicht im Preis-Chart angezeigt.")
+                                continue  # Überspringe ACCOUNT_BALANCE
                             line_color = indicator_colors[color_idx % len(indicator_colors)]
                             fig.add_trace(
                                 go.Scatter(
@@ -977,7 +981,7 @@ class DashboardApp:
                 font=dict(family='Inter, system-ui, sans-serif', size=11)
             ),
             uirevision=f'indicators-subplot',
-            font=dict(family='Inter, system-ui, sans-serif', size=11),
+            font=dict(family='Inter, system-ui', size=11),
             hovermode='x unified',  # Unified hover für alle Linien gleichzeitig
             margin=dict(t=30, b=60, l=60, r=20),  # Gleiche Margins wie Hauptchart
             # Crosshair-Linien auch für Subplots
