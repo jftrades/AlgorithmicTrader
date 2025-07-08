@@ -6,3 +6,4 @@ crypto/data/DATA_STORAGE/
 *.env
 index/data/DATA_STORAGE/
 AlgorithmicTrader.egg-info/
+core/DATA_STORAGE/
