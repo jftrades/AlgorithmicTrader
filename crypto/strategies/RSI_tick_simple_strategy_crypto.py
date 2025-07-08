@@ -214,8 +214,6 @@ class RSITickSimpleStrategy(Strategy):
         account = self.portfolio.account(venue)
         usdt_balance = account.balance_total(Currency.from_str("USDT")).as_double() 
         
-
-
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usdt_balance)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
