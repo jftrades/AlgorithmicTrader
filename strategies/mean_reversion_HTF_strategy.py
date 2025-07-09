@@ -77,6 +77,25 @@ class MeanReversionHTFStrategyIndex(Strategy):
                 return positions[0]
         return None
     
+    def long_setup(self, rsi_value):
+        if rsi_value < self.rsi_oversold:
+            self.rsi_oversold_triggered = True
+
+        if self.rsi_oversold_triggered and rsi_value <= 0.45:
+            if <weitere_bedingung_1> and <weitere_bedingung_2>:
+                self.close_position()
+        pass
+
+    def short_setup(self, rsi_value):
+        if rsi_value > self.rsi_oversold:
+            self.rsi_overbought_triggered = True
+        pass
+
+        if self.rsi_overbought_triggered and rsi_value <= 0.55:
+            if <weitere_bedingung_1> and <weitere_bedingung_2>:
+                self.close_position()
+        pass
+    
     def on_bar(self, bar: Bar) -> None:
         self.bar_counter += 1
         # USDT Balance vor jeder Bar holen: (für z.B.prozentuales Risk management)
@@ -84,53 +103,23 @@ class MeanReversionHTFStrategyIndex(Strategy):
         account = self.cache.account(account_id)
         usdt_free = account.balance(USDT).free
         usdt_balance = Decimal(str(usdt_free).split(" ")[0]) if usdt_free else Decimal("0")
+        rsi_value = self.rsi.value
 
         # Prüfe, ob bereits eine Order offen ist (pending), um Endlos-Orders zu vermeiden
         open_orders = self.cache.orders_open(instrument_id=self.instrument_id)
         if open_orders:
             return  # Warten, bis Order ausgeführt ist
         
-        #Entry/Exit Logik Orientierung an:
-#        if rsi_value > self.rsi_overbought:
-#            if self.last_rsi_cross is not "rsi_overbought":
-#                self.close_position()
-#                order = self.order_factory.market(
-#                    instrument_id=self.instrument_id,
-#                    order_side=OrderSide.SELL,
-#                    quantity=Quantity(self.trade_size, self.instrument.size_precision),
-#                    time_in_force=TimeInForce.GTC,
-#                    tags=create_tags(action="SHORT", type="OPEN")
-#                )
-#                self.submit_order(order)
-#                self.collector.add_trade(order)
-#            self.last_rsi_cross = "rsi_overbought"
-#        if rsi_value < self.rsi_oversold:
-#            if self.last_rsi_cross is not "rsi_oversold":
-#                self.close_position()
-#                order = self.order_factory.market(
-#                    instrument_id=self.instrument_id,
-#                    order_side=OrderSide.BUY,
-#                    quantity=Quantity(self.trade_size, self.instrument.size_precision),
-#                    time_in_force=TimeInForce.GTC,
-#                    tags=create_tags(action="BUY", type="OPEN")
-#                )
-#                self.submit_order(order)
-#                self.collector.add_trade(order)
-#            self.last_rsi_cross = "rsi_oversold"
-        
-        # Bracket Order Orientierung:
-        # bracket_order = self.order_factory.bracket(
-        #     instrument_id=self.instrument_id,
-        #     order_side=OrderSide.BUY,  # oder SELL
-        #     quantity=Quantity(position_size, self.instrument.size_precision),
-        #     sl_trigger_price=Price(stop_loss, self.instrument.price_precision),
-        #     tp_price=Price(take_profit, self.instrument.price_precision),
-        #     time_in_force=TimeInForce.GTC,
-        #     entry_tags=create_tags(action="BUY", type="BRACKET", sl=stop_loss, tp=take_profit)
-        # )
-        # self.submit_order_list(bracket_order)
-        # self.collector.add_trade(bracket_order.orders[0])  # Entry Order für Tracking
+        # Kennzeichnen, ob Schwellen schon überschritten wurden:
+        if not hasattr(self, "rsi_overbought_triggered"):
+            self.rsi_overbought_triggered = False
+        if not hasattr(self, "rsi_oversold_triggered"):
+            self.rsi_oversold_triggered = False
 
+        # LONG Setup wird ausgeführt:
+        self.long_setup(rsi_value)
+        # SHORT Setup wird ausgeführt:
+        self.short_setup(rsi_value)
 
         # VISUALIZER UPDATEN
         net_position = self.portfolio.net_position(self.instrument_id)
@@ -147,7 +136,6 @@ class MeanReversionHTFStrategyIndex(Strategy):
         self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
         self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
 
-    # weitere on methoden z.B.
     def on_position_event(self, event: PositionEvent) -> None:
         pass
 

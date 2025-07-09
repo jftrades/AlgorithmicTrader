@@ -1,3 +1,7 @@
+# hier rein kommt dann die HTF mean reversion execution basierend auf:
+# RSI, vllt VWAP und breakout oder so in der richtigen Zone - rumprobieren
+# diese strat wird dann gehedged mit einer nur trendfollowing strategie
+
 # ================================================================================
 # BAR EXECUTION TEMPLATE - Nautilus Trader
 # Minimales Template für Bar-basierte Backtests mit Nautilus Trader
@@ -29,12 +33,13 @@ start_date = "2024-01-01T00:00:00Z"
 end_date = "2024-01-03T23:59:59Z"
 
 
-# Parameter - anpassen für deine Strategie
-symbol = Symbol("BTCUSDT-PERP")
-venue = Venue("BINANCE")
+# Parameter - anpassen für deine Strategie !!!!!!
+symbol = Symbol("ES.FUT")
+venue = Venue("...")
 instrument_id = InstrumentId(symbol, venue)
-instrument_id_str = "BTCUSDT-PERP.BINANCE"
-bar_type_str_for_configs = "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
+instrument_id_str = "..."
+bar_type_str_1h = "..."
+bar_type_str_1d = "..."
 trade_size = Decimal("0.01")
 tick_buffer_size = 1000
 close_positions_on_stop = True
@@ -45,14 +50,14 @@ catalogPath = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" 
 data_config = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:Bar", # Traditioneller Pfad, der für Deserialisierung funktionierte
     catalog_path=catalogPath,
-    bar_types=[bar_type_str_for_configs]
+    bar_types=[bar_type_str_1h, bar_type_str_1d]
 )
 
 # Passe die IDs und Parameter für BTCUSDT Perpetual Futures an
-symbol = Symbol("BTCUSDT-PERP")
-venue = Venue("BINANCE")
+symbol = Symbol("...")
+venue = Venue("...")
 instrument_id = InstrumentId(symbol, venue)
-instrument_id_str = "BTCUSDT-PERP.BINANCE"
+instrument_id_str = "..."
 
 # VenueConfig - MARGIN für Futures/Crypto Trading
 venue_config = BacktestVenueConfig(
@@ -66,13 +71,17 @@ venue_config = BacktestVenueConfig(
 
 # StrategyConfig - ANPASSEN für deine Tick-Strategie!
 strategy_config = ImportableStrategyConfig(
-    strategy_path="bar_strategy_template:BarStrategy",  # <--- ANPASSEN!
-    config_path="bar_strategy_template:BarStrategyConfig",  # <--- ANPASSEN!
+    strategy_path="mean_reversion_HTF_strategy:MeanReversionHTFStrategy",  # <--- ANPASSEN!
+    config_path="mean_reversion_HTF_strategy:MeanReversionHTFStrategyConfig",  # <--- ANPASSEN!
     config={
         "instrument_id": instrument_id_str,
-        "trade_size": str(trade_size),
-        "tick_buffer_size": tick_buffer_size,
-        "close_positions_on_stop": close_positions_on_stop,
+        "bar_type_1h": bar_type_str_1h,
+        "bar_type_1d": bar_type_str_1d,
+        "trade_size": "0.5",
+        "rsi_period": 14,
+        "rsi_overbought": 0.75,
+        "rsi_oversold": 0.25,
+        "close_positions_on_stop": True
     }
 )
  
