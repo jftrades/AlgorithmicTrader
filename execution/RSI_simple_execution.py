@@ -58,8 +58,8 @@ venue_config = BacktestVenueConfig(
 
 # StrategyConfig - IMMER anpassen!!
 strategy_config = ImportableStrategyConfig(
-    strategy_path = "RSI_simple_strategy_crypto:RSISimpleStrategy",
-    config_path = "RSI_simple_strategy_crypto:RSISimpleStrategyConfig",
+    strategy_path="strategies.RSI_simple_strategy:RSISimpleStrategy",  # Updated path
+    config_path="strategies.RSI_simple_strategy:RSISimpleStrategyConfig",  # Updated path
 
     config={
         "instrument_id": instrument_id_str,

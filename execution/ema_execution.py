@@ -49,8 +49,8 @@ venue_config = BacktestVenueConfig(
 
 # StrategyConfig (Importable)
 strategy_config = ImportableStrategyConfig(
-    strategy_path = "ema_cross_twap_crypto:EMACrossTWAP",
-    config_path = "ema_cross_twap_crypto:EMACrossTWAPConfig",
+    strategy_path = "strategies.ema_cross_twap:EMACrossTWAP",
+    config_path = "strategies.ema_cross_twap:EMACrossTWAPConfig",
 
     config={
         "instrument_id": instrument_id_str,

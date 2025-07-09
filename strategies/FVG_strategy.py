@@ -4,8 +4,16 @@ from typing import Any
 import sys
 from pathlib import Path
 
+# Add the project root to the Python path
+project_root = Path(__file__).resolve().parent.parent
+sys.path.append(str(project_root))
 
 # Nautilus Kern offizielle Importe (für Backtest eigentlich immer hinzufügen)
+
+from tools.structure.retest import RetestAnalyser
+from tools.structure.fvg import FVG_Analyser
+from tools.risk.risk_manager import RiskManager
+
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
 from nautilus_trader.model.data import Bar, BarType, TradeTick, QuoteTick
@@ -22,8 +30,7 @@ from nautilus_trader.common.enums import LogColor
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 from tools.help_funcs.help_funcs_strategy import create_tags
 
-# Weitere/Strategiespezifische Importe
-# from nautilus_trader...
+# Import new modular classes
 
 
 class FVGStrategyConfig(StrategyConfig):
@@ -42,9 +49,12 @@ class FVGStrategy(Strategy):
         else:
             self.bar_type = config.bar_type
         self.trade_size = config.trade_size
-        self.bullish_fvgs = []  # Liste für bullische FVGs (jeweils (high, low))
-        self.bearish_fvgs = []  # Liste für bearishe FVGs (jeweils (low, high))
-        self.bar_buffer = [] #einfach eine Liste, die die letzten Bars speichert (wird in on_bar genauer definiert und drauf zugegriffen)
+        
+        # Initialize new modular classes
+        self.fvg_detector = FVG_Analyser()
+        self.retest_analyser = RetestAnalyser()
+        self.risk_manager = None  # Will be initialized with account balance
+        
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
         self.realized_pnl = 0
@@ -62,298 +72,136 @@ class FVGStrategy(Strategy):
         self.collector.initialise_logging_indicator("realized_pnl", 2)
         self.collector.initialise_logging_indicator("unrealized_pnl", 3)
         self.collector.initialise_logging_indicator("balance", 4)
+        risk_percent = Decimal("0.005")  # 0.5%
+        max_leverage = Decimal("2")
+        min_account_balance = Decimal("1000") 
+        risk_reward_ratio = Decimal("2")  # 2:1 Risk-Reward Ratio
+        self.risk_manager = RiskManager(Decimal("0"), risk_percent, max_leverage, min_account_balance, risk_reward_ratio)
 
 
-    def get_position(self):
-        if hasattr(self, "cache") and self.cache is not None:
-            positions = self.cache.positions_open(instrument_id=self.instrument_id)
-            if positions:
-                return positions[0]
-        return None
+    def on_bar(self, bar: Bar) -> None: 
+        # Get account balance and update risk manager
+        usdt_balance = self.get_account_balance()
+        self.risk_manager.update_account_balance(usdt_balance)
 
-    def on_bar (self, bar: Bar) -> None: 
-        self.bar_counter += 1
-
-        self.bar_buffer.append(bar)
-        if len(self.bar_buffer) < 3:
-            return
+        # Update FVG detector with new bar
+        self.fvg_detector.update_bars(bar)
         
-        bar_2 = self.bar_buffer[-3]
-        bar_1 = self.bar_buffer[-2]
-        bar_0 = self.bar_buffer[-1]
+        # Check for new FVGs and set retest zones
+        self.check_for_fvg()
 
-        # Bullische FVG
-        if bar_0.low > bar_2.high:
-            self.log.info(f"Bullische FVG erkannt: Gap von {bar_2.high} bis {bar_0.low}")
-            self.bullish_fvgs.append((bar_0.low, bar_2.high, self.bar_counter)) # self bar counter speichert die 3te bar die FVG enstehen lässt -> die creation bar
+        # Check for retest opportunities and execute trades
+        self.check_for_bullish_retest(bar, usdt_balance)
+        self.check_for_bearish_retest(bar, usdt_balance)
 
-        # Bearishe FVG
-        if bar_0.high < bar_2.low:
-            self.log.info(f"Bearishe FVG erkannt: Gap von {bar_2.low} bis {bar_0.high}") 
-            self.bearish_fvgs.append((bar_2.low, bar_0.high, self.bar_counter))
+        # Update visualizer data
+        self.update_visualizer_data(bar, usdt_balance)
+
+    def check_for_bullish_retest(self, bar: Bar, usdt_balance: Decimal) -> None:
+        """Check for bullish FVG retests and execute buy orders if conditions are met."""
+        is_bullish_retest, bullish_zone = self.retest_analyser.check_box_retest_zone(price=bar.low, filter="long")
         
-        # Buffer auf die letzten 3 Bars begrenzen
-        if len(self.bar_buffer) > 3:
-            self.bar_buffer.pop(0)
-
-        position = self.get_position()
-        # Bullishe FVG erkennen und Kaufmethode
-        for gap in self.bullish_fvgs[:]:
-            gap_high, gap_low, creation_bar = gap
-            if self.bar_counter <= creation_bar:
-                continue
+        if is_bullish_retest and self.risk_manager.check_if_balance_is_sufficient():
+            self.log.info(f"Retest bullische FVG: {bullish_zone}")
             
-            if gap_low <= bar.low <= gap_high:
-                self.log.info(f"Retest bullische FVG: {gap}")
-                if False:
-                    pass
-                #if position is not None and position.is_open:
-                #    self.close_position()
-                else:
-                    order_side = OrderSide.BUY
-                    account_id = AccountId("BINANCE-001")
-                    account = self.cache.account(account_id)
-                    usdt_free = account.balance(USDT).free
-                    if usdt_free is None:
-                        usdt_balance = Decimal("0")
-                    else:
-                        usdt_balance = Decimal(str(usdt_free).split(" ")[0])
-                    self.log.info(f"DEBUG: Aktuelle USDT-Balance: {usdt_balance}")
-                    
-                    # Risk Management - Reduzierte Risiko% und Mindestkapital-Check
-                    min_account_balance = Decimal("1000.0")  # Mindestens 1000 USDT für Trading
-                    if usdt_balance < min_account_balance:
-                        self.log.warning(f"Konto-Balance zu niedrig für Trading: {usdt_balance} < {min_account_balance}")
-                        continue
-                    
-                    risk_percent = Decimal("0.005")  # Reduziert von 1% auf 0.5%
-                    risk_amount = usdt_balance * risk_percent
+            entry_price = bar.close
+            stop_loss = bar.low
+            
+            position_size, is_position_valid = self.risk_manager.calculate_position_size(entry_price, stop_loss)
 
-                    entry_price = bar.close
-                    stop_loss = bar.low  # SL unter das aktuelle Low
-                    risk_per_unit = abs(entry_price - stop_loss)
-
-                    # DEBUG: Schauen wir uns die Werte an
-                    self.log.info(f"DEBUG: Entry={entry_price}, SL={stop_loss}, Risk_per_unit={risk_per_unit}")
-                    self.log.info(f"DEBUG: Risk als % vom Entry: {(risk_per_unit/entry_price)*100:.4f}%")
-                    
-                    # FIX: Minimum Risk Distance setzen
-                    min_risk_percent = Decimal("0.002")  # Mindestens 0.2% vom Entry-Preis
-                    min_risk_distance = entry_price * min_risk_percent
-                    
-                    if risk_per_unit < min_risk_distance:
-                        # Stop-Loss ist zu nah - setze ihn weiter weg
-                        stop_loss = entry_price - min_risk_distance
-                        risk_per_unit = min_risk_distance
-                        self.log.info(f"Stop-Loss zu nah! Angepasst auf: {stop_loss}")
-
-                    if risk_per_unit > 0:
-                        position_size = risk_amount / risk_per_unit
-                    else:
-                        position_size = Decimal("0.0")
-                    
-                    # HEBEL-KONTROLLE: Verhindert versteckten Hebel durch Positionsgrößen-Limitierung
-                    # Problem: Ohne diese Prüfung können wir Positionen kaufen, die größer sind als unser Kapital
-                    # Beispiel: 10.000 USDT Balance, aber 8 BTC kaufen (320.000 USDT Wert) = 32x Hebel!
-                    max_leverage = Decimal("2.0")  # Maximal 2:1 Hebel erlaubt
-                    max_position_value = usdt_balance * max_leverage  # Max. Positionswert basierend auf Balance
-                    max_position_size = max_position_value / entry_price  # Max. BTC die wir kaufen können
-                    
-                    # Nehme das MINIMUM von Risk-basierter Size und Leverage-limitierter Size
-                    if position_size > max_position_size:
-                        self.log.warning(
-                            f"HEBEL-WARNUNG: Position zu groß! Risk-Size: {position_size}, Max-Size: {max_position_size} "
-                            f"(Positionswert: {position_size * entry_price:.0f} USDT bei {usdt_balance} USDT Balance)"
-                        )
-                        position_size = max_position_size  # Limitiere auf max. erlaubte Größe
-                    
-                    position_size = round(position_size, self.instrument.size_precision)
-                    
-                    # Debug-Info: Zeige tatsächlichen Hebel an
-                    actual_position_value = position_size * entry_price
-                    actual_leverage = actual_position_value / usdt_balance if usdt_balance > 0 else Decimal("0")
-                    self.log.info(f"HEBEL-CHECK: PositionWert={actual_position_value:.0f} USDT, Hebel={actual_leverage:.2f}x")
-                    
-                    risk = abs(entry_price - stop_loss)
-                    take_profit = entry_price + 2 * risk
-
-                    self.log.info(
-                        f"Risk-Log | USDT-Balance: {usdt_balance} | RiskAmount: {risk_amount} | "
-                        f"Entry: {entry_price} | SL: {stop_loss} | PositionSize: {position_size} | "
-                        f"RiskPerUnit: {risk_per_unit}"
-                    )    
-
-                    if position_size <= 0:
-                        self.log.warning(f"PositionSize <= 0, Trade wird übersprungen! RiskPerUnit: {risk_per_unit}")
-                        continue  # oder 'return', je nach Schleife/Kontext
-                    
-                    # Bracket Order für BUY (Entry + SL + TP in einem)
-                    bracket_order = self.order_factory.bracket(
-                        instrument_id=self.instrument_id,
-                        order_side=OrderSide.BUY,
-                        quantity=Quantity(position_size, self.instrument.size_precision),
-                        sl_trigger_price=Price(stop_loss, self.instrument.price_precision),
-                        tp_price=Price(take_profit, self.instrument.price_precision),
-                        time_in_force=TimeInForce.GTC,
-                        entry_tags=create_tags(action="BUY", type="OPEN", sl=stop_loss, tp=take_profit)
-                    )
-                    
-                    # Add the entry order (first order in the bracket) to collector
-                    self.submit_order_list(bracket_order)
-                    self.collector.add_trade(bracket_order.orders[0])
+            if not is_position_valid:
+                self.log.error("Invalid position size calculated. Skipping order submission.")
+            else:
+                self.execute_buy_order(entry_price, stop_loss, position_size, usdt_balance)
                 
-                    self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}, USDT={usdt_balance}")
+            # Remove the retested zone
+            self.retest_analyser.remove_box_retest_zone(bullish_zone["upper"], bullish_zone["lower"])
 
-                self.bullish_fvgs.remove(gap) # FVG nach Retest entfernen
-                
-            elif bar.low < gap_low:
-                self.log.info(f"Bullische FVG durchtraded: {gap}")
-                self.bullish_fvgs.remove(gap)  # FVG nach Durchbruch entfernen
-
-        # Bearishe FVG erkennen und Kaufmethode
-        for gap in self.bearish_fvgs[:]:
-            gap_high, gap_low, creation_bar = gap
-            if self.bar_counter <= creation_bar:
-                continue
-
-            if gap_low <= bar.high <= gap_high:
-                self.log.info(f"Retest bearishe FVG: {gap}")
-                if False:
-                    pass
-                #if position is not None and position.is_open:
-                #    self.close_position()
-                else:
-                    order_side = OrderSide.SELL
-                    account_id = AccountId("BINANCE-001")
-                    account = self.cache.account(account_id)
-                    usdt_free = account.balance(USDT).free
-                    if usdt_free is None:
-                        usdt_balance = Decimal("0")
-                    else:
-                        usdt_balance = Decimal(str(usdt_free).split(" ")[0])
-                    self.log.info(f"DEBUG: Aktuelle USDT-Balance: {usdt_balance}")
-                    
-                    # Risk Management - Reduzierte Risiko% und Mindestkapital-Check
-                    min_account_balance = Decimal("1000.0")  # Mindestens 1000 USDT für Trading
-                    if usdt_balance < min_account_balance:
-                        self.log.warning(f"Konto-Balance zu niedrig für Trading: {usdt_balance} < {min_account_balance}")
-                        continue
-                    
-                    risk_percent = Decimal("0.005")  # Reduziert von 1% auf 0.5%
-                    risk_amount = usdt_balance * risk_percent
-
-                    entry_price = bar.close
-                    stop_loss = bar.high  # SL über das aktuelle high
-                    risk_per_unit = abs(stop_loss - entry_price)
-
-                 # FIX: Minimum Risk Distance
-                    min_risk_percent = Decimal("0.002")  # Mindestens 0.2%
-                    min_risk_distance = entry_price * min_risk_percent
-                    
-                    if risk_per_unit < min_risk_distance:
-                        stop_loss = entry_price + min_risk_distance
-                        risk_per_unit = min_risk_distance
-                        self.log.info(f"Stop-Loss zu nah! Angepasst auf: {stop_loss}")
-
-                    if risk_per_unit > 0:
-                        position_size = risk_amount / risk_per_unit
-                    else:
-                        position_size = Decimal("0.0")
-                    
-                    # HEBEL-KONTROLLE: Verhindert versteckten Hebel durch Positionsgrößen-Limitierung
-                    # Problem: Ohne diese Prüfung können wir Positionen kaufen, die größer sind als unser Kapital
-                    # Beispiel: 10.000 USDT Balance, aber 8 BTC shorten (320.000 USDT Wert) = 32x Hebel!
-                    max_leverage = Decimal("2.0")  # Maximal 2:1 Hebel erlaubt
-                    max_position_value = usdt_balance * max_leverage  # Max. Positionswert basierend auf Balance
-                    max_position_size = max_position_value / entry_price  # Max. BTC die wir shorten können
-                    
-                    # Nehme das MINIMUM von Risk-basierter Size und Leverage-limitierter Size
-                    if position_size > max_position_size:
-                        self.log.warning(
-                            f"HEBEL-WARNUNG: Position zu groß! Risk-Size: {position_size}, Max-Size: {max_position_size} "
-                            f"(Positionswert: {position_size * entry_price:.0f} USDT bei {usdt_balance} USDT Balance)"
-                        )
-                        position_size = max_position_size  # Limitiere auf max. erlaubte Größe
-                    
-                    position_size = round(position_size, self.instrument.size_precision)
-                    
-                    # Debug-Info: Zeige tatsächlichen Hebel an
-                    actual_position_value = position_size * entry_price
-                    actual_leverage = actual_position_value / usdt_balance if usdt_balance > 0 else Decimal("0")
-                    self.log.info(f"HEBEL-CHECK: PositionWert={actual_position_value:.0f} USDT, Hebel={actual_leverage:.2f}x")
-
-                    risk = abs(stop_loss - entry_price)
-                    take_profit = entry_price - 2 * risk
-
-                    self.log.info(
-                        f"Risk-Log | USDT-Balance: {usdt_balance} | RiskAmount: {risk_amount} | "
-                        f"Entry: {entry_price} | SL: {stop_loss} | PositionSize: {position_size} | "
-                        f"RiskPerUnit: {risk_per_unit}"
-                    )    
-                    if position_size <= 0:
-                        self.log.warning(f"PositionSize <= 0, Trade wird übersprungen! RiskPerUnit: {risk_per_unit}")
-                        continue  # oder 'return', je nach Schleife/Kontext
-
-                    # Bracket Order für SELL (Entry + SL + TP in einem)
-                    bracket_order = self.order_factory.bracket(
-                        instrument_id=self.instrument_id,
-                        order_side=OrderSide.SELL,
-                        quantity=Quantity(position_size, self.instrument.size_precision),
-                        sl_trigger_price=Price(stop_loss, self.instrument.price_precision),
-                        tp_price=Price(take_profit, self.instrument.price_precision),
-                        time_in_force=TimeInForce.GTC,
-                        entry_tags=create_tags(action="SHORT", type="OPEN", sl=stop_loss, tp=take_profit)
-                    )
-
-                    self.submit_order_list(bracket_order)
-                    # Add the entry order (first order in the bracket) to collector
-                    self.collector.add_trade(bracket_order.orders[0])
-
-                    self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}, USDT={usdt_balance}")
-
-                self.bearish_fvgs.remove(gap) # FVG nach Retest entfernen
-                
-            elif bar.high > gap_high:
-                self.log.info(f"Bearishe FVG durchtraded: {gap}")
-                self.bearish_fvgs.remove(gap)  # FVG nach Durchbruch entfernen
-
-    # HILFSBLOCK FÜR VISUALIZER: - anpassen je nach Indikatoren etc
-        net_position = self.portfolio.net_position(self.instrument_id)
-        unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)  # Unrealized PnL
-        #self.log.info(f"position.quantity: {net_position}", LogColor.RED)
+    def check_for_bearish_retest(self, bar: Bar, usdt_balance: Decimal) -> None:
+        """Check for bearish FVG retests and execute sell orders if conditions are met."""
+        is_bearish_retest, bearish_zone = self.retest_analyser.check_box_retest_zone(price=bar.high, filter="short")
         
-        venue = self.instrument_id.venue
-        account = self.portfolio.account(venue)
-        #usdt_balance = account.balance_total(Currency.from_str("USDT")) if account else None
-        usdt_balance = account.balances_total()
+        if is_bearish_retest and self.risk_manager.check_if_balance_is_sufficient():
+            self.log.info(f"Retest bearishe FVG: {bearish_zone}")
+            
+            entry_price = bar.close
+            stop_loss = bar.high
+            
+            position_size, is_position_valid = self.risk_manager.calculate_position_size(entry_price, stop_loss)
+            
+            if not is_position_valid:
+                self.log.error("Invalid position size calculated. Skipping order submission.")
+            else:
+                self.execute_sell_order(entry_price, stop_loss, position_size, usdt_balance)
+
+            # Remove the retested zone
+            self.retest_analyser.remove_box_retest_zone(bearish_zone["upper"], bearish_zone["lower"])
+
+    def execute_buy_order(self, entry_price: Decimal, stop_loss: Decimal, position_size: Decimal, usdt_balance: Decimal) -> None:
+        """Execute a buy order with the given parameters."""
+        position_size = round(position_size, self.instrument.size_precision)
+        take_profit = self.risk_manager.calculate_tp_price(entry_price, stop_loss)
+                    
+        bracket_order = self.order_factory.bracket(
+            instrument_id=self.instrument_id,
+            order_side=OrderSide.BUY,
+            quantity=Quantity(position_size, self.instrument.size_precision),
+            sl_trigger_price=Price(stop_loss, self.instrument.price_precision),
+            tp_price=Price(take_profit, self.instrument.price_precision),
+            time_in_force=TimeInForce.GTC,
+            entry_tags=create_tags(action="BUY", type="OPEN", sl=stop_loss, tp=take_profit)
+        )
+        
+        self.submit_order_list(bracket_order)
+        self.collector.add_trade(bracket_order.orders[0])
+                    
+        self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}, USDT={usdt_balance}")
+
+    def execute_sell_order(self, entry_price: Decimal, stop_loss: Decimal, position_size: Decimal, usdt_balance: Decimal) -> None:
+        """Execute a sell order with the given parameters."""
+        position_size = round(position_size, self.instrument.size_precision)
+        take_profit = self.risk_manager.calculate_tp_price(entry_price, stop_loss)
+                    
+        bracket_order = self.order_factory.bracket(
+            instrument_id=self.instrument_id,
+            order_side=OrderSide.SELL,
+            quantity=Quantity(position_size, self.instrument.size_precision),
+            sl_trigger_price=Price(stop_loss, self.instrument.price_precision),
+            tp_price=Price(take_profit, self.instrument.price_precision),
+            time_in_force=TimeInForce.GTC,
+            entry_tags=create_tags(action="SHORT", type="OPEN", sl=stop_loss, tp=take_profit)
+        )
+
+        self.submit_order_list(bracket_order)
+        self.collector.add_trade(bracket_order.orders[0])
+        
+        self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}, USDT={usdt_balance}")
+
+    def update_visualizer_data(self, bar: Bar, usdt_balance: Decimal) -> None:
+        """Update data for the visualizer/collector."""
+        net_position = self.portfolio.net_position(self.instrument_id)
+        unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
+        
         self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
 
         self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
         self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
-        #self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=float(usdt_balance) if usdt_balance is not None else None)
 
+    def check_for_fvg(self):
+        """Check for new FVGs and set retest zones."""
+        is_bullish_fvg, (fvg_high, fvg_low) = self.fvg_detector.is_bullish_fvg()
+        if is_bullish_fvg:
+            self.log.info(f"Bullische FVG erkannt: Gap von {fvg_high} bis {fvg_low}")
+            self.retest_analyser.set_box_retest_zone(upper=fvg_low, lower=fvg_high, long_retest=True)
 
-    def on_trade_tick(self, tick: TradeTick) -> None:
-        pass
-    
-    def on_quote_tick(self, tick: QuoteTick) -> None:
-        pass
+        # Check for new bearish FVG
+        is_bearish_fvg, (fvg_high, fvg_low) = self.fvg_detector.is_bearish_fvg()
+        if is_bearish_fvg:
+            self.log.info(f"Bearishe FVG erkannt: Gap von {fvg_high} bis {fvg_low}") 
+            self.retest_analyser.set_box_retest_zone(upper=fvg_high, lower=fvg_low, long_retest=False)
 
-    def on_order_book(self, order_book: OrderBook) -> None:
-        pass
-
-    def on_order_event(self, event: OrderEvent) -> None:
-        pass
-
-    def on_position_event(self, event: PositionEvent) -> None:
-        pass
-
-    def on_event(self, event: Any) -> None:
-        pass
-
-    
     def close_position(self) -> None:
         position = self.get_position()
         if position is not None and position.is_open:
@@ -368,23 +216,18 @@ class FVGStrategy(Strategy):
         logging_message = self.collector.save_data()
         self.log.info(logging_message, color=LogColor.GREEN)
 
-    # on_order_filled, on_position_closed und on_position_opened immer hinzufügen für skript
     def on_order_filled(self, order_filled) -> None:
         """
         Actions to be performed when an order is filled.
         """
-
         ret = self.collector.add_trade_details(order_filled)
         self.log.info(
             f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
-        
 
     def on_position_closed(self, position_closed) -> None:
-
         realized_pnl = position_closed.realized_pnl  # Realized PnL
         self.realized_pnl += float(realized_pnl) if realized_pnl else 0
         self.collector.add_closed_trade(position_closed)
-
 
     def on_error(self, error: Exception) -> None:
         self.log.error(f"An error occurred: {error}")
@@ -392,3 +235,21 @@ class FVGStrategy(Strategy):
         if self.close_positions_on_stop and position is not None and position.is_open:
             self.close_position()
         self.stop()
+
+    def get_account_balance(self) -> Decimal:
+        # Get account balance for risk manager
+        account_id = AccountId("BINANCE-001")
+        account = self.cache.account(account_id)
+        usdt_free = account.balance(USDT).free
+        if usdt_free is None:
+            usdt_balance = Decimal("0")
+        else:
+            usdt_balance = Decimal(str(usdt_free).split(" ")[0])
+        return usdt_balance
+
+    def get_position(self):
+        if hasattr(self, "cache") and self.cache is not None:
+            positions = self.cache.positions_open(instrument_id=self.instrument_id)
+            if positions:
+                return positions[0]
+        return None

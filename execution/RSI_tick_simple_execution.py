@@ -24,7 +24,7 @@ from core.visualizing.dashboard import TradingDashboard
 
 
 start_date = "2024-01-01T00:00:00Z"
-end_date = "2024-01-03T23:59:59Z"
+end_date = "2024-01-01T23:59:59Z"
 
 # Parameter 
 symbol = Symbol("BTCUSDT")
@@ -64,8 +64,8 @@ venue_config = BacktestVenueConfig(
 
 # StrategyConfig
 strategy_config = ImportableStrategyConfig(
-    strategy_path="RSI_tick_simple_strategy_crypto:RSITickSimpleStrategy",
-    config_path="RSI_tick_simple_strategy_crypto:RSITickSimpleStrategyConfig",
+    strategy_path="strategies.RSI_tick_simple_strategy:RSITickSimpleStrategy",
+    config_path="strategies.RSI_tick_simple_strategy:RSITickSimpleStrategyConfig",
     config={
         "instrument_id": instrument_id_str,
         "trade_size": str(trade_size),

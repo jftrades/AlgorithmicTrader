@@ -58,8 +58,8 @@ venue_config = BacktestVenueConfig(
 
 # StrategyConfig - IMMER anpassen!!
 strategy_config = ImportableStrategyConfig(
-    strategy_path="FVG_strategy_crypto:FVGStrategy",        
-    config_path="FVG_strategy_crypto:FVGStrategyConfig",     
+    strategy_path="strategies.FVG_strategy:FVGStrategy",        
+    config_path="strategies.FVG_strategy:FVGStrategyConfig",     
     config={
         "instrument_id": instrument_id_str,
         "bar_type": bar_type_str_for_configs,
