@@ -21,8 +21,8 @@ class TradingDashboard:
         self.metrics = None
         
         # Pfad zu den gespeicherten CSVs (gleich wie im DataCollector)
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.data_path = Path(base_dir) / "DATA_STORAGE" / "results"
+        base_dir = Path(__file__).resolve().parents[2]  # geht von core/visualizing/ auf AlgorithmicTrader/
+        self.data_path = base_dir / "data" / "DATA_STORAGE" / "results"
 
     def load_data_from_csv(self):
         """Lädt alle CSV-Dateien aus dem DataCollector-Pfad."""

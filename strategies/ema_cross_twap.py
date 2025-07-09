@@ -39,7 +39,7 @@ from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.trading.strategy import Strategy
 from nautilus_trader.core.datetime import dt_to_unix_nanos, unix_nanos_to_dt
 
-from crypto.strategies.tools_crypto_strategies.help_funcs_strategy_crypto import create_tags
+from tools.help_funcs.help_funcs_strategy import create_tags
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 
 

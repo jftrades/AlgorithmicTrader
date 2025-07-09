@@ -20,7 +20,7 @@ from nautilus_trader.model.currencies import USDT, BTC
 from nautilus_trader.common.enums import LogColor
 
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
-from crypto.strategies.tools_crypto_strategies.help_funcs_strategy_crypto import create_tags
+from tools.help_funcs.help_funcs_strategy import create_tags
 
 # Weitere/Strategiespezifische Importe
 # from nautilus_trader...

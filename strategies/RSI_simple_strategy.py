@@ -16,7 +16,7 @@ from nautilus_trader.common.enums import LogColor
 # Nautilus Strategie spezifische Importe
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
-from crypto.strategies.tools_crypto_strategies.help_funcs_strategy_crypto import create_tags
+from tools.help_funcs.help_funcs_strategy import create_tags
 
 # ab hier der Code für die Strategie
 class RSISimpleStrategyConfig(StrategyConfig):

@@ -22,7 +22,7 @@ from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.trading.config import ImportableStrategyConfig
 
 # Execution Helper Funktionen
-from index.execution.tools_index_execution.help_funcs_execution_index import run_backtest_and_visualize, setup_visualizer
+from tools.help_funcs.help_funcs_execution import run_backtest_and_visualize, setup_visualizer
 from core.visualizing.dashboard import TradingDashboard
 
 start_date = "2024-01-01T00:00:00Z"
@@ -39,12 +39,7 @@ trade_size = Decimal("0.01")
 tick_buffer_size = 1000
 close_positions_on_stop = True
 
-# Strategien-Ordner hinzufügen (catalogPath nach Daten anpassen)
-STRATEGY_PATH = Path(__file__).resolve().parents[1] / "strategies"
-if str(STRATEGY_PATH) not in sys.path:
-    sys.path.insert(0, str(STRATEGY_PATH))
-
-catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
+catalogPath = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 
 # DataConfig
 data_config = BacktestDataConfig(

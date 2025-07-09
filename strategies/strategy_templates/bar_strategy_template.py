@@ -22,7 +22,7 @@ from nautilus_trader.model.currencies import USDT, BTC
 
 # Nautilus Kern eigene Importe !!! immer
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
-from index.strategies.tools_index_strategies.help_funcs_strategy_index import create_tags
+from tools.help_funcs.help_funcs_strategy import create_tags
 from nautilus_trader.common.enums import LogColor
 
 # Weitere/Strategiespezifische Importe

@@ -65,9 +65,10 @@ class BacktestDataCollector:
 
     def initialise_result_path(self):
         import shutil
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         from pathlib import Path
-        self.path = Path(base_dir) / "DATA_STORAGE" / "results"
+        # Gehe von core/visualizing/ auf AlgorithmicTrader/
+        base_dir = Path(__file__).resolve().parents[2]
+        self.path = base_dir / "data" / "DATA_STORAGE" / "results"
         if self.path.exists() and self.path.is_dir():
             shutil.rmtree(self.path)
         os.makedirs(self.path, exist_ok=True)

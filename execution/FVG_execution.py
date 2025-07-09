@@ -23,7 +23,7 @@ from core.visualizing.dashboard import TradingDashboard
 from nautilus_trader.trading.config import ImportableStrategyConfig
 
 
-catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
+catalogPath = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 catalog = ParquetDataCatalog(catalogPath)
 
 # Hier die gleichen Parameter wie aus strategy aber halt anpassen
@@ -35,11 +35,6 @@ bar_type_str_for_configs = "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
 trade_size = Decimal("0.01")
 #...
 close_positions_on_stop = True
-
-# Strategien-Ordner liegt parallel zu AlgorithmicTrader (catalogPath ja nach Daten anpassen)
-STRATEGY_PATH = Path(__file__).resolve().parents[1] / "strategies"
-if str(STRATEGY_PATH) not in sys.path:
-    sys.path.insert(0, str(STRATEGY_PATH))
 
 # DataConfig
 data_config = BacktestDataConfig(

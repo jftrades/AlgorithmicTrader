@@ -2,8 +2,7 @@
 .venv/
 __pycache__/
 *.pyc
-data/crypto/DATA_STORAGE/
+data/DATA_STORAGE/
 *.env
-data/index/DATA_STORAGE/
 AlgorithmicTrader.egg-info/
 core/DATA_STORAGE/

@@ -19,7 +19,7 @@ from nautilus_trader.persistence.loaders import CSVTickDataLoader
 from nautilus_trader.trading.config import ImportableStrategyConfig
 
 # Execution Helper Funktionen
-from crypto.execution.tools_crypto_execution.help_funcs_execution_crypto import run_backtest_and_visualize, setup_visualizer
+from tools.help_funcs.help_funcs_execution import run_backtest_and_visualize, setup_visualizer
 from core.visualizing.dashboard import TradingDashboard
 
 
@@ -39,14 +39,7 @@ rsi_overbought = 0.8
 rsi_oversold = 0.2
 close_positions_on_stop = True
 
-# Strategien-Ordner hinzufügen (catalogPath nach Daten anpassen)
-STRATEGY_PATH = Path(__file__).resolve().parents[1] / "strategies"
-if str(STRATEGY_PATH) not in sys.path:
-    sys.path.insert(0, str(STRATEGY_PATH))
-
-catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
-
-
+catalogPath = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 
 data_config = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:TradeTick",

@@ -21,11 +21,9 @@ from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.currencies import USDT, BTC
 from nautilus_trader.model.enums import AggressorSide  # für BUY/SELL
 
-# Nautilus Kern eigene Importe !!! immer
-VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
 
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector  # Optional visualization
-from crypto.strategies.tools_crypto_strategies.help_funcs_strategy_crypto import create_tags
+from tools.help_funcs.help_funcs_strategy import create_tags
 from common.enums import LogColor
 
 # Weitere/Strategiespezifische Importe

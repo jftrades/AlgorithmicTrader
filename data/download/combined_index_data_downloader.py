@@ -6,7 +6,7 @@ API-Key wird sicher aus .env/Umgebung geladen (niemals im Code speichern!)
 from pathlib import Path
 from dotenv import load_dotenv
 import os
-from index.data.download.download_logic_index import download_dbn, transform_dbn_to_parquet
+from data.download.download_logic_index import download_dbn, transform_dbn_to_parquet
 
 # .env laden (falls vorhanden)
 load_dotenv()
@@ -19,7 +19,7 @@ dataset = "GLBX.MDP3"
 schema = "ohlcv-1h"
 encoding = "dbn"
 venue = "XCME"
-base_data_dir = str(Path(__file__).resolve().parent.parent.parent / "data" / "DATA_STORAGE")
+base_data_dir = str(Path(__file__).resolve().parent / "DATA_STORAGE")
 raw_dir = Path(base_data_dir) / "raw_downloads"
 catalog_root_path = Path(base_data_dir) / "data_catalog_wrangled"
 api_key = os.getenv("DATABENTO_API_KEY")

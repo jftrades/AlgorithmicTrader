@@ -37,13 +37,7 @@ close_positions_on_stop = True
 start_date = "2024-10-01T00:00:00Z"
 end_date = "2024-10-31T00:00:00Z"
 
-
-# Strategien-Ordner liegt parallel zu AlgorithmicTrader
-STRATEGY_PATH = Path(__file__).resolve().parents[1] / "strategies"
-if str(STRATEGY_PATH) not in sys.path:
-    sys.path.insert(0, str(STRATEGY_PATH))
-
-catalogPath = str(Path(__file__).resolve().parent.parent / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
+catalogPath = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 
 # DataConfig
 data_config = BacktestDataConfig(
