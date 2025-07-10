@@ -12,7 +12,7 @@ sys.path.append(str(project_root))
 
 from tools.structure.retest import RetestAnalyser
 from tools.structure.fvg import FVG_Analyser
-from tools.risk.risk_manager import RiskManager
+from tools.order_management.risk_manager import RiskManager
 
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig

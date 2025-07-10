@@ -35,13 +35,12 @@ end_date = "2024-01-03T23:59:59Z"
 
 # Parameter - anpassen für deine Strategie !!!!!!
 symbol = Symbol("ES.FUT")
-venue = Venue("...")
+venue = Venue("XCME")
 instrument_id = InstrumentId(symbol, venue)
-instrument_id_str = "..."
-bar_type_str_1h = "..."
-bar_type_str_1d = "..."
+instrument_id_str = "ES.FUT.XCME"
+bar_type_str_1h = "ES.FUT.XCME-1-HOUR-LAST-EXTERNAL"
+bar_type_str_1d = "ES.FUT.XCME-1-DAY-LAST-EXTERNAL"
 trade_size = Decimal("0.01")
-tick_buffer_size = 1000
 close_positions_on_stop = True
 
 catalogPath = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
@@ -53,28 +52,23 @@ data_config = BacktestDataConfig(
     bar_types=[bar_type_str_1h, bar_type_str_1d]
 )
 
-# Passe die IDs und Parameter für BTCUSDT Perpetual Futures an
-symbol = Symbol("...")
-venue = Venue("...")
-instrument_id = InstrumentId(symbol, venue)
-instrument_id_str = "..."
-
-# VenueConfig - MARGIN für Futures/Crypto Trading
+# VenueConfig 
 venue_config = BacktestVenueConfig(
-    name="BINANCE",
+    name="XCME",
     oms_type="NETTING",
-    account_type="MARGIN",  # MARGIN für Futures/Crypto mit Hebel
-    base_currency="USDT",
-    starting_balances=["100000 USDT"],  # Nur USDT für MARGIN Account
+    account_type="MARGIN", 
+    base_currency="USD",
+    starting_balances=["100000 USD"]
     # Optional: base_currency, default_leverage, leverages, book_type, etc.
 )
 
-# StrategyConfig - ANPASSEN für deine Tick-Strategie!
+# StrategyConfig 
 strategy_config = ImportableStrategyConfig(
-    strategy_path="mean_reversion_HTF_strategy:MeanReversionHTFStrategy",  # <--- ANPASSEN!
-    config_path="mean_reversion_HTF_strategy:MeanReversionHTFStrategyConfig",  # <--- ANPASSEN!
+    strategy_path="strategies.mean_reversion_HTF_strategy:MeanReversionHTFStrategy",  # <--- ANPASSEN!
+    config_path="strategies.mean_reversion_HTF_strategy:MeanReversionHTFStrategyConfig",  # <--- ANPASSEN!
     config={
         "instrument_id": instrument_id_str,
+        "bar_type": bar_type_str_1h,
         "bar_type_1h": bar_type_str_1h,
         "bar_type_1d": bar_type_str_1d,
         "trade_size": "0.5",

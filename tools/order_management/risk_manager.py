@@ -1,28 +1,19 @@
 from decimal import Decimal
+from nautilus_trader.model.currencies import USDT
+from nautilus_trader.model.identifiers import AccountId
 
 class RiskManager:
-    def __init__(self, account_balance: Decimal, risk_percent: Decimal, max_leverage: Decimal = Decimal("5.0"), min_account_balance: Decimal = Decimal("10"), risk_reward_ratio: Decimal = Decimal("2")) -> None:
-        """
-        Initializes the RiskManager with account balance, risk percentage, and maximum leverage.
-        :param account_balance: The total account balance in the trading currency (e.g., USDT).
-        :param risk_percent: The percentage of account balance to risk per trade (e.g., 0.01 for 1%).
-        :param max_leverage: The maximum leverage allowed for trading (default is 2.0).
-        """
-        self.account_balance = account_balance
+    def __init__(self, strategy, risk_percent: Decimal, max_leverage: Decimal = Decimal("5.0"), min_account_balance: Decimal = Decimal("10"), risk_reward_ratio: Decimal = Decimal("2")) -> None:
+        self.strategy = strategy
         self.risk_percent = risk_percent
         self.max_leverage = max_leverage
         self.min_account_balance = min_account_balance
         self.risk_reward_ratio = risk_reward_ratio
 
     def calculate_position_size(self, entry_price: Decimal, stop_loss_price: Decimal) -> Decimal:
-        """
-        Calculates the position size based on risk parameters and price levels.
-        :param entry_price: The price at which the trade will be entered.
-        :param stop_loss_price: The price at which the stop-loss will be triggered.
-        :return: The calculated position size.
-        """
         valid_position = True
-        risk_amount = self.account_balance * self.risk_percent
+        account_balance = self.get_account_balance()
+        risk_amount = account_balance * self.risk_percent
         risk_per_unit = abs(entry_price - stop_loss_price)
 
         # Ensure the risk per unit is valid
@@ -34,7 +25,7 @@ class RiskManager:
         position_size = risk_amount / risk_per_unit
 
         # Limit position size based on maximum leverage
-        max_position_value = self.account_balance * self.max_leverage
+        max_position_value = account_balance * self.max_leverage
         max_position_size = max_position_value / entry_price
 
         if position_size > max_position_size:
@@ -44,29 +35,15 @@ class RiskManager:
             #raise ValueError(f"Calculated position size must be greater than zero. {position_size} is not valid.")
         return position_size, valid_position
 
-    def update_account_balance(self, new_balance: Decimal) -> None:
-        """
-        Updates the account balance.
-        :param new_balance: The new account balance.
-        """
-        self.account_balance = new_balance
 
     def update_risk_percent(self, new_risk_percent: Decimal) -> None:
-        """
-        Updates the risk percentage.
-        :param new_risk_percent: The new risk percentage.
-        """
         self.risk_percent = new_risk_percent
     
     def check_if_balance_is_sufficient(self, required_balance: Decimal = None) -> bool:
-        """
-        Checks if the current account balance is sufficient for a trade.
-        :param required_balance: The required balance to open a new position.
-        :return: True if sufficient, False otherwise.
-        """
+        account_balance = self.get_account_balance()
         if required_balance is None:
             required_balance = self.min_account_balance
-        return self.account_balance >= required_balance
+        return account_balance >= required_balance
     
     def calculate_tp_price(self, entry_price: Decimal, stop_loss: Decimal, risk_reward_ratio: Decimal = None) -> Decimal:
         if risk_reward_ratio is None:
@@ -83,3 +60,15 @@ class RiskManager:
             take_profit = entry_price - risk_reward_ratio * risk
             
         return take_profit
+    
+    # Hilfsfunktion
+    def get_account_balance(self) -> Decimal:
+        # Get account balance for risk manager
+        account_id = AccountId("BINANCE-001")
+        account = self.strategy.cache.account(account_id)
+        usdt_free = account.balance(USDT).free
+        if usdt_free is None:
+            usdt_balance = Decimal("0")
+        else:
+            usdt_balance = Decimal(str(usdt_free).split(" ")[0])
+        return usdt_balance

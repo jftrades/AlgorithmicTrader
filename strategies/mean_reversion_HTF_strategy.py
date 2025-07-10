@@ -21,8 +21,8 @@ from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.currencies import USDT, BTC
 
 # Nautilus Kern eigene Importe !!! immer
-from tools.structure import TTTBreakout_Analyser
-from tools.order_management import OrderTypes
+from tools.structure.TTTbreakout import TTTBreakout_Analyser
+from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 from tools.help_funcs.help_funcs_strategy import create_tags
@@ -32,17 +32,19 @@ from nautilus_trader.common.enums import LogColor
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 
 
-class MeanReversionHTFStrategyIndexConfig(StrategyConfig):
+class MeanReversionHTFStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: BarType
+    bar_type_1h: str  
+    bar_type_1d: str
     trade_size: Decimal
     rsi_period: int
     rsi_overbought: float
     rsi_oversold: float
     close_positions_on_stop: bool = True 
 
-class MeanReversionHTFStrategyIndex(Strategy):
-    def __init__(self, config:MeanReversionHTFStrategyIndexConfig):
+class MeanReversionHTFStrategy(Strategy):
+    def __init__(self, config:MeanReversionHTFStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
         if isinstance(config.bar_type, str):
@@ -61,13 +63,18 @@ class MeanReversionHTFStrategyIndex(Strategy):
         self.bar_counter = 0
         self.stopped = False
         self.breakout_analyser = TTTBreakout_Analyser(lookback=20, atr_mult=1.5, max_counter=6)
-        self.risk_manager = RiskManager()
-        self.order_types = OrderTypes()
+        
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
         self.subscribe_bars(self.bar_type)
         self.log.info("Strategy started!")
+        risk_percent = Decimal("0.005")  # 0.5%
+        max_leverage = Decimal("2")
+        min_account_balance = Decimal("1000") 
+        risk_reward_ratio = Decimal("2")  # 2:1 Risk-Reward Ratio
+        self.risk_manager = RiskManager(self, risk_percent, max_leverage, min_account_balance, risk_reward_ratio)
+        self.order_types = OrderTypes(self)
 
         self.collector = BacktestDataCollector()
         self.collector.initialise_logging_indicator("RSI", 1)
@@ -84,19 +91,15 @@ class MeanReversionHTFStrategyIndex(Strategy):
         return None
 
     def on_bar(self, bar: Bar) -> None:
-        self.bar_counter += 1
-        usdt_balance = self.get_account_balance()
         rsi_value = self.rsi.value
-
-        # Hilfsmethoden readyy machen
+        self.rsi.update_raw(bar.close)
         self.breakout_analyser.update_bars(bar)
         is_breakout, breakout_dir = self.breakout_analyser.is_tttbreakout()
-        self.risk_manager.update_account_balance(usdt_balance)
-
+        
         # Prüfe, ob bereits eine Order offen ist (pending), um Endlos-Orders zu vermeiden
         open_orders = self.cache.orders_open(instrument_id=self.instrument_id)
         if open_orders:
-            return  # Warten, bis Order ausgeführt ist
+            return  
         
         # Kennzeichnen, ob Schwellen schon überschritten wurden:
         if not hasattr(self, "rsi_overbought_triggered"):
@@ -113,10 +116,10 @@ class MeanReversionHTFStrategyIndex(Strategy):
         unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
-        usdt_balance = account.balances_total()
-        #self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
+        usd_balance = account.balances_total()
+        #self.log.info(f"acc balances: {usd_balance}", LogColor.RED)
         
-        self.collector.add_indicator(timestamp=bar.ts_event, name="account_balance", value=usdt_balance)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="account_balance", value=usd_balance)
         self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="RSI", value=float(rsi_value) if rsi_value is not None else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
@@ -124,57 +127,38 @@ class MeanReversionHTFStrategyIndex(Strategy):
         self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
 
     def long_setup(self, rsi_value, is_breakout, breakout_dir):
-    if rsi_value < self.rsi_oversold:
-        self.rsi_oversold_triggered = True
+        if rsi_value < self.rsi_oversold:
+            self.rsi_oversold_triggered = True
 
-    if self.rsi_oversold_triggered and rsi_value <= 0.45:
-        if is_breakout and breakout_dir == "long":
-            self.log.info("TTT Breakout LONG erkannt")
-            entry_price = self.portfolio.last_price(self.instrument_id)
-            atr = self.breakout_analyser._calc_atr()
-            stop_loss = entry_price - 2 * atr
-            take_profit = entry_price + 4 * atr
-            position_size = self.risk_manager.get_position_size(
-                entry_price=entry_price,
-                stop_loss_price=stop_loss,
-                risk_per_trade=0.01  # Beispiel: 1% Risiko
-            )
-            self.order_types.submit_bracket_order(
-                strategy=self,
-                side="buy",
-                quantity=position_size,
-                entry_price=entry_price,
-                stop_loss=stop_loss,
-                take_profit=take_profit,
-                tags=create_tags(action="BUY", type="OPEN", sl=stop_loss, tp=take_profit)
-            )
+        if self.rsi_oversold_triggered and rsi_value <= 0.45:
+            if is_breakout and breakout_dir == "long":
+                self.log.info("TTT Breakout LONG erkannt")
 
-def short_setup(self, rsi_value, is_breakout, breakout_dir):
-    if rsi_value > self.rsi_overbought:
-        self.rsi_overbought_triggered = True
+                entry_price = self.portfolio.last_price(self.instrument_id)
+                atr = self.breakout_analyser._calc_atr()
+                stop_loss = entry_price - 2 * atr
+                take_profit = entry_price + 4 * atr
 
-    if self.rsi_overbought_triggered and rsi_value >= 0.55:
-        if is_breakout and breakout_dir == "short":
-            self.log.info("TTT Breakout SHORT erkannt")
-            entry_price = self.portfolio.last_price(self.instrument_id)
-            atr = self.breakout_analyser._calc_atr()
-            stop_loss = entry_price + 2 * atr
-            take_profit = entry_price - 4 * atr
-            position_size = self.risk_manager.get_position_size(
-                entry_price=entry_price,
-                stop_loss_price=stop_loss,
-                risk_per_trade=0.01
-            )
-            self.order_types.submit_bracket_order(
-                strategy=self,
-                side="sell",
-                quantity=position_size,
-                entry_price=entry_price,
-                stop_loss=stop_loss,
-                take_profit=take_profit,
-                tags=create_tags(action="SHORT", type="OPEN", sl=stop_loss, tp=take_profit)
-            )
-    
+                position_size = self.risk_manager.calculate_position_size(entry_price=entry_price, stop_loss_price=stop_loss, risk_per_trade=0.01)
+                self.submit_long_bracket_order(self, position_size, entry_price, stop_loss, take_profit)
+
+    def short_setup(self, rsi_value, is_breakout, breakout_dir):
+        if rsi_value > self.rsi_oversold:
+            self.rsi_overbought_triggered = True
+
+        if self.rsi_overbought_triggered and rsi_value <= 0.55:
+            if is_breakout and breakout_dir == "short":
+                self.log.info("TTT Breakout SHORT erkannt")
+                
+                entry_price = self.portfolio.last_price(self.instrument_id)
+                atr = self.breakout_analyser._calc_atr()
+                stop_loss = entry_price + 2 * atr
+                take_profit = entry_price - 4 * atr
+
+                position_size = self.risk_manager.calculate_position_size(entry_price=entry_price, stop_loss_price=stop_loss, risk_per_trade=0.01)
+                self.submit_short_bracket_order(self, position_size, entry_price, stop_loss, take_profit)
+        
+
     def on_position_event(self, event: PositionEvent) -> None:
         pass
 
@@ -223,14 +207,13 @@ def short_setup(self, rsi_value, is_breakout, breakout_dir):
         self.stopped = True  
 
         # VISUALIZER UPDATEN
-        net_position = self.portfolio.net_position(self.instrument_id)
         unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
-        usdt_balance = account.balances_total()
-        #self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
+        usd_balance = account.balances_total()
+        #self.log.info(f"acc balances: {usd_balance}", LogColor.RED)
 
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usdt_balance)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usd_balance)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
@@ -239,11 +222,8 @@ def short_setup(self, rsi_value, is_breakout, breakout_dir):
         self.log.info(logging_message, color=LogColor.GREEN)
         #self.collector.visualize()  # Visualize the data if enabled
 
-    # on_order_filled, on_position_closed und on_position_opened immer hinzufügen für skript
+
     def on_order_filled(self, order_filled) -> None:
-        """
-        Actions to be performed when an order is filled.
-        """
         ret = self.collector.add_trade_details(order_filled)
         self.log.info(f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
 
@@ -263,3 +243,5 @@ def short_setup(self, rsi_value, is_breakout, breakout_dir):
         if self.close_positions_on_stop and position is not None and position.is_open:
             self.close_position()
         self.stop()
+
+
