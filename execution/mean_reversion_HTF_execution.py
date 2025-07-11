@@ -32,7 +32,8 @@ symbol = Symbol("ESH4")
 venue = Venue("GLBX")
 instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = "ESH4.GLBX"
-bar_type = "ESH4.GLBX-1-HOUR-LAST-EXTERNAL"
+hourly_bar_type = "ESH4.GLBX-1-HOUR-LAST-EXTERNAL"
+daily_bar_type = "ESH4.GLBX-1-DAY-LAST-INTERNAL@1-HOUR-EXTERNAL"
 start_date = "2024-01-01T00:00:00Z"
 end_date = "2024-12-30T23:59:59Z"
 catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled" / "ES_FUTURES_2024_GLBX" )
@@ -41,7 +42,7 @@ catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE"
 data_config = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:Bar",
     catalog_path=catalog_path,
-    bar_types=[bar_type],
+    bar_types=[hourly_bar_type, daily_bar_type],
     instrument_ids=[instrument_id_str]
 )
 
@@ -60,9 +61,10 @@ strategy_config = ImportableStrategyConfig(
     config_path="strategies.mean_reversion_HTF_strategy:MeanReversionHTFStrategyConfig",
     config={
         "instrument_id": instrument_id_str,
-        "bar_type": bar_type,
+        "hourly_bar_type": hourly_bar_type,    
+        "daily_bar_type": daily_bar_type,  
         "trade_size": "0.5",
-        "rsi_period": 14,
+        "rsi_period": 7,
         "rsi_overbought": 0.75,
         "rsi_oversold": 0.25,
         "close_positions_on_stop": True

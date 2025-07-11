@@ -28,13 +28,15 @@ from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 from tools.help_funcs.help_funcs_strategy import create_tags
 from nautilus_trader.common.enums import LogColor
 
+
 # Strategiespezifische Importe
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 
 
 class MeanReversionHTFStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
-    bar_type: BarType
+    hourly_bar_type: str 
+    daily_bar_type: str
     trade_size: Decimal
     rsi_period: int
     rsi_overbought: float
@@ -45,14 +47,13 @@ class MeanReversionHTFStrategy(Strategy):
     def __init__(self, config:MeanReversionHTFStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
-        if isinstance(config.bar_type, str):
-            self.bar_type = BarType.from_str(config.bar_type)
-        else:
-            self.bar_type = config.bar_type
+        self.hourly_bar_type = BarType.from_str(config.hourly_bar_type)
+        self.daily_bar_type = BarType.from_str(config.daily_bar_type)
         self.trade_size = config.trade_size
         self.rsi_period = config.rsi_period
         self.rsi_overbought = config.rsi_overbought
         self.rsi_oversold = config.rsi_oversold
+
         self.rsi = RelativeStrengthIndex(period=self.rsi_period)
         self.last_rsi_cross = None
         self.close_positions_on_stop = config.close_positions_on_stop
@@ -60,13 +61,18 @@ class MeanReversionHTFStrategy(Strategy):
         self.realized_pnl = 0
         self.bar_counter = 0
         self.stopped = False
-        self.breakout_analyser = TTTBreakout_Analyser(lookback=20, atr_mult=1.5, max_counter=6)
-        
+        self.breakout_analyser = TTTBreakout_Analyser(lookback=10, atr_mult=1.5, max_counter=6)
+
+        # RSI Trigger Flags
+        self.rsi_overbought_triggered = False
+        self.rsi_oversold_triggered = False
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
-        self.subscribe_bars(self.bar_type)
+        self.subscribe_bars(self.hourly_bar_type)
+        self.subscribe_bars(self.daily_bar_type) 
         self.log.info("Strategy started!")
+
         risk_percent = Decimal("0.005")  # 0.5%
         max_leverage = Decimal("2")
         min_account_balance = Decimal("1000") 
@@ -89,77 +95,103 @@ class MeanReversionHTFStrategy(Strategy):
         return None
 
     def on_bar(self, bar: Bar) -> None:
+        if bar.bar_type == self.hourly_bar_type:
+            self._handle_hourly_bar(bar)
+        elif bar.bar_type == self.daily_bar_type:
+            self._handle_daily_bar(bar)
+
+    def _handle_hourly_bar(self, bar: Bar) -> None:
+        self.breakout_analyser.update_bars(bar)
+
+        is_breakout, breakout_dir = self.breakout_analyser.is_tttbreakout() # TTT Breakout prüfen
+        
+        open_orders = self.cache.orders_open(instrument_id=self.instrument_id) # Prüfe offene Orders
+        if open_orders:
+            return
+
+        # Trading Logic: RSI-Bedingung muss VORHER erfüllt sein
+        if is_breakout:
+            self.log.info(f"TTT Breakout detected on 1h: {breakout_dir}")
+            
+            # LONG
+            if (breakout_dir == "long" and 
+                self.rsi_oversold_triggered and 
+                self.rsi.value is not None and 
+                self.rsi.value > self.rsi_oversold and 
+                self.rsi.value <= 0.45):
+                
+                self.execute_long_trade()
+                self.rsi_oversold_triggered = False  # Flag zurücksetzen
+                
+            #SHORT
+            elif (breakout_dir == "short" and 
+                self.rsi_overbought_triggered and 
+                self.rsi.value is not None and 
+                self.rsi.value < self.rsi_overbought and 
+                self.rsi.value >= 0.55):
+                
+                self.execute_short_trade()
+                self.rsi_overbought_triggered = False  # Flag zurücksetzen
+        
+        self._update_visualizer(bar) # Visualizer mit höherer Frequenz (1h) updaten
+
+    def _handle_daily_bar(self, bar: Bar) -> None:
         rsi_value = self.rsi.value
         self.rsi.update_raw(bar.close)
-        self.breakout_analyser.update_bars(bar)
-        is_breakout, breakout_dir = self.breakout_analyser.is_tttbreakout()
+        new_rsi_value = self.rsi.value
         
-        # Prüfe, ob bereits eine Order offen ist (pending), um Endlos-Orders zu vermeiden
-        open_orders = self.cache.orders_open(instrument_id=self.instrument_id)
-        if open_orders:
-            return  
-        
-        # Kennzeichnen, ob Schwellen schon überschritten wurden:
-        if not hasattr(self, "rsi_overbought_triggered"):
-            self.rsi_overbought_triggered = False
-        if not hasattr(self, "rsi_oversold_triggered"):
-            self.rsi_oversold_triggered = False
-
-        # LONG und SHORT Setup wird ausgeführt:
-        self.long_setup(rsi_value, is_breakout, breakout_dir)
-        self.short_setup(rsi_value, is_breakout, breakout_dir)
-
-        # VISUALIZER UPDATEN
-        net_position = self.portfolio.net_position(self.instrument_id) # das hier danach weg war für debugging
-        try:
-            unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
-        except Exception as e:
-            self.log.warning(f"Could not calculate unrealized PnL: {e}")
-            unrealized_pnl = None
-        venue = self.instrument_id.venue
-        account = self.portfolio.account(venue)
-        usd_balance = account.balances_total()
-        #self.log.info(f"acc balances: {usd_balance}", LogColor.RED)
-        
-        self.collector.add_indicator(timestamp=bar.ts_event, name="account_balance", value=usd_balance)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="RSI", value=float(rsi_value) if rsi_value is not None else None)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
-        self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
-
-    def long_setup(self, rsi_value, is_breakout, breakout_dir):
-        if rsi_value < self.rsi_oversold:
-            self.rsi_oversold_triggered = True
-
-        if self.rsi_oversold_triggered and rsi_value <= 0.45:
-            if is_breakout and breakout_dir == "long":
-                self.log.info("TTT Breakout LONG erkannt")
-
-                entry_price = self.portfolio.last_price(self.instrument_id)
-                atr = self.breakout_analyser._calc_atr()
-                stop_loss = entry_price - 2 * atr
-                take_profit = entry_price + 4 * atr
-
-                position_size = self.risk_manager.calculate_position_size(entry_price=entry_price, stop_loss_price=stop_loss, risk_per_trade=0.01)
-                self.submit_long_bracket_order(self, position_size, entry_price, stop_loss, take_profit)
-
-    def short_setup(self, rsi_value, is_breakout, breakout_dir):
-        if rsi_value > self.rsi_oversold:
-            self.rsi_overbought_triggered = True
-
-        if self.rsi_overbought_triggered and rsi_value <= 0.55:
-            if is_breakout and breakout_dir == "short":
-                self.log.info("TTT Breakout SHORT erkannt")
+        self.log.info(f"Daily Bar - RSI: {new_rsi_value}")
+    
+        # RSI Trigger Flags setzen (aber NICHT handeln)
+        if new_rsi_value is not None:
+            # Oversold erreicht -> Flag für LONG setzen
+            if new_rsi_value < self.rsi_oversold:
+                self.rsi_oversold_triggered = True
+                self.log.info(f"RSI Oversold triggered: {new_rsi_value}")
                 
-                entry_price = self.portfolio.last_price(self.instrument_id)
-                atr = self.breakout_analyser._calc_atr()
-                stop_loss = entry_price + 2 * atr
-                take_profit = entry_price - 4 * atr
-
-                position_size = self.risk_manager.calculate_position_size(entry_price=entry_price, stop_loss_price=stop_loss, risk_per_trade=0.01)
-                self.submit_short_bracket_order(self, position_size, entry_price, stop_loss, take_profit)
+            # Overbought erreicht -> Flag für SHORT setzen
+            if new_rsi_value > self.rsi_overbought:
+                self.rsi_overbought_triggered = True
+                self.log.info(f"RSI Overbought triggered: {new_rsi_value}")
         
+        
+    def execute_long_trade(self):
+        self.log.info("Executing LONG trade: RSI oversold + TTT breakout")
+        
+        entry_price = self.portfolio.last_price(self.instrument_id)
+        atr = self.breakout_analyser._calc_atr()
+        stop_loss = entry_price - 2 * atr
+        take_profit = entry_price + 4 * atr
+
+        position_size = self.risk_manager.calculate_position_size(
+            entry_price=entry_price, 
+            stop_loss_price=stop_loss, 
+            risk_per_trade=0.01
+        )
+        
+        # Verwende order_types für Bracket Order
+        self.order_types.submit_long_bracket_order(
+            position_size, entry_price, stop_loss, take_profit
+        )
+
+    def execute_short_trade(self):
+        self.log.info("Executing SHORT trade: RSI overbought + TTT breakout")
+        
+        entry_price = self.portfolio.last_price(self.instrument_id)
+        atr = self.breakout_analyser._calc_atr()
+        stop_loss = entry_price + 2 * atr
+        take_profit = entry_price - 4 * atr
+
+        position_size = self.risk_manager.calculate_position_size(
+            entry_price=entry_price, 
+            stop_loss_price=stop_loss, 
+            risk_per_trade=0.01
+        )
+        
+        # Verwende order_types für Bracket Order
+        self.order_types.submit_short_bracket_order(
+            position_size, entry_price, stop_loss, take_profit
+        )
 
     def on_position_event(self, event: PositionEvent) -> None:
         pass
@@ -250,5 +282,25 @@ class MeanReversionHTFStrategy(Strategy):
         if self.close_positions_on_stop and position is not None and position.is_open:
             self.close_position()
         self.stop()
+    
+    def _update_visualizer(self, bar: Bar) -> None:
+        """Update Visualizer mit aktueller Bar"""
+        net_position = self.portfolio.net_position(self.instrument_id)
+        try:
+            unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
+        except Exception as e:
+            self.log.warning(f"Could not calculate unrealized PnL: {e}")
+            unrealized_pnl = None
+            
+        venue = self.instrument_id.venue
+        account = self.portfolio.account(venue)
+        usd_balance = account.balances_total()
+        
+        self.collector.add_indicator(timestamp=bar.ts_event, name="account_balance", value=usd_balance)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position if net_position is not None else None)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="RSI", value=float(self.rsi.value) if self.rsi.value is not None else None)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
+        self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
 
 
