@@ -35,8 +35,6 @@ from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 class MeanReversionHTFStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: BarType
-    bar_type_1h: str  
-    bar_type_1d: str
     trade_size: Decimal
     rsi_period: int
     rsi_overbought: float
@@ -211,7 +209,7 @@ class MeanReversionHTFStrategy(Strategy):
         self.stopped = True  
 
         # VISUALIZER UPDATEN - der try execpt block ist nur zum debuggen - eigentlich kommt da nur  unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id) hin
-        
+
         try:
             unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
         except Exception as e:

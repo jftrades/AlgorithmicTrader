@@ -25,25 +25,24 @@ from tools.help_funcs.help_funcs_execution import run_backtest_and_visualize, se
 from core.visualizing.dashboard import TradingDashboard
 
 start_date = "2024-01-01T00:00:00Z"
-end_date = "2024-01-03T23:59:59Z"
-
+end_date = "2024-12-30T23:59:59Z"
 
 # Parameter - anpassen für deine Strategie !!!!!!
-symbol = Symbol("ES.c.0")
+symbol = Symbol("ESH4")
 venue = Venue("GLBX")
 instrument_id = InstrumentId(symbol, venue)
-instrument_id_str = "ES.FUT.GLBX"
-bar_type_1h = "ES.FUT.GLBX-1-HOUR-LAST-EXTERNAL"
-bar_type_1d = "ES.FUT.GLBX-1-DAY-LAST-EXTERNAL"
+instrument_id_str = "ESH4.GLBX"
+bar_type = "ESH4.GLBX-1-HOUR-LAST-EXTERNAL"
 start_date = "2024-01-01T00:00:00Z"
-end_date = "2024-01-03T23:59:59Z"
-catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
+end_date = "2024-12-30T23:59:59Z"
+catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled" / "ES_FUTURES_2024_GLBX" )
 
 # DataConfig
 data_config = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:Bar",
     catalog_path=catalog_path,
-    bar_types=[bar_type_1h, bar_type_1d]
+    bar_types=[bar_type],
+    instrument_ids=[instrument_id_str]
 )
 
 # VenueConfig 
@@ -61,9 +60,7 @@ strategy_config = ImportableStrategyConfig(
     config_path="strategies.mean_reversion_HTF_strategy:MeanReversionHTFStrategyConfig",
     config={
         "instrument_id": instrument_id_str,
-        "bar_type": bar_type_1h,
-        "bar_type_1h": bar_type_1h,
-        "bar_type_1d": bar_type_1d,
+        "bar_type": bar_type,
         "trade_size": "0.5",
         "rsi_period": 14,
         "rsi_overbought": 0.75,

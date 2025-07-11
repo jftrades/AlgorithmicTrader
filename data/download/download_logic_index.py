@@ -41,34 +41,42 @@ def download_dbn(symbol, start_date, end_date, dataset, schema, api_key, raw_dir
     return files
 
 
-def transform_dbn_to_parquet(symbol, raw_dir, catalog_root_path, venue="XCME", delete_raw_dir=True):
-    """OFFIZIELLE Nautilus DBN→Parquet via Catalog"""
+def transform_dbn_to_parquet(symbol, raw_dir, catalog_root_path, venue="GLBX", delete_raw_dir=True):
+    """OFFIZIELLE Nautilus DBN→Parquet via DatabentoDataLoader"""
     raw_dir = Path(raw_dir)
-    catalog_root_path = Path(catalog_root_path)
-    catalog_root_path.mkdir(parents=True, exist_ok=True)
+    
+    organized_path = Path(catalog_root_path) / "ES_FUTURES_2024_GLBX"
+    organized_path.mkdir(parents=True, exist_ok=True)
     
     files = list(raw_dir.rglob("*.dbn*"))
     if not files:
-        print(f"[WARNING] Keine DBN-Dateien")
+        print("[WARNING] Keine DBN-Dateien gefunden")
         return
     
-    # OFFIZIELLE METHODE: Catalog macht alles automatisch
-    catalog = ParquetDataCatalog(path=catalog_root_path)
+    loader = DatabentoDataLoader()
+    catalog = ParquetDataCatalog(path=organized_path)
     
-    print(f"[INFO] Importiere {len(files)} DBN-Dateien via Catalog...")
+    print(f"[INFO] Transformiere {len(files)} DBN-Dateien...")
+    print(f"[INFO] Speichere in: {organized_path}")
     
     for data_file in files:
         try:
-            print(f"[INFO] Importiere: {data_file.name}")
-            catalog.write_data(str(data_file))
-            print(f"  ✓ Erfolgreich importiert")
+            data = loader.from_dbn_file(
+                path=str(data_file),
+                instrument_id=None,
+                as_legacy_cython=True,
+                use_exchange_as_venue=False,  # ← ÄNDERUNG: False statt True!
+            )
             
+            if data:
+                catalog.write_data(data)
+                print(f"  ✓ {data_file.name}: {len(data)} Objekte")
+                
         except Exception as e:
-            print(f"  ✗ Fehler: {e}")
+            print(f"  ✗ {data_file.name}: {e}")
             continue
-    
-    print(f"[INFO] ✓ Import abgeschlossen")
     
     if delete_raw_dir and raw_dir.exists():
         shutil.rmtree(raw_dir)
-        print(f"[INFO] Raw-Dateien gelöscht")
+        
+    print(f"[INFO] ✓ Fertig in: {organized_path}")

@@ -11,10 +11,10 @@ load_dotenv()
 
 # Parameter
 symbol = "ES.FUT"
-start_date = "2011-01-01"
-end_date = "2025-12-31"
+start_date = "2024-01-01"
+end_date = "2024-12-31"
 dataset = "GLBX.MDP3"
-venue = "XCME"
+venue = "GLBX"
 base_data_dir = str(Path(__file__).resolve().parents[1] / "DATA_STORAGE")
 raw_dir = Path(base_data_dir) / "raw_downloads"
 catalog_root_path = Path(base_data_dir) / "data_catalog_wrangled"
@@ -25,7 +25,7 @@ if not api_key:
 
 if __name__ == "__main__":
     # Download OHLCV und Definitionen
-    for schema in ["ohlcv-1d", "definition"]:
+    for schema in ["ohlcv-1h", "definition"]:
         download_dbn(
             symbol=symbol,
             start_date=start_date,
