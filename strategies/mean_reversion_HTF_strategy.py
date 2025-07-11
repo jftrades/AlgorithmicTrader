@@ -112,8 +112,12 @@ class MeanReversionHTFStrategy(Strategy):
         self.short_setup(rsi_value, is_breakout, breakout_dir)
 
         # VISUALIZER UPDATEN
-        net_position = self.portfolio.net_position(self.instrument_id)
-        unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
+        net_position = self.portfolio.net_position(self.instrument_id) # das hier danach weg war für debugging
+        try:
+            unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
+        except Exception as e:
+            self.log.warning(f"Could not calculate unrealized PnL: {e}")
+            unrealized_pnl = None
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         usd_balance = account.balances_total()
@@ -206,8 +210,13 @@ class MeanReversionHTFStrategy(Strategy):
         self.log.info("Strategy stopped!")
         self.stopped = True  
 
-        # VISUALIZER UPDATEN
-        unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
+        # VISUALIZER UPDATEN - der try execpt block ist nur zum debuggen - eigentlich kommt da nur  unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id) hin
+        
+        try:
+            unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
+        except Exception as e:
+            self.log.warning(f"Could not calculate unrealized PnL: {e}")
+            unrealized_pnl = None
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         usd_balance = account.balances_total()
@@ -217,7 +226,7 @@ class MeanReversionHTFStrategy(Strategy):
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="RSI", value=float(self.last_rsi) if self.last_rsi is not None else None)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="RSI", value=float(self.rsi.value) if self.rsi.value is not None else None)
         logging_message = self.collector.save_data()
         self.log.info(logging_message, color=LogColor.GREEN)
         #self.collector.visualize()  # Visualize the data if enabled

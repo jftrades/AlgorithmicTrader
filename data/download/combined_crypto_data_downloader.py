@@ -11,7 +11,7 @@ import shutil
 symbol = "BTCUSDT"
 start_date = "2024-01-01"
 end_date = "2024-01-03"
-base_data_dir = str(Path(__file__).resolve().parent / "DATA_STORAGE")
+base_data_dir = str(Path(__file__).resolve().parents[1] / "DATA_STORAGE")
 datatype = "tick"  # oder "bar"
 interval = "1m"    # nur für Bars relevant
 
