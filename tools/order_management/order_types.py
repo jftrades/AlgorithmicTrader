@@ -18,6 +18,7 @@ class OrderTypes:
             tags=create_tags(action="BUY", type="OPEN")
         )
         self.strategy.submit_order(order)
+        self.strategy.collector.add_trade(order)
 
     def submit_short_market_order(self, quantity: Decimal): 
         order = self.strategy.order_factory.market(
@@ -28,6 +29,7 @@ class OrderTypes:
             tags=create_tags(action="SHORT", type="OPEN")
         )
         self.strategy.submit_order(order)
+        self.strategy.collector.add_trade(order)
     
 
     def submit_long_bracket_order(self, quantity: Decimal, entry_price: Decimal, stop_loss: Decimal, take_profit: Decimal):
@@ -44,7 +46,7 @@ class OrderTypes:
         self.strategy.collector.add_trade(bracket_order.orders[0])
         self.strategy.log.info(
             f"Bracket Order: Side={OrderSide.BUY.upper()}, Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Qty={quantity}"
-        )   
+        )
 
     def submit_short_bracket_order(self, quantity: Decimal, entry_price: Decimal, stop_loss: Decimal, take_profit: Decimal):
         bracket_order = self.strategy.order_factory.bracket(
@@ -71,8 +73,9 @@ class OrderTypes:
             time_in_force=TimeInForce.GTC,
             tags=create_tags(action="BUY", type="OPEN")
         )
-        strategy.submit_order(order)
-        strategy.log.info(f"Limit Order: Side={OrderSide.BUY.upper()}, Qty={quantity}, Limit={limit_price}")
+        self.strategy.submit_order(order)
+        self.strategy.log.info(f"Limit Order: Side={OrderSide.BUY.upper()}, Qty={quantity}, Limit={limit_price}")
+        self.strategy.collector.add_trade(order)
 
     def submit_short_limit_order(self, strategy, quantity: Decimal, limit_price: Decimal):
         order = strategy.order_factory.limit(
@@ -83,5 +86,6 @@ class OrderTypes:
             time_in_force=TimeInForce.GTC,
             tags=create_tags(action="SHORT", type="OPEN")
         )
-        strategy.submit_order(order)
-        strategy.log.info(f"Limit Order: Side={OrderSide.SELL.upper()}, Qty={quantity}, Limit={limit_price}")
+        self.strategy.submit_order(order)
+        self.strategy.log.info(f"Limit Order: Side={OrderSide.SELL.upper()}, Qty={quantity}, Limit={limit_price}")
+        self.strategy.collector.add_trade(order)

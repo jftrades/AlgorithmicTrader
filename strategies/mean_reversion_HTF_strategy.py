@@ -97,9 +97,8 @@ class MeanReversionHTFStrategy(Strategy):
     def on_bar(self, bar: Bar) -> None:
         bar_type_str = str(bar.bar_type)
         if "1-DAY-LAST-INTERNAL" in bar_type_str:
-            self.rsi.handle_bar(bar)
-            self._update_visualizer(bar)  # <-- Nur hier!
-            self.log.info(f"BarType: {bar.bar_type}, RSI initialized: {self.rsi.initialized}")
+            self._handle_daily_bar(bar) 
+            self._update_visualizer(bar)
         
         elif "1-HOUR-LAST-EXTERNAL" in bar_type_str:
             self._handle_hourly_bar(bar)
@@ -108,19 +107,18 @@ class MeanReversionHTFStrategy(Strategy):
         self.breakout_analyser.update_bars(bar)
 
         is_breakout, breakout_dir = self.breakout_analyser.is_tttbreakout() # TTT Breakout prüfen
-        
+
         open_orders = self.cache.orders_open(instrument_id=self.instrument_id) # Prüfe offene Orders
         if open_orders:
             return
 
         if not self.rsi.initialized:
-                self.log.warning("⚠️ RSI not initialized yet - skipping trading logic")
+                self.log.warning("RSI not initialized yet - skipping trading logic")
                 return
 
         # Trading Logic: RSI-Bedingung muss VORHER erfüllt sein
         if is_breakout:
-            current_rsi = self.rsi.value  # ✅ Nutze aktuellen RSI-Wert
-            self.log.info(f"TTT Breakout detected on 1h: {breakout_dir}, RSI: {current_rsi}")
+            current_rsi = self.rsi.value
             
             # LONG
             if (breakout_dir == "long" and 
@@ -147,23 +145,18 @@ class MeanReversionHTFStrategy(Strategy):
     def _handle_daily_bar(self, bar: Bar) -> None:
         self.rsi.handle_bar(bar)
         new_rsi_value = self.rsi.value
-        
-        rsi_value = self.rsi.value
-        new_rsi_value = self.rsi.value
 
-        self.log.info(f"Daily Bar: {bar.ts_event}, RSI initialized: {self.rsi.initialized}, RSI value: {self.rsi.value}")
+        # Oversold Trigger setzen/zurücksetzen
+        if not self.rsi_oversold_triggered and new_rsi_value < self.rsi_oversold:
+            self.rsi_oversold_triggered = True
+        elif self.rsi_oversold_triggered and new_rsi_value >= self.rsi_oversold:
+            self.rsi_oversold_triggered = False
 
-            # RSI Trigger Flags setzen (nur wenn initialisiert)
-        if self.rsi.initialized and new_rsi_value is not None:
-            if new_rsi_value < self.rsi_oversold:
-                self.rsi_oversold_triggered = True
-                self.log.info(f" RSI Oversold triggered: {new_rsi_value}")
-                
-            if new_rsi_value > self.rsi_overbought:
-                self.rsi_overbought_triggered = True
-                self.log.info(f" RSI Overbought triggered: {new_rsi_value}")
-        else:
-            self.log.warning(" RSI not initialized yet - need more daily bars")
+        # Overbought Trigger setzen/zurücksetzen
+        if not self.rsi_overbought_triggered and new_rsi_value > self.rsi_overbought:
+            self.rsi_overbought_triggered = True
+        elif self.rsi_overbought_triggered and new_rsi_value <= self.rsi_overbought:
+            self.rsi_overbought_triggered = False
         
         self._update_visualizer(bar)
 
