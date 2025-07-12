@@ -95,11 +95,15 @@ class MeanReversionHTFStrategy(Strategy):
         return None
 
     def on_bar(self, bar: Bar) -> None:
-        if bar.bar_type == self.hourly_bar_type:
+        bar_type_str = str(bar.bar_type)
+        if "1-DAY-LAST-INTERNAL" in bar_type_str:
+            self.rsi.handle_bar(bar)
+            self._update_visualizer(bar)  # <-- Nur hier!
+            self.log.info(f"BarType: {bar.bar_type}, RSI initialized: {self.rsi.initialized}")
+        
+        elif "1-HOUR-LAST-EXTERNAL" in bar_type_str:
             self._handle_hourly_bar(bar)
-        elif bar.bar_type == self.daily_bar_type:
-            self._handle_daily_bar(bar)
-
+    
     def _handle_hourly_bar(self, bar: Bar) -> None:
         self.breakout_analyser.update_bars(bar)
 
@@ -109,52 +113,60 @@ class MeanReversionHTFStrategy(Strategy):
         if open_orders:
             return
 
+        if not self.rsi.initialized:
+                self.log.warning("⚠️ RSI not initialized yet - skipping trading logic")
+                return
+
         # Trading Logic: RSI-Bedingung muss VORHER erfüllt sein
         if is_breakout:
-            self.log.info(f"TTT Breakout detected on 1h: {breakout_dir}")
+            current_rsi = self.rsi.value  # ✅ Nutze aktuellen RSI-Wert
+            self.log.info(f"TTT Breakout detected on 1h: {breakout_dir}, RSI: {current_rsi}")
             
             # LONG
             if (breakout_dir == "long" and 
                 self.rsi_oversold_triggered and 
-                self.rsi.value is not None and 
-                self.rsi.value > self.rsi_oversold and 
-                self.rsi.value <= 0.45):
+                current_rsi is not None and 
+                current_rsi > self.rsi_oversold and 
+                current_rsi <= 0.45):
                 
                 self.execute_long_trade()
-                self.rsi_oversold_triggered = False  # Flag zurücksetzen
+                self.rsi_oversold_triggered = False
                 
             #SHORT
             elif (breakout_dir == "short" and 
                 self.rsi_overbought_triggered and 
-                self.rsi.value is not None and 
-                self.rsi.value < self.rsi_overbought and 
-                self.rsi.value >= 0.55):
+                current_rsi is not None and 
+                current_rsi < self.rsi_overbought and 
+                current_rsi >= 0.55):
                 
                 self.execute_short_trade()
-                self.rsi_overbought_triggered = False  # Flag zurücksetzen
+                self.rsi_overbought_triggered = False
         
-        self._update_visualizer(bar) # Visualizer mit höherer Frequenz (1h) updaten
+        self._update_visualizer(bar)
 
     def _handle_daily_bar(self, bar: Bar) -> None:
-        rsi_value = self.rsi.value
-        self.rsi.update_raw(bar.close)
+        self.rsi.handle_bar(bar)
         new_rsi_value = self.rsi.value
         
-        self.log.info(f"Daily Bar - RSI: {new_rsi_value}")
-    
-        # RSI Trigger Flags setzen (aber NICHT handeln)
-        if new_rsi_value is not None:
-            # Oversold erreicht -> Flag für LONG setzen
+        rsi_value = self.rsi.value
+        new_rsi_value = self.rsi.value
+
+        self.log.info(f"Daily Bar: {bar.ts_event}, RSI initialized: {self.rsi.initialized}, RSI value: {self.rsi.value}")
+
+            # RSI Trigger Flags setzen (nur wenn initialisiert)
+        if self.rsi.initialized and new_rsi_value is not None:
             if new_rsi_value < self.rsi_oversold:
                 self.rsi_oversold_triggered = True
-                self.log.info(f"RSI Oversold triggered: {new_rsi_value}")
+                self.log.info(f" RSI Oversold triggered: {new_rsi_value}")
                 
-            # Overbought erreicht -> Flag für SHORT setzen
             if new_rsi_value > self.rsi_overbought:
                 self.rsi_overbought_triggered = True
-                self.log.info(f"RSI Overbought triggered: {new_rsi_value}")
+                self.log.info(f" RSI Overbought triggered: {new_rsi_value}")
+        else:
+            self.log.warning(" RSI not initialized yet - need more daily bars")
         
-        
+        self._update_visualizer(bar)
+
     def execute_long_trade(self):
         self.log.info("Executing LONG trade: RSI oversold + TTT breakout")
         
@@ -234,14 +246,12 @@ class MeanReversionHTFStrategy(Strategy):
     
     def on_stop(self) -> None:
         position = self.get_position()
-        position = self.get_position()
         if self.close_positions_on_stop and position is not None and position.is_open:
             self.close_position()
         self.log.info("Strategy stopped!")
         self.stopped = True  
 
-        # VISUALIZER UPDATEN - der try execpt block ist nur zum debuggen - eigentlich kommt da nur  unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id) hin
-
+        # VISUALIZER UPDATEN
         try:
             unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
         except Exception as e:
@@ -250,16 +260,15 @@ class MeanReversionHTFStrategy(Strategy):
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         usd_balance = account.balances_total()
-        #self.log.info(f"acc balances: {usd_balance}", LogColor.RED)
 
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usd_balance)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="RSI", value=float(self.rsi.value) if self.rsi.value is not None else None)
+        
         logging_message = self.collector.save_data()
         self.log.info(logging_message, color=LogColor.GREEN)
-        #self.collector.visualize()  # Visualize the data if enabled
 
 
     def on_order_filled(self, order_filled) -> None:
@@ -284,23 +293,23 @@ class MeanReversionHTFStrategy(Strategy):
         self.stop()
     
     def _update_visualizer(self, bar: Bar) -> None:
-        """Update Visualizer mit aktueller Bar"""
         net_position = self.portfolio.net_position(self.instrument_id)
         try:
             unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
         except Exception as e:
-            self.log.warning(f"Could not calculate unrealized PnL: {e}")
             unrealized_pnl = None
-            
+
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         usd_balance = account.balances_total()
-        
-        self.collector.add_indicator(timestamp=bar.ts_event, name="account_balance", value=usd_balance)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position if net_position is not None else None)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="RSI", value=float(self.rsi.value) if self.rsi.value is not None else None)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
+
+        rsi_value = float(self.rsi.value) if self.rsi.value is not None else None
+
+        if self.rsi.initialized and "1-DAY-LAST-INTERNAL" in str(bar.bar_type):
+            self.log.info(f"Saving RSI to collector: {rsi_value} at {bar.ts_event}")
+            self.collector.add_indicator(timestamp=bar.ts_event, name="RSI", value=rsi_value)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl else None)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance)
         self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
-
-

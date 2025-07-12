@@ -64,7 +64,7 @@ strategy_config = ImportableStrategyConfig(
         "hourly_bar_type": hourly_bar_type,    
         "daily_bar_type": daily_bar_type,  
         "trade_size": "0.5",
-        "rsi_period": 7,
+        "rsi_period": 3,
         "rsi_overbought": 0.75,
         "rsi_oversold": 0.25,
         "close_positions_on_stop": True
