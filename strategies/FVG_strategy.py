@@ -22,6 +22,8 @@ from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.currencies import USDT, BTC
 from nautilus_trader.common.enums import LogColor
 
+
+from tools.help_funcs.base_strategy import BaseStrategy
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 from tools.help_funcs.help_funcs_strategy import create_tags
 from tools.structure.retest import RetestAnalyser
@@ -42,17 +44,11 @@ class FVGStrategyConfig(StrategyConfig):
     
 class FVGStrategy(Strategy):
     def __init__(self, config: FVGStrategyConfig):
-        super().__init__(config)
-        self.instrument_id = config.instrument_id
+        self.base_strategy.base__init__(config)
         self.bar_type = config.bar_type
-        self.trade_size = config.trade_size
         self.fvg_detector = FVG_Analyser()
         self.retest_analyser = RetestAnalyser()
         self.risk_manager = None  # Will be initialized with account balance
-        
-        self.close_positions_on_stop = config.close_positions_on_stop
-        self.venue = self.instrument_id.venue
-        self.realized_pnl = 0
         self.bar_counter = 0
 
     def on_start(self) -> None:
@@ -73,7 +69,10 @@ class FVGStrategy(Strategy):
         risk_reward_ratio = Decimal("2")  # 2:1 Risk-Reward Ratio
         self.risk_manager = RiskManager(Decimal("0"), risk_percent, max_leverage, min_account_balance, risk_reward_ratio)                          
         self.order_types = OrderTypes(self)
+        self.base_strategy = BaseStrategy(self)
 
+    def get_position(self):
+        self.base_strategy.base_get_position()
 
     def on_bar(self, bar: Bar) -> None: 
         # Get account balance and update risk manager
@@ -160,35 +159,19 @@ class FVGStrategy(Strategy):
             self.retest_analyser.set_box_retest_zone(upper=fvg_high, lower=fvg_low, long_retest=False)
 
     def close_position(self) -> None:
-        position = self.get_position()
-        if position is not None and position.is_open:
-            super().close_position(position)
-        
+        self.base_strategy.base_close_position()
+    
     def on_stop(self) -> None:
-        position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
-            self.close_position()
-        self.log.info("Strategy stopped!")
-
-        logging_message = self.collector.save_data()
-        self.log.info(logging_message, color=LogColor.GREEN)
+        self.base_strategy.base_on_stop()
 
     def on_order_filled(self, order_filled) -> None:
-        ret = self.collector.add_trade_details(order_filled)
-        self.log.info(
-            f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
+        self.base_strategy.base_on_order_filled(order_filled)
 
     def on_position_closed(self, position_closed) -> None:
-        realized_pnl = position_closed.realized_pnl  # Realized PnL
-        self.realized_pnl += float(realized_pnl) if realized_pnl else 0
-        self.collector.add_closed_trade(position_closed)
+        self.base_strategy.base_on_position_closed(position_closed)
 
     def on_error(self, error: Exception) -> None:
-        self.log.error(f"An error occurred: {error}")
-        position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
-            self.close_position()
-        self.stop()
+        self.base_strategy.base_on_error(error)
 
     def get_account_balance(self) -> Decimal:
         # Get account balance for risk manager

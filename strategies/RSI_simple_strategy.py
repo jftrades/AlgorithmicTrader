@@ -2,7 +2,7 @@
 from decimal import Decimal
 import time
 from typing import Any
-
+ 
 # Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
@@ -14,6 +14,7 @@ from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.common.enums import LogColor
 
 # Nautilus Strategie spezifische Importe
+from tools.help_funcs.base_strategy import BaseStrategy
 from tools.structure.TTTbreakout import TTTBreakout_Analyser
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
@@ -37,17 +38,13 @@ class RSISimpleStrategyConfig(StrategyConfig):
     
 class RSISimpleStrategy(Strategy):
     def __init__(self, config: RSISimpleStrategyConfig):
-        super().__init__(config)
-        self.instrument_id = config.instrument_id
+        self.base_strategy.base__init__(config)
         self.bar_type = config.bar_type
-        self.trade_size = config.trade_size
         self.rsi_period = config.rsi_period
         self.rsi_overbought = config.rsi_overbought
         self.rsi_oversold = config.rsi_oversold
-        self.close_positions_on_stop = config.close_positions_on_stop
         self.rsi = RelativeStrengthIndex(period=self.rsi_period)
         self.last_rsi_cross = None
-        self.realized_pnl = 0
         self.stopped = False  # Flag to indicate if the strategy has been stopped
 
     def on_start(self) -> None:
@@ -66,14 +63,11 @@ class RSISimpleStrategy(Strategy):
 
         self.risk_manager = RiskManager(self, 0.01)
         self.order_types = OrderTypes(self)
+        self.base_strategy = BaseStrategy(self)
 
         
     def get_position(self):
-        if hasattr(self, "cache") and self.cache is not None:
-            positions = self.cache.positions_open(instrument_id=self.instrument_id)
-            if positions:
-                return positions[0]
-        return None
+        self.base_strategy.base_get_position()
 
     def on_bar(self, bar: Bar) -> None:
         self.rsi.handle_bar(bar)
@@ -121,28 +115,20 @@ class RSISimpleStrategy(Strategy):
         self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open)
 
     def close_position(self) -> None:
-        self.order_types.close_position_by_market_order()
-        if self.stopped:
-            logging_message = self.collector.save_data()
-            self.log.info(logging_message, color=LogColor.GREEN)
-        
-
+        self.base_strategy.base_close_position()
+    
     def on_stop(self) -> None:
-        position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
-            self.close_position()
-        self.log.info("Strategy stopped!")
+        self.base_strategy.base_on_stop()
+
         self.stopped = True  
         net_position = self.portfolio.net_position(self.instrument_id)
         unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)  # Unrealized PnL
         realized_pnl = float(self.portfolio.realized_pnl(self.instrument_id))  # Unrealized PnL
-        #self.log.info(f"position.quantity: {net_position}", LogColor.RED)
         self.realized_pnl += unrealized_pnl+realized_pnl if unrealized_pnl is not None else 0
         unrealized_pnl = 0
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         usdt_balance = account.balance_total(Currency.from_str("USDT")).as_double() 
-        self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
 
 
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="account_balance", value=usdt_balance)
@@ -153,26 +139,12 @@ class RSISimpleStrategy(Strategy):
         self.log.info(logging_message, color=LogColor.GREEN)
 
         #self.collector.visualize()  # Visualize the data if enabled
-
     def on_order_filled(self, order_filled) -> None:
-        ret = self.collector.add_trade_details(order_filled)
-        self.log.info(
-            f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
-        
+        self.base_strategy.base_on_order_filled(order_filled)
 
     def on_position_closed(self, position_closed) -> None:
-        realized_pnl = position_closed.realized_pnl  # Realized PnL
-        self.realized_pnl += float(realized_pnl) if realized_pnl else 0
-    
-
-    def on_position_opened(self, position_opened) -> None:
-        realized_pnl = position_opened.realized_pnl  # Realized PnL
-        #self.realized_pnl += float(realized_pnl) if realized_pnl else 0
+        self.base_strategy.base_on_position_closed(position_closed)
 
     def on_error(self, error: Exception) -> None:
-        self.log.error(f"An error occurred: {error}")
-        position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
-            self.close_position()
-        self.stop()
+        self.base_strategy.base_on_error(error)
 

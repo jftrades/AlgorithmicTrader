@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Any
 import sys
 from pathlib import Path
-
+ 
 # Nautilus Kern offizielle Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
@@ -21,6 +21,7 @@ from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.currencies import USDT, BTC
 
 # Nautilus Kern eigene Importe !!! immer
+from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
@@ -39,14 +40,8 @@ class NameDerStrategyConfig(StrategyConfig):
     
 class NameDerStrategy(Strategy):
     def __init__(self, config: NameDerStrategyConfig):
-        super().__init__(config)
-        self.instrument_id = config.instrument_id
-        self.bar_type = BarType.from_str(config.bar_type)
-        self.trade_size = config.trade_size
-        #...
-        self.close_positions_on_stop = config.close_positions_on_stop
-        self.venue = self.instrument_id.venue
-        self.realized_pnl = 0
+        self.base_strategy.base__init__(config)
+        self.bar_type = config.bar_type
         self.bar_counter = 0
 
     def on_start(self) -> None:
@@ -55,7 +50,7 @@ class NameDerStrategy(Strategy):
         self.log.info("Strategy started!")
         self.risk_manager = RiskManager(self)
         self.order_types = OrderTypes(self)
-
+        self.base_strategy = BaseStrategy(self)
         self.collector = BacktestDataCollector()
         self.collector.initialise_logging_indicator("position", 1)
         self.collector.initialise_logging_indicator("realized_pnl", 2)
@@ -63,11 +58,7 @@ class NameDerStrategy(Strategy):
         self.collector.initialise_logging_indicator("balance", 4)
 
     def get_position(self):
-        if hasattr(self, "cache") and self.cache is not None:
-            positions = self.cache.positions_open(instrument_id=self.instrument_id)
-            if positions:
-                return positions[0]
-        return None
+        self.base_strategy.base_get_position()
 
     def on_bar(self, bar: Bar) -> None:
         # Get account balance and update risk manager
@@ -88,16 +79,10 @@ class NameDerStrategy(Strategy):
         pass
 
     def close_position(self) -> None:
-        position = self.get_position()
-        if position is not None and position.is_open:
-            super().close_position(position)
-        
+        self.base_strategy.base_close_position()
+    
     def on_stop(self) -> None:
-        position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
-            self.close_position()
-        self.log.info("Strategy stopped!")
-        self.stoppped = True
+        self.base_strategy.base_on_stop()
 
         # VISUALIZER UPDATEN
         try:
@@ -120,25 +105,13 @@ class NameDerStrategy(Strategy):
 
 
     def on_order_filled(self, order_filled) -> None:
-        ret = self.collector.add_trade_details(order_filled)
-        self.log.info(f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
+        self.base_strategy.base_on_order_filled(order_filled)
 
     def on_position_closed(self, position_closed) -> None:
-
-        realized_pnl = position_closed.realized_pnl  # Realized PnL
-        self.realized_pnl += float(realized_pnl) if realized_pnl else 0
-        self.collector.add_closed_trade(position_closed)
-
-    def on_position_opened(self, position_opened) -> None:
-        realized_pnl = position_opened.realized_pnl
-        #self.realized_pnl += float(realized_pnl) if realized_pnl else 0
+        self.base_strategy.base_on_position_closed(position_closed)
 
     def on_error(self, error: Exception) -> None:
-        self.log.error(f"An error occurred: {error}")
-        position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
-            self.close_position()
-        self.stop()
+        self.base_strategy.base_on_error(error)
     
     def update_visualizer_data(self, bar: Bar) -> None:
         net_position = self.portfolio.net_position(self.instrument_id)

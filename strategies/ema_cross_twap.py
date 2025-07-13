@@ -12,7 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------
-
+ 
 from decimal import Decimal
 from typing import Any
 
@@ -39,6 +39,7 @@ from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.trading.strategy import Strategy
 from nautilus_trader.core.datetime import dt_to_unix_nanos, unix_nanos_to_dt
 
+from tools.help_funcs.base_strategy import BaseStrategy
 from tools.help_funcs.help_funcs_strategy import create_tags
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 from tools.order_management.order_types import OrderTypes
@@ -63,6 +64,7 @@ class EMACrossTWAP(Strategy):
 
     def __init__(self, config: EMACrossTWAPConfig) -> None:
         self.collector = BacktestDataCollector()
+        self.base_strategy.base__init__(config)
         PyCondition.is_true(
             config.fast_ema_period < config.slow_ema_period,
             "{config.fast_ema_period=} must be less than {config.slow_ema_period=}",
@@ -71,11 +73,8 @@ class EMACrossTWAP(Strategy):
             config.twap_interval_secs <= config.twap_horizon_secs,
             "{config.twap_interval_secs=} must be less than or equal to {config.twap_horizon_secs=}",
         )
-        super().__init__(config)
-        
-        self.realized_pnl = None
-        self.instrument: Instrument = None  # Initialized in on_start
 
+        
         # Create the indicators for the strategy
         self.fast_ema = ExponentialMovingAverage(config.fast_ema_period)
         self.slow_ema = ExponentialMovingAverage(config.slow_ema_period)
@@ -94,6 +93,7 @@ class EMACrossTWAP(Strategy):
             self.stop()
             return
         
+        self.base_strategy = BaseStrategy(self)
         self.risk_manager = RiskManager(self)
         self.order_types = OrderTypes(self)
         self.collector = BacktestDataCollector()
@@ -116,6 +116,8 @@ class EMACrossTWAP(Strategy):
         self.subscribe_quote_ticks(self.config.instrument_id)
         self._plot_log = []
 
+    def get_position(self):
+            self.base_strategy.base_get_position()
 
     def on_instrument(self, instrument: Instrument) -> None:
         pass
@@ -188,16 +190,11 @@ class EMACrossTWAP(Strategy):
     def on_event(self, event: Event) -> None:
         pass
 
-    def get_position(self):
-        return self.portfolio.net_position(self.config.instrument_id)
-
+    def close_position(self) -> None:
+        self.base_strategy.base_close_position()
+    
     def on_stop(self) -> None:
-        position = self.get_position()
-        if self.config.close_positions_on_stop and position is not None and position != 0:
-            self.close_position()
-        self.log.info("Strategy stopped!")
-        self.stopped = True 
-
+        self.base_strategy.base_on_stop()
         # VISUALIZER UPDATEN
         try:
             unrealized_pnl = self.portfolio.unrealized_pnl(self.config.instrument_id)

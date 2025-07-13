@@ -97,7 +97,7 @@ class OrderTypes:
 
         if net_position > 0:
             order_side = OrderSide.SELL
-            action = "SELL"
+            action = "SHORT"
         else:
             order_side = OrderSide.BUY
             action = "BUY"

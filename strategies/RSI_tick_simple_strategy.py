@@ -7,7 +7,7 @@ from typing import Any
 from pathlib import Path
 from collections import deque
 from datetime import datetime, timedelta, timezone
-
+ 
 # Nautilus Kern offizielle Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
@@ -22,6 +22,7 @@ from nautilus_trader.model.currencies import USDT, BTC
 from nautilus_trader.model.enums import AggressorSide  # für BUY/SELL
 
 # Nautilus Kern eigene Importe !!! immer
+from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector  # Optional visualization
@@ -43,18 +44,13 @@ class RSITickSimpleStrategyConfig(StrategyConfig):
     
 class RSITickSimpleStrategy(Strategy):
     def __init__(self, config: RSITickSimpleStrategyConfig):
-        super().__init__(config)
-        self.instrument_id = config.instrument_id
-        self.trade_size = config.trade_size
+        self.base_strategy.base__init__(config)
         self.tick_buffer_size = config.tick_buffer_size 
         self.rsi_period = config.rsi_period
         self.rsi_overbought = config.rsi_overbought
         self.rsi_oversold = config.rsi_oversold
         self.rsi = RelativeStrengthIndex(period=self.rsi_period)
         self.last_rsi_cross = None 
-        self.close_positions_on_stop = config.close_positions_on_stop
-        self.venue = self.instrument_id.venue
-        self.realized_pnl = 0
         self.stopped = False  # Flag to indicate if the strategy has been stopped
         self.tick_counter = 0
         self.trade_ticks = []
@@ -76,6 +72,7 @@ class RSITickSimpleStrategy(Strategy):
         self.collector.initialise_logging_indicator("unrealized_pnl", 4)
         self.collector.initialise_logging_indicator("balance", 5)
 
+        self.base_strategy = BaseStrategy(self)
         self.risk_manager = RiskManager(self, 0.01)
         self.order_types = OrderTypes(self)
 
@@ -90,11 +87,7 @@ class RSITickSimpleStrategy(Strategy):
             self.log.warning(f"No account found for venue: {venue}")
 
     def get_position(self):
-        if hasattr(self, "cache") and self.cache is not None:
-            positions = self.cache.positions_open(instrument_id=self.instrument_id)
-            if positions:
-                return positions[0]
-        return None
+        self.base_strategy.base_get_position()
 
     def on_bar(self, bar: Bar):
         self.rsi.handle_bar(bar)
@@ -142,26 +135,15 @@ class RSITickSimpleStrategy(Strategy):
         pass
 
     def close_position(self) -> None:
-        net_position = self.portfolio.net_position(self.instrument_id)
-        if net_position is not None and net_position != 0:
-            self.order_types.close_position_by_market_order()
-        else:
-            self.log.info(f"No open position to close for {self.instrument_id}.")
-            
-        if self.stopped:
-            logging_message = self.collector.save_data()
-            self.log.info(logging_message, color=LogColor.GREEN)
-        
+        self.base_strategy.base_close_position()
+    
     def on_stop(self) -> None:
-        position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
-            self.close_position()
-        self.log.info("Strategy stopped!")
+        self.base_strategy.base_on_stop()
+
         self.stopped = True  
         net_position = self.portfolio.net_position(self.instrument_id)
         unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)  # Unrealized PnL
         realized_pnl = float(self.portfolio.realized_pnl(self.instrument_id))  # Unrealized PnL
-        #self.log.info(f"position.quantity: {net_position}", LogColor.RED)
         self.realized_pnl += unrealized_pnl+realized_pnl if unrealized_pnl is not None else 0
         unrealized_pnl = 0
         venue = self.instrument_id.venue
@@ -178,20 +160,13 @@ class RSITickSimpleStrategy(Strategy):
         #self.collector.visualize()  # Visualize the data if enabled
 
     def on_order_filled(self, order_filled) -> None:
-        ret = self.collector.add_trade_details(order_filled)
-        self.log.info(f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
+        self.base_strategy.base_on_order_filled(order_filled)
 
     def on_position_closed(self, position_closed) -> None:
-        realized_pnl = position_closed.realized_pnl  # Realized PnL
-        self.realized_pnl += float(realized_pnl) if realized_pnl else 0
-        self.collector.add_closed_trade(position_closed)
+        self.base_strategy.base_on_position_closed(position_closed)
 
     def on_error(self, error: Exception) -> None:
-        self.log.error(f"An error occurred: {error}")
-        position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
-            self.close_position()
-        self.stop()
+        self.base_strategy.base_on_error(error)
 
     def update_visualizer_data(self, tick: TradeTick, usdt_balance: Decimal, rsi_value: float) -> None:
         # VISUALIZER UPDATE - Jeden Tick für vollständige Tick-Daten

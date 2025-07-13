@@ -1,7 +1,7 @@
 # hier rein kommt dann die HTF mean reversion strategy basierend auf:
 # RSI, vllt VWAP und breakout oder so in der richtigen Zone - rumprobieren
 # diese strat wird dann gehedged mit einer nur trendfollowing strategie
-
+ 
 # Standard Library Importe
 from decimal import Decimal
 from typing import Any
@@ -26,6 +26,7 @@ from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 from tools.help_funcs.help_funcs_strategy import create_tags
+from tools.help_funcs.base_strategy import BaseStrategy
 from nautilus_trader.common.enums import LogColor
 
 
@@ -45,23 +46,17 @@ class MeanReversionHTFStrategyConfig(StrategyConfig):
 
 class MeanReversionHTFStrategy(Strategy):
     def __init__(self, config:MeanReversionHTFStrategyConfig):
-        super().__init__(config)
-        self.instrument_id = config.instrument_id
+        self.base_strategy.base__init__(config)
         self.hourly_bar_type = BarType.from_str(config.hourly_bar_type)
         self.daily_bar_type = BarType.from_str(config.daily_bar_type)
-        self.trade_size = config.trade_size
         self.rsi_period = config.rsi_period
         self.rsi_overbought = config.rsi_overbought
         self.rsi_oversold = config.rsi_oversold
-
         self.rsi = RelativeStrengthIndex(period=self.rsi_period)
         self.last_rsi_cross = None
-        self.close_positions_on_stop = config.close_positions_on_stop
-        self.venue = self.instrument_id.venue
+        self.stopped = False
         self.realized_pnl = 0
         self.bar_counter = 0
-        self.stopped = False
-        self.breakout_analyser = TTTBreakout_Analyser(lookback=15, atr_mult=1.25, max_counter=6)
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
@@ -75,8 +70,10 @@ class MeanReversionHTFStrategy(Strategy):
         risk_reward_ratio = Decimal("2")  # 2:1 Risk-Reward Ratio
         self.risk_manager = RiskManager(self, risk_percent, max_leverage, min_account_balance, risk_reward_ratio)
         self.order_types = OrderTypes(self)
-
+        self.breakout_analyser = TTTBreakout_Analyser(lookback=15, atr_mult=1.25, max_counter=6)
         self.collector = BacktestDataCollector()
+        self.base_strategy = BaseStrategy(self)
+
         self.collector.initialise_logging_indicator("RSI", 1)
         self.collector.initialise_logging_indicator("position", 2)
         self.collector.initialise_logging_indicator("realized_pnl", 3)
@@ -84,11 +81,7 @@ class MeanReversionHTFStrategy(Strategy):
         self.collector.initialise_logging_indicator("balance", 5)
 
     def get_position(self):
-        if hasattr(self, "cache") and self.cache is not None:
-            positions = self.cache.positions_open(instrument_id=self.instrument_id)
-            if positions:
-                return positions[0]
-        return None
+        self.base_strategy.base_get_position()
 
     def on_bar(self, bar: Bar) -> None:
         bar_type_str = str(bar.bar_type)
@@ -160,45 +153,10 @@ class MeanReversionHTFStrategy(Strategy):
         pass
 
     def close_position(self) -> None:
-        net_position = self.portfolio.net_position(self.instrument_id)
-        if net_position is not None and net_position != 0:
-            self.log.info(f"Closing position for {self.instrument_id} at market price.")
-            #self.log.info(f"position.quantity: {net_position}", LogColor.RED)
-            # Always submit the opposite side to close
-            if net_position > 0:
-                order_side = OrderSide.SELL
-                action = "SHORT"
-            elif net_position < 0:
-                order_side = OrderSide.BUY
-                action = "BUY"
-            else:
-                self.log.info("Position quantity is zero, nothing to close.")
-                return
-            order = self.order_factory.market(
-                instrument_id=self.instrument_id,
-                order_side=order_side,
-                quantity=Quantity(abs(net_position), self.instrument.size_precision),
-                time_in_force=TimeInForce.GTC,
-                tags=create_tags(action=action, type="CLOSE")
-            )
-            #unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)  # Unrealized PnL
-            #self.realized_pnl += float(unrealized_pnl) if unrealized_pnl else 0
-            self.submit_order(order)
-            self.collector.add_trade(order)
-        else:
-            self.log.info(f"No open position to close for {self.instrument_id}.")
-            
-        if self.stopped:
-            logging_message = self.collector.save_data()
-            self.log.info(logging_message, color=LogColor.GREEN)
+        self.base_strategy.base_close_position()
     
     def on_stop(self) -> None:
-        position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
-            self.close_position()
-        self.log.info("Strategy stopped!")
-        self.stopped = True  
-
+        self.base_strategy.base_on_stop()
         # VISUALIZER UPDATEN
         try:
             unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
@@ -220,25 +178,13 @@ class MeanReversionHTFStrategy(Strategy):
 
 
     def on_order_filled(self, order_filled) -> None:
-        ret = self.collector.add_trade_details(order_filled)
-        self.log.info(f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
+        self.base_strategy.base_on_order_filled(order_filled)
 
     def on_position_closed(self, position_closed) -> None:
-
-        realized_pnl = position_closed.realized_pnl  # Realized PnL
-        self.realized_pnl += float(realized_pnl) if realized_pnl else 0
-        self.collector.add_closed_trade(position_closed)
-
-    def on_position_opened(self, position_opened) -> None:
-        realized_pnl = position_opened.realized_pnl
-        #self.realized_pnl += float(realized_pnl) if realized_pnl else 0
+        self.base_strategy.base_on_position_closed(position_closed)
 
     def on_error(self, error: Exception) -> None:
-        self.log.error(f"An error occurred: {error}")
-        position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
-            self.close_position()
-        self.stop()
+        self.base_strategy.base_on_error(error)
     
     def update_visualizer_data(self, bar: Bar) -> None:
         net_position = self.portfolio.net_position(self.instrument_id)
