@@ -40,12 +40,12 @@ class OrderTypes:
             sl_trigger_price=Price(stop_loss, self.strategy.instrument.price_precision),
             tp_price=Price(take_profit, self.strategy.instrument.price_precision),
             time_in_force=TimeInForce.GTC,
-            tags=create_tags(action="BUY", type="OPEN")
+            entry_tags=create_tags(action="BUY", type="OPEN")
         )
         self.strategy.submit_order_list(bracket_order)
         self.strategy.collector.add_trade(bracket_order.orders[0])
         self.strategy.log.info(
-            f"Bracket Order: Side={OrderSide.BUY.upper()}, Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Qty={quantity}"
+            f"Bracket Order: Side={OrderSide.BUY.name}, Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Qty={quantity}"
         )
 
     def submit_short_bracket_order(self, quantity: Decimal, entry_price: Decimal, stop_loss: Decimal, take_profit: Decimal):
@@ -56,12 +56,12 @@ class OrderTypes:
             sl_trigger_price=Price(stop_loss, self.strategy.instrument.price_precision),
             tp_price=Price(take_profit, self.strategy.instrument.price_precision),
             time_in_force=TimeInForce.GTC,
-            tags=create_tags(action="SHORT", type="OPEN")
+            entry_tags=create_tags(action="SHORT", type="OPEN")
         )
         self.strategy.submit_order_list(bracket_order)
         self.strategy.collector.add_trade(bracket_order.orders[0])
         self.strategy.log.info(
-            f"Bracket Order: Side={OrderSide.SELL.upper()}, Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Qty={quantity}"
+            f"Bracket Order: Side={OrderSide.SELL.name}, Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Qty={quantity}"
         )
     
     def submit_long_limit_order(self, strategy, quantity: Decimal, limit_price: Decimal):

@@ -3,7 +3,7 @@ from decimal import Decimal
 from nautilus_trader.model.data import Bar
 
 class TTTBreakout_Analyser:
-    def __init__(self, lookback: int = 20, atr_mult: float = 1.5, max_counter: int = 6):
+    def __init__(self, lookback: int = 15, atr_mult: float = 1.25, max_counter: int = 6):
         self.lookback = lookback
         self.bars: List[Bar] = []
         self.state = "SEARCH_STRONG"
@@ -24,19 +24,24 @@ class TTTBreakout_Analyser:
             self.bars.pop(0)
         
     def _calc_atr(self, n=None):
-        n = n or self.lookback
+        n = self.lookback
         if len(self.bars) < n + 1:
             return None
-        trs = [max(b.high - b.low, abs(b.high - self.bars[i-1].close), abs(b.low - self.bars[i-1].close))
-            for i, b in enumerate(self.bars[-n:], start=len(self.bars)-n)]
+        trs = []
+        bars = self.bars
+        for i in range(len(bars) - n, len(bars)):
+            high = bars[i].high
+            low = bars[i].low
+            prev_close = bars[i - 1].close if i > 0 else bars[i].close 
+            tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+            trs.append(tr)
         return sum(trs) / n
 
     def is_tttbreakout(self) -> Tuple[bool, str]:
-        # Schritt 1: Starke Candle finden
+        # Schritt 1: ATR holen
         atr = self._calc_atr()
-        if atr is None or len(self.bars) < 8:
+        if atr is None or len(self.bars) < self.lookback:
             return False, ""
-
         atr = float(atr)
 
         bar = self.bars[-1]
@@ -125,23 +130,20 @@ class TTTBreakout_Analyser:
                 self.state = "ACTIVE_RANGE_SHORT"
             return False, ""
 
-        # Schritt 7: Breakout abwarten
-        elif self.state == "ACTIVE_RANGE_LONG":
-            print(f"ACTIVE_RANGE_LONG: close={bar.close}, eff_boundary={self.effective_boundary}, diff={bar.close - self.effective_boundary}, min_diff={0.2 * atr}")
-            if bar.close > self.effective_boundary and (bar.close - self.effective_boundary) > 0.2 * atr:
+        # Schritt 6: Breakout abwarten
+        elif self.state in ("ACTIVE_RANGE_LONG", "ACTIVE_RANGE_SHORT"):
+            print(f"ACTIVE_RANGE: close={bar.close}, eff_boundary={self.effective_boundary}")
+            # Breakout nach oben
+            if bar.close > self.effective_boundary:
                 self.last_breakout = ("long", bar)
                 self._reset()
                 return True, "long"
-            return False, ""
-
-        elif self.state == "ACTIVE_RANGE_SHORT":
-            if bar.close < self.effective_boundary and (self.effective_boundary - bar.close) > 0.2 * atr:
+            # Breakout nach unten
+            elif bar.close < self.effective_boundary:
                 self.last_breakout = ("short", bar)
                 self._reset()
                 return True, "short"
             return False, ""
-
-        return False, ""
     
     def _reset(self):
         self.state = "SEARCH_STRONG"

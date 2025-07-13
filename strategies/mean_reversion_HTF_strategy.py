@@ -61,11 +61,7 @@ class MeanReversionHTFStrategy(Strategy):
         self.realized_pnl = 0
         self.bar_counter = 0
         self.stopped = False
-        self.breakout_analyser = TTTBreakout_Analyser(lookback=10, atr_mult=1.5, max_counter=6)
-
-        # RSI Trigger Flags
-        self.rsi_overbought_triggered = False
-        self.rsi_oversold_triggered = False
+        self.breakout_analyser = TTTBreakout_Analyser(lookback=15, atr_mult=1.25, max_counter=6)
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
@@ -116,84 +112,47 @@ class MeanReversionHTFStrategy(Strategy):
                 self.log.warning("RSI not initialized yet - skipping trading logic")
                 return
 
-        # Trading Logic: RSI-Bedingung muss VORHER erfüllt sein
         if is_breakout:
             current_rsi = self.rsi.value
-            
-            # LONG
-            if (breakout_dir == "long" and 
-                self.rsi_oversold_triggered and 
-                current_rsi is not None and 
-                current_rsi > self.rsi_oversold and 
-                current_rsi <= 0.45):
-                
-                self.execute_long_trade()
-                self.rsi_oversold_triggered = False
-                
-            #SHORT
-            elif (breakout_dir == "short" and 
-                self.rsi_overbought_triggered and 
-                current_rsi is not None and 
-                current_rsi < self.rsi_overbought and 
-                current_rsi >= 0.55):
-                
-                self.execute_short_trade()
-                self.rsi_overbought_triggered = False
+            if breakout_dir == "long" and current_rsi is not None and 0.65 <= current_rsi <= 0.9:
+                self.execute_long_trade(bar)
+            elif breakout_dir == "short" and current_rsi is not None and 0.65 <= current_rsi <= 0.9:
+                self.execute_short_trade(bar)
         
         self._update_visualizer(bar)
 
     def _handle_daily_bar(self, bar: Bar) -> None:
-        self.rsi.handle_bar(bar)
-        new_rsi_value = self.rsi.value
-
-        # Oversold Trigger setzen/zurücksetzen
-        if not self.rsi_oversold_triggered and new_rsi_value < self.rsi_oversold:
-            self.rsi_oversold_triggered = True
-        elif self.rsi_oversold_triggered and new_rsi_value >= self.rsi_oversold:
-            self.rsi_oversold_triggered = False
-
-        # Overbought Trigger setzen/zurücksetzen
-        if not self.rsi_overbought_triggered and new_rsi_value > self.rsi_overbought:
-            self.rsi_overbought_triggered = True
-        elif self.rsi_overbought_triggered and new_rsi_value <= self.rsi_overbought:
-            self.rsi_overbought_triggered = False
-        
+        self.rsi.handle_bar(bar)  # RSI mit dem neuen Daily-Bar updaten
         self._update_visualizer(bar)
 
-    def execute_long_trade(self):
+    def execute_long_trade(self, bar: Bar):
         self.log.info("Executing LONG trade: RSI oversold + TTT breakout")
-        
-        entry_price = self.portfolio.last_price(self.instrument_id)
+        entry_price = bar.close
         atr = self.breakout_analyser._calc_atr()
         stop_loss = entry_price - 2 * atr
         take_profit = entry_price + 4 * atr
 
-        position_size = self.risk_manager.calculate_position_size(
-            entry_price=entry_price, 
-            stop_loss_price=stop_loss, 
-            risk_per_trade=0.01
+        position_size, _ = self.risk_manager.calculate_position_size(
+            entry_price=entry_price,
+            stop_loss_price=stop_loss,
         )
-        
-        # Verwende order_types für Bracket Order
+
         self.order_types.submit_long_bracket_order(
             position_size, entry_price, stop_loss, take_profit
         )
 
-    def execute_short_trade(self):
+    def execute_short_trade(self, bar: Bar):
         self.log.info("Executing SHORT trade: RSI overbought + TTT breakout")
-        
-        entry_price = self.portfolio.last_price(self.instrument_id)
+        entry_price = bar.close
         atr = self.breakout_analyser._calc_atr()
         stop_loss = entry_price + 2 * atr
         take_profit = entry_price - 4 * atr
 
-        position_size = self.risk_manager.calculate_position_size(
-            entry_price=entry_price, 
-            stop_loss_price=stop_loss, 
-            risk_per_trade=0.01
+        position_size, _ = self.risk_manager.calculate_position_size(
+            entry_price=entry_price,
+            stop_loss_price=stop_loss,
         )
-        
-        # Verwende order_types für Bracket Order
+
         self.order_types.submit_short_bracket_order(
             position_size, entry_price, stop_loss, take_profit
         )

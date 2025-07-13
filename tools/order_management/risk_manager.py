@@ -1,5 +1,5 @@
 from decimal import Decimal
-from nautilus_trader.model.currencies import USDT
+from nautilus_trader.model.currencies import USDT, USD
 from nautilus_trader.model.identifiers import AccountId
 
 class RiskManager:
@@ -20,11 +20,9 @@ class RiskManager:
         if risk_per_unit <= 0:
             valid_position = False
             return 0, valid_position
-            #raise ValueError("Invalid risk per unit. Stop-loss price must differ from entry price.")
             
         position_size = risk_amount / risk_per_unit
 
-        # Limit position size based on maximum leverage
         max_position_value = account_balance * self.max_leverage
         max_position_size = max_position_value / entry_price
 
@@ -63,12 +61,19 @@ class RiskManager:
     
     # Hilfsfunktion
     def get_account_balance(self) -> Decimal:
-        # Get account balance for risk manager
-        account_id = AccountId("BINANCE-001")
+        venue = self.strategy.instrument_id.venue
+        account_id = AccountId(f"{venue}-001")
         account = self.strategy.cache.account(account_id)
-        usdt_free = account.balance(USDT).free
-        if usdt_free is None:
-            usdt_balance = Decimal("0")
-        else:
-            usdt_balance = Decimal(str(usdt_free).split(" ")[0])
-        return usdt_balance
+        if account is None:
+            return Decimal("0")
+
+        # Versuche zuerst USD, dann USDT
+        for currency in (USD, USDT):
+            balance_obj = account.balance(currency)
+            if balance_obj is not None and balance_obj.free is not None:
+                try:
+                    return Decimal(str(balance_obj.free).split(" ")[0])
+                except Exception:
+                    continue
+        # Fallback: 0, falls keine passende Balance gefunden
+        return Decimal("0")
