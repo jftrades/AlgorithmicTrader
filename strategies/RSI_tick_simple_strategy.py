@@ -22,6 +22,8 @@ from nautilus_trader.model.currencies import USDT, BTC
 from nautilus_trader.model.enums import AggressorSide  # für BUY/SELL
 
 # Nautilus Kern eigene Importe !!! immer
+from tools.order_management.order_types import OrderTypes
+from tools.order_management.risk_manager import RiskManager
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector  # Optional visualization
 from tools.help_funcs.help_funcs_strategy import create_tags
 from nautilus_trader.common.enums import LogColor
@@ -74,6 +76,9 @@ class RSITickSimpleStrategy(Strategy):
         self.collector.initialise_logging_indicator("unrealized_pnl", 4)
         self.collector.initialise_logging_indicator("balance", 5)
 
+        self.risk_manager = RiskManager(self)
+        self.order_types = OrderTypes(self)
+
         # Get the account using the venue instead of account_id
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
@@ -115,47 +120,17 @@ class RSITickSimpleStrategy(Strategy):
         if rsi_value > self.rsi_overbought:
             if self.last_rsi_cross != "rsi_overbought":
                 self.close_position()
-                order = self.order_factory.market(
-                    instrument_id=self.instrument_id,
-                    order_side=OrderSide.SELL,
-                    quantity=Quantity(self.trade_size, self.instrument.size_precision),
-                    time_in_force=TimeInForce.GTC,
-                    tags=create_tags(action="SHORT", type="OPEN")
-                )
-                self.submit_order(order)
-                self.collector.add_trade(order)
+                self.order_types.submit_short_market_order(self.config.trade_size)
             self.last_rsi_cross = "rsi_overbought"
         elif rsi_value < self.rsi_oversold:
             if self.last_rsi_cross != "rsi_oversold":
                 self.close_position()
-                order = self.order_factory.market(
-                    instrument_id=self.instrument_id,
-                    order_side=OrderSide.BUY,
-                    quantity=Quantity(self.trade_size, self.instrument.size_precision),
-                    time_in_force=TimeInForce.GTC,
-                    tags=create_tags(action="BUY", type="OPEN")
-                )
-                self.submit_order(order)
-                self.collector.add_trade(order)
+                self.order_types.submit_long_market_order(self.config.trade_size)
             self.last_rsi_cross = "rsi_oversold"
 
-        # VISUALIZER UPDATE - Jeden Tick für vollständige Tick-Daten
-        net_position = self.portfolio.net_position(self.instrument_id)
-        unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
-        venue = self.instrument_id.venue
-        account = self.portfolio.account(venue)
-        usdt_balance = account.balances_total()
-        #self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
-        
-        self.tick_counter += 1
-        if self.tick_counter % 1000 == 0:
-            self.collector.add_indicator(timestamp=tick.ts_event, name="position", value=net_position)
-            self.collector.add_indicator(timestamp=tick.ts_event, name="RSI", value=float(rsi_value))
-            self.collector.add_indicator(timestamp=tick.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
-            self.collector.add_indicator(timestamp=tick.ts_event, name="realized_pnl", value=float(self.realized_pnl))
-            self.collector.add_indicator(timestamp=tick.ts_event, name="balance", value=usdt_balance)
+        self.update_visualizer_data()
+  
 
-    # weitere on methoden z.B.
     def on_position_event(self, event: PositionEvent) -> None:
         pass
 
@@ -163,34 +138,9 @@ class RSITickSimpleStrategy(Strategy):
         pass
 
     def close_position(self) -> None:
-        
-        net_position = self.portfolio.net_position(self.instrument_id)
-        
-        
+        net_position = self.strategy.portfolio.net_position(self.strategy.instrument_id)
         if net_position is not None and net_position != 0:
-            self.log.info(f"Closing position for {self.instrument_id} at market price.")
-            #self.log.info(f"position.quantity: {net_position}", LogColor.RED)
-            # Always submit the opposite side to close
-            if net_position > 0:
-                order_side = OrderSide.SELL
-                action = "SHORT"
-            elif net_position < 0:
-                order_side = OrderSide.BUY
-                action = "BUY"
-            else:
-                self.log.info(f"Position quantity is zero, nothing to close.")
-                return
-            order = self.order_factory.market(
-                instrument_id=self.instrument_id,
-                order_side=order_side,
-                quantity=Quantity(abs(net_position), self.instrument.size_precision),
-                time_in_force=TimeInForce.GTC,
-                tags=create_tags(action=action, type="CLOSE")
-            )
-            #unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)  # Unrealized PnL
-            #self.realized_pnl += float(unrealized_pnl) if unrealized_pnl else 0
-            self.submit_order(order)
-            self.collector.add_trade(order)
+            self.order_types.close_position_by_market_order
         else:
             self.log.info(f"No open position to close for {self.instrument_id}.")
             
@@ -223,12 +173,7 @@ class RSITickSimpleStrategy(Strategy):
         self.log.info(logging_message, color=LogColor.GREEN)
         #self.collector.visualize()  # Visualize the data if enabled
 
-
-    # on_order_filled, on_position_closed und on_position_opened immer hinzufügen für skript
     def on_order_filled(self, order_filled) -> None:
-        """
-        Actions to be performed when an order is filled.
-        """
         ret = self.collector.add_trade_details(order_filled)
         self.log.info(f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
 
@@ -243,3 +188,20 @@ class RSITickSimpleStrategy(Strategy):
         if self.close_positions_on_stop and position is not None and position.is_open:
             self.close_position()
         self.stop()
+
+    def update_visualizer_data(self, tick: TradeTick, usdt_balance: Decimal) -> None:
+     # VISUALIZER UPDATE - Jeden Tick für vollständige Tick-Daten
+        net_position = self.portfolio.net_position(self.instrument_id)
+        unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
+        venue = self.instrument_id.venue
+        account = self.portfolio.account(venue)
+        usdt_balance = account.balances_total()
+        #self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
+        
+        self.tick_counter += 1
+        if self.tick_counter % 1000 == 0:
+            self.collector.add_indicator(timestamp=tick.ts_event, name="position", value=net_position)
+            self.collector.add_indicator(timestamp=tick.ts_event, name="RSI", value=float(rsi_value))
+            self.collector.add_indicator(timestamp=tick.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
+            self.collector.add_indicator(timestamp=tick.ts_event, name="realized_pnl", value=float(self.realized_pnl))
+            self.collector.add_indicator(timestamp=tick.ts_event, name="balance", value=usdt_balance)

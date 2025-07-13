@@ -94,7 +94,7 @@ class MeanReversionHTFStrategy(Strategy):
         bar_type_str = str(bar.bar_type)
         if "1-DAY-LAST-INTERNAL" in bar_type_str:
             self._handle_daily_bar(bar) 
-            self._update_visualizer(bar)
+            self.update_visualizer_data(bar)
         
         elif "1-HOUR-LAST-EXTERNAL" in bar_type_str:
             self._handle_hourly_bar(bar)
@@ -119,11 +119,11 @@ class MeanReversionHTFStrategy(Strategy):
             elif breakout_dir == "short" and current_rsi is not None and 0.65 <= current_rsi <= 0.9:
                 self.execute_short_trade(bar)
         
-        self._update_visualizer(bar)
+        self.update_visualizer_data(bar)
 
     def _handle_daily_bar(self, bar: Bar) -> None:
         self.rsi.handle_bar(bar)  # RSI mit dem neuen Daily-Bar updaten
-        self._update_visualizer(bar)
+        self.update_visualizer_data(bar)
 
     def execute_long_trade(self, bar: Bar):
         self.log.info("Executing LONG trade: RSI oversold + TTT breakout")
@@ -137,9 +137,7 @@ class MeanReversionHTFStrategy(Strategy):
             stop_loss_price=stop_loss,
         )
 
-        self.order_types.submit_long_bracket_order(
-            position_size, entry_price, stop_loss, take_profit
-        )
+        self.order_types.submit_long_bracket_order(position_size, entry_price, stop_loss, take_profit)
 
     def execute_short_trade(self, bar: Bar):
         self.log.info("Executing SHORT trade: RSI overbought + TTT breakout")
@@ -153,9 +151,7 @@ class MeanReversionHTFStrategy(Strategy):
             stop_loss_price=stop_loss,
         )
 
-        self.order_types.submit_short_bracket_order(
-            position_size, entry_price, stop_loss, take_profit
-        )
+        self.order_types.submit_short_bracket_order(position_size, entry_price, stop_loss, take_profit)
 
     def on_position_event(self, event: PositionEvent) -> None:
         pass
@@ -244,13 +240,9 @@ class MeanReversionHTFStrategy(Strategy):
             self.close_position()
         self.stop()
     
-    def _update_visualizer(self, bar: Bar) -> None:
+    def update_visualizer_data(self, bar: Bar) -> None:
         net_position = self.portfolio.net_position(self.instrument_id)
-        try:
-            unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
-        except Exception as e:
-            unrealized_pnl = None
-
+        unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         usd_balance = account.balances_total()
@@ -258,7 +250,6 @@ class MeanReversionHTFStrategy(Strategy):
         rsi_value = float(self.rsi.value) if self.rsi.value is not None else None
 
         if self.rsi.initialized and "1-DAY-LAST-INTERNAL" in str(bar.bar_type):
-            self.log.info(f"Saving RSI to collector: {rsi_value} at {bar.ts_event}")
             self.collector.add_indicator(timestamp=bar.ts_event, name="RSI", value=rsi_value)
         self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
         self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)

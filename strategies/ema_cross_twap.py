@@ -41,37 +41,14 @@ from nautilus_trader.core.datetime import dt_to_unix_nanos, unix_nanos_to_dt
 
 from tools.help_funcs.help_funcs_strategy import create_tags
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
-
+from tools.order_management.order_types import OrderTypes
+from tools.order_management.risk_manager import RiskManager
 
 # *** THIS IS A TEST STRATEGY WITH NO ALPHA ADVANTAGE WHATSOEVER. ***
 # *** IT IS NOT INTENDED TO BE USED TO TRADE LIVE WITH REAL MONEY. ***
 
 
 class EMACrossTWAPConfig(StrategyConfig, frozen=True):
-    """
-    Configuration for ``EMACrossTWAP`` instances.
-
-    Parameters
-    ----------
-    instrument_id : InstrumentId
-        The instrument ID for the strategy.
-    bar_type : BarType
-        The bar type for the strategy.
-    trade_size : Decimal
-        The position size per trade.
-    fast_ema_period : PositiveInt, default 10
-        The fast EMA period.
-    slow_ema_period : PositiveInt, default 20
-        The slow EMA period.
-    twap_horizon_secs : PositiveFloat, default 30.0
-        The TWAP horizon (seconds) over which the algorithm will execute.
-    twap_interval_secs : PositiveFloat, default 3.0
-        The TWAP interval (seconds) between orders.
-    close_positions_on_stop : bool, default True
-        If all open positions should be closed on strategy stop.
-
-    """
-
     instrument_id: InstrumentId
     bar_type: BarType
     trade_size: Decimal
@@ -83,27 +60,6 @@ class EMACrossTWAPConfig(StrategyConfig, frozen=True):
 
 
 class EMACrossTWAP(Strategy):
-    """
-    A simple moving average cross example strategy.
-
-    When the fast EMA crosses the slow EMA then enter a position at the market
-    in that direction.
-
-    Cancels all orders and closes all positions on stop.
-
-    Parameters
-    ----------
-    config : EMACrossConfig
-        The configuration for the instance.
-
-    Raises
-    ------
-    ValueError
-        If `config.fast_ema_period` is not less than `config.slow_ema_period`.
-    ValueError
-        If `config.twap_interval_secs` is not less than or equal to `config.twap_horizon_secs`.
-
-    """
 
     def __init__(self, config: EMACrossTWAPConfig) -> None:
         PyCondition.is_true(
@@ -128,19 +84,23 @@ class EMACrossTWAP(Strategy):
             "horizon_secs": config.twap_horizon_secs,
             "interval_secs": config.twap_interval_secs,
         }
-        self.collector = BacktestDataCollector()
-        self.collector.initialise_logging_indicator("fast_ema", 0)
-        self.collector.initialise_logging_indicator("slow_ema", 0)
 
     def on_start(self) -> None:
-        """
-        Actions to be performed on strategy start.
-        """
         self.instrument = self.cache.instrument(self.config.instrument_id)
         if self.instrument is None:
             self.log.error(f"Could not find instrument for {self.config.instrument_id}")
             self.stop()
             return
+        
+        self.risk_manager = RiskManager(self)
+        self.order_types = OrderTypes(self)
+        self.collector = BacktestDataCollector()
+        self.collector.initialise_logging_indicator("fast_ema", 0)
+        self.collector.initialise_logging_indicator("slow_ema", 0)
+        self.collector.initialise_logging_indicator("position", 1)
+        self.collector.initialise_logging_indicator("realized_pnl", 2)
+        self.collector.initialise_logging_indicator("unrealized_pnl", 3)
+        self.collector.initialise_logging_indicator("balance", 4)
 
         # Register the indicators for updating
         self.register_indicator_for_bars(self.config.bar_type, self.fast_ema)
@@ -156,81 +116,21 @@ class EMACrossTWAP(Strategy):
 
 
     def on_instrument(self, instrument: Instrument) -> None:
-        """
-        Actions to be performed when the strategy is running and receives an instrument.
-
-        Parameters
-        ----------
-        instrument : Instrument
-            The instrument received.
-
-        """
-        # For debugging (must add a subscription)
-        # self.log.info(repr(instrument), LogColor.CYAN)
+        pass
 
     def on_order_book_deltas(self, deltas: OrderBookDeltas) -> None:
-        """
-        Actions to be performed when the strategy is running and receives order book
-        deltas.
-
-        Parameters
-        ----------
-        deltas : OrderBookDeltas
-            The order book deltas received.
-
-        """
-        # For debugging (must add a subscription)
-        # self.log.info(repr(deltas), LogColor.CYAN)
+        pass
 
     def on_order_book(self, order_book: OrderBook) -> None:
-        """
-        Actions to be performed when the strategy is running and receives an order book.
-
-        Parameters
-        ----------
-        order_book : OrderBook
-            The order book received.
-
-        """
-        # For debugging (must add a subscription)
-        # self.log.info(repr(order_book), LogColor.CYAN)
+        pass
 
     def on_quote_tick(self, tick: QuoteTick) -> None:
-        """
-        Actions to be performed when the strategy is running and receives a quote tick.
-
-        Parameters
-        ----------
-        tick : QuoteTick
-            The tick received.
-
-        """
-        # For debugging (must add a subscription)
-        # self.log.info(repr(tick), LogColor.CYAN)
+        pass
 
     def on_trade_tick(self, tick: TradeTick) -> None:
-        """
-        Actions to be performed when the strategy is running and receives a trade tick.
-
-        Parameters
-        ----------
-        tick : TradeTick
-            The tick received.
-
-        """
-        # For debugging (must add a subscription)
-        # self.log.info(repr(tick), LogColor.CYAN)
-
+        pass
+    
     def on_bar(self, bar: Bar) -> None:
-        """
-        Actions to be performed when the strategy is running and receives a bar.
-
-        Parameters
-        ----------
-        bar : Bar
-            The bar received.
-
-        """
         self.log.info(repr(bar), LogColor.CYAN)
 
         # Check if indicators ready
@@ -266,129 +166,63 @@ class EMACrossTWAP(Strategy):
                 self.sell()
                 signal = "SELL"
 
-                # Log indicator values and signal for visualization
+        # Log indicator values and signal for visualization
         self.collector.add_indicator(timestamp=bar.ts_event, name="fast_ema", value=float(self.fast_ema.value) if self.fast_ema.value is not None else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="slow_ema", value=float(self.slow_ema.value) if self.slow_ema.value is not None else None)
         self.collector.add_bar(timestamp=bar.ts_event,open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
 
     def on_order_filled(self, order_filled) -> None:
-        """
-        Actions to be performed when an order is filled.
-        """
-
         ret = self.collector.add_trade_details(order_filled)
-        #self.log.info(
-        #        f"Order filled: {order_filled.client_order_id} {ret}",
-        #        color=LogColor.RED,
-        #    )
+    
     def buy(self) -> None:
-        """
-        Users simple buy method (example).
-        """
-        order: MarketOrder = self.order_factory.market(
-            instrument_id=self.config.instrument_id,
-            order_side=OrderSide.BUY,
-            quantity=self.instrument.make_qty(self.config.trade_size),
-            time_in_force=TimeInForce.FOK,
-            #exec_algorithm_id=self.twap_exec_algorithm_id,
-            #exec_algorithm_params=self.twap_exec_algorithm_params,
-            tags=create_tags(action="BUY", type="OPEN"))
-  
-        self.submit_order(order)
-        self.collector.add_trade(order)  
+        self.order_types.submit_long_market_order(self.config.trade_size)
 
     def sell(self) -> None:
-        """
-        Users simple sell method (example).
-        """
-        order: MarketOrder = self.order_factory.market(
-            instrument_id=self.config.instrument_id,
-            order_side=OrderSide.SELL,
-            quantity=self.instrument.make_qty(self.config.trade_size),
-            time_in_force=TimeInForce.FOK,
-            tags=create_tags(action="SHORT", type="OPEN"))
-            #exec_algorithm_id=self.twap_exec_algorithm_id,
-            #exec_algorithm_params=self.twap_exec_algorithm_params,
-
-        self.submit_order(order)
-        self.collector.add_trade(order)  
+        self.order_types.submit_short_market_order(self.config.trade_size)
 
     def on_data(self, data: Data) -> None:
-        """
-        Actions to be performed when the strategy is running and receives data.
-
-        Parameters
-        ----------
-        data : Data
-            The data received.
-
-        """
+        pass
 
     def on_event(self, event: Event) -> None:
-        """
-        Actions to be performed when the strategy is running and receives an event.
-
-        Parameters
-        ----------
-        event : Event
-            The event received.
-
-        """
+        pass
 
     def on_stop(self) -> None:
-        """
-        Actions to be performed when the strategy is stopped.
-        """
-        self.cancel_all_orders(self.config.instrument_id)
-        if self.config.close_positions_on_stop:
-            self.close_all_positions(self.config.instrument_id)
+        position = self.get_position()
+        if self.close_positions_on_stop and position is not None and position.is_open:
+            self.close_position()
+        self.log.info("Strategy stopped!")
+        self.stopped = True 
 
-        # Unsubscribe from data
-        self.unsubscribe_bars(self.config.bar_type)
+        # VISUALIZER UPDATEN
+        try:
+            unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
+        except Exception as e:
+            self.log.warning(f"Could not calculate unrealized PnL: {e}")
+            unrealized_pnl = None
+        venue = self.instrument_id.venue
+        account = self.portfolio.account(venue)
+        usd_balance = account.balances_total()
+
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usd_balance)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
+        #self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="RSI", value=float(self.rsi.value) if self.rsi.value is not None else None)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="fast_ema", value=float(self.fast_ema.value) if self.fast_ema.value is not None else None)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="slow_ema", value=float(self.slow_ema.value) if self.slow_ema.value is not None else None)
 
         logging_message = self.collector.save_data()
-        self.log.info(logging_message)
-        #self.collector.visualize()  # Visualize the data if enabled
+        self.log.info(logging_message, color=LogColor.GREEN)
 
     def on_reset(self) -> None:
-        """
-        Actions to be performed when the strategy is reset.
-        """
-        # Reset indicators here
         self.fast_ema.reset()
         self.slow_ema.reset()
 
     def on_save(self) -> dict[str, bytes]:
-        """
-        Actions to be performed when the strategy is saved.
-
-        Create and return a state dictionary of values to be saved.
-
-        Returns
-        -------
-        dict[str, bytes]
-            The strategy state dictionary.
-
-        """
         return {}
 
     def on_load(self, state: dict[str, bytes]) -> None:
-        """
-        Actions to be performed when the strategy is loaded.
-
-        Saved state values will be contained in the give state dictionary.
-
-        Parameters
-        ----------
-        state : dict[str, bytes]
-            The strategy state dictionary.
-
-        """
+        pass
 
     def on_dispose(self) -> None:
-        """
-        Actions to be performed when the strategy is disposed.
-
-        Cleanup any resources used by the strategy here.
-
-        """
+        pass

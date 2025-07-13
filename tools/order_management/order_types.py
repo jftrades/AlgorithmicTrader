@@ -19,7 +19,7 @@ class OrderTypes:
         )
         self.strategy.submit_order(order)
         self.strategy.collector.add_trade(order)
-
+    
     def submit_short_market_order(self, quantity: Decimal): 
         order = self.strategy.order_factory.market(
             instrument_id=self.strategy.instrument_id,
@@ -30,7 +30,6 @@ class OrderTypes:
         )
         self.strategy.submit_order(order)
         self.strategy.collector.add_trade(order)
-    
 
     def submit_long_bracket_order(self, quantity: Decimal, entry_price: Decimal, stop_loss: Decimal, take_profit: Decimal):
         bracket_order = self.strategy.order_factory.bracket(
@@ -76,7 +75,7 @@ class OrderTypes:
         self.strategy.submit_order(order)
         self.strategy.log.info(f"Limit Order: Side={OrderSide.BUY.upper()}, Qty={quantity}, Limit={limit_price}")
         self.strategy.collector.add_trade(order)
-
+    
     def submit_short_limit_order(self, strategy, quantity: Decimal, limit_price: Decimal):
         order = strategy.order_factory.limit(
             instrument_id=strategy.instrument_id,
@@ -88,4 +87,27 @@ class OrderTypes:
         )
         self.strategy.submit_order(order)
         self.strategy.log.info(f"Limit Order: Side={OrderSide.SELL.upper()}, Qty={quantity}, Limit={limit_price}")
+        self.strategy.collector.add_trade(order)  
+
+    def close_position_by_market_order(self):
+        net_position = self.strategy.portfolio.net_position(self.strategy.instrument_id)
+        if net_position is None or net_position == 0:
+            self.strategy.log.info("No open position to close.")
+            return
+
+        if net_position > 0:
+            order_side = OrderSide.SELL
+            action = "SELL"
+        else:
+            order_side = OrderSide.BUY
+            action = "BUY"
+
+        order = self.strategy.order_factory.market(
+            instrument_id=self.strategy.instrument_id,
+            order_side=order_side,
+            quantity=Quantity(abs(net_position), self.instrument.size_precision),
+            time_in_force=TimeInForce.GTC,
+            tags=create_tags(action=action, type="CLOSE")
+        )
+        self.strategy.submit_order(order)
         self.strategy.collector.add_trade(order)

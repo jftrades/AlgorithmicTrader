@@ -9,11 +9,6 @@ project_root = Path(__file__).resolve().parent.parent
 sys.path.append(str(project_root))
 
 # Nautilus Kern offizielle Importe (für Backtest eigentlich immer hinzufügen)
-
-from tools.structure.retest import RetestAnalyser
-from tools.structure.fvg import FVG_Analyser
-from tools.order_management.risk_manager import RiskManager
-
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
 from nautilus_trader.model.data import Bar, BarType, TradeTick, QuoteTick
@@ -29,6 +24,11 @@ from nautilus_trader.common.enums import LogColor
 
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 from tools.help_funcs.help_funcs_strategy import create_tags
+from tools.structure.retest import RetestAnalyser
+from tools.structure.fvg import FVG_Analyser
+from tools.order_management.risk_manager import RiskManager
+from tools.order_management.order_types import OrderTypes
+
 
 # Import new modular classes
 
@@ -44,10 +44,7 @@ class FVGStrategy(Strategy):
     def __init__(self, config: FVGStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
-        if isinstance(config.bar_type, str):
-            self.bar_type = BarType.from_str(config.bar_type)
-        else:
-            self.bar_type = config.bar_type
+        self.bar_type = BarType.from_str(config.bar_type)
         self.trade_size = config.trade_size
         
         # Initialize new modular classes
@@ -76,7 +73,8 @@ class FVGStrategy(Strategy):
         max_leverage = Decimal("2")
         min_account_balance = Decimal("1000") 
         risk_reward_ratio = Decimal("2")  # 2:1 Risk-Reward Ratio
-        self.risk_manager = RiskManager(Decimal("0"), risk_percent, max_leverage, min_account_balance, risk_reward_ratio)
+        self.risk_manager = RiskManager(Decimal("0"), risk_percent, max_leverage, min_account_balance, risk_reward_ratio)                          
+        self.order_types = OrderTypes(self)
 
 
     def on_bar(self, bar: Bar) -> None: 
@@ -98,7 +96,6 @@ class FVGStrategy(Strategy):
         self.update_visualizer_data(bar, usdt_balance)
 
     def check_for_bullish_retest(self, bar: Bar, usdt_balance: Decimal) -> None:
-        """Check for bullish FVG retests and execute buy orders if conditions are met."""
         is_bullish_retest, bullish_zone = self.retest_analyser.check_box_retest_zone(price=bar.low, filter="long")
         
         if is_bullish_retest and self.risk_manager.check_if_balance_is_sufficient():
@@ -118,7 +115,6 @@ class FVGStrategy(Strategy):
             self.retest_analyser.remove_box_retest_zone(bullish_zone["upper"], bullish_zone["lower"])
 
     def check_for_bearish_retest(self, bar: Bar, usdt_balance: Decimal) -> None:
-        """Check for bearish FVG retests and execute sell orders if conditions are met."""
         is_bearish_retest, bearish_zone = self.retest_analyser.check_box_retest_zone(price=bar.high, filter="short")
         
         if is_bearish_retest and self.risk_manager.check_if_balance_is_sufficient():
@@ -138,59 +134,22 @@ class FVGStrategy(Strategy):
             self.retest_analyser.remove_box_retest_zone(bearish_zone["upper"], bearish_zone["lower"])
 
     def execute_buy_order(self, entry_price: Decimal, stop_loss: Decimal, position_size: Decimal, usdt_balance: Decimal) -> None:
-        """Execute a buy order with the given parameters."""
         position_size = round(position_size, self.instrument.size_precision)
         take_profit = self.risk_manager.calculate_tp_price(entry_price, stop_loss)
                     
-        bracket_order = self.order_factory.bracket(
-            instrument_id=self.instrument_id,
-            order_side=OrderSide.BUY,
-            quantity=Quantity(position_size, self.instrument.size_precision),
-            sl_trigger_price=Price(stop_loss, self.instrument.price_precision),
-            tp_price=Price(take_profit, self.instrument.price_precision),
-            time_in_force=TimeInForce.GTC,
-            entry_tags=create_tags(action="BUY", type="OPEN", sl=stop_loss, tp=take_profit)
-        )
-        
-        self.submit_order_list(bracket_order)
-        self.collector.add_trade(bracket_order.orders[0])
+        self.order_types.submit_long_bracket_order(position_size, entry_price, stop_loss, take_profit)
                     
         self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}, USDT={usdt_balance}")
 
     def execute_sell_order(self, entry_price: Decimal, stop_loss: Decimal, position_size: Decimal, usdt_balance: Decimal) -> None:
-        """Execute a sell order with the given parameters."""
         position_size = round(position_size, self.instrument.size_precision)
         take_profit = self.risk_manager.calculate_tp_price(entry_price, stop_loss)
                     
-        bracket_order = self.order_factory.bracket(
-            instrument_id=self.instrument_id,
-            order_side=OrderSide.SELL,
-            quantity=Quantity(position_size, self.instrument.size_precision),
-            sl_trigger_price=Price(stop_loss, self.instrument.price_precision),
-            tp_price=Price(take_profit, self.instrument.price_precision),
-            time_in_force=TimeInForce.GTC,
-            entry_tags=create_tags(action="SHORT", type="OPEN", sl=stop_loss, tp=take_profit)
-        )
-
-        self.submit_order_list(bracket_order)
-        self.collector.add_trade(bracket_order.orders[0])
+        self.order_types.submit_short_bracket_order(position_size, entry_price, stop_loss, take_profit)
         
         self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}, USDT={usdt_balance}")
 
-    def update_visualizer_data(self, bar: Bar, usdt_balance: Decimal) -> None:
-        """Update data for the visualizer/collector."""
-        net_position = self.portfolio.net_position(self.instrument_id)
-        unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
-        
-        self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
-
-        self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
-        self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
-
     def check_for_fvg(self):
-        """Check for new FVGs and set retest zones."""
         is_bullish_fvg, (fvg_high, fvg_low) = self.fvg_detector.is_bullish_fvg()
         if is_bullish_fvg:
             self.log.info(f"Bullische FVG erkannt: Gap von {fvg_high} bis {fvg_low}")
@@ -217,9 +176,6 @@ class FVGStrategy(Strategy):
         self.log.info(logging_message, color=LogColor.GREEN)
 
     def on_order_filled(self, order_filled) -> None:
-        """
-        Actions to be performed when an order is filled.
-        """
         ret = self.collector.add_trade_details(order_filled)
         self.log.info(
             f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
@@ -253,3 +209,14 @@ class FVGStrategy(Strategy):
             if positions:
                 return positions[0]
         return None
+    
+    def update_visualizer_data(self, bar: Bar, usdt_balance: Decimal) -> None:
+        net_position = self.portfolio.net_position(self.instrument_id)
+        unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
+        
+        self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
+
+        self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
+        self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
