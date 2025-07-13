@@ -44,10 +44,8 @@ class FVGStrategy(Strategy):
     def __init__(self, config: FVGStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
-        self.bar_type = BarType.from_str(config.bar_type)
+        self.bar_type = config.bar_type
         self.trade_size = config.trade_size
-        
-        # Initialize new modular classes
         self.fvg_detector = FVG_Analyser()
         self.retest_analyser = RetestAnalyser()
         self.risk_manager = None  # Will be initialized with account balance

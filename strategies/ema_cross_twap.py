@@ -62,6 +62,7 @@ class EMACrossTWAPConfig(StrategyConfig, frozen=True):
 class EMACrossTWAP(Strategy):
 
     def __init__(self, config: EMACrossTWAPConfig) -> None:
+        self.collector = BacktestDataCollector()
         PyCondition.is_true(
             config.fast_ema_period < config.slow_ema_period,
             "{config.fast_ema_period=} must be less than {config.slow_ema_period=}",
@@ -71,7 +72,8 @@ class EMACrossTWAP(Strategy):
             "{config.twap_interval_secs=} must be less than or equal to {config.twap_horizon_secs=}",
         )
         super().__init__(config)
-
+        
+        self.realized_pnl = None
         self.instrument: Instrument = None  # Initialized in on_start
 
         # Create the indicators for the strategy
@@ -186,25 +188,28 @@ class EMACrossTWAP(Strategy):
     def on_event(self, event: Event) -> None:
         pass
 
+    def get_position(self):
+        return self.portfolio.net_position(self.config.instrument_id)
+
     def on_stop(self) -> None:
         position = self.get_position()
-        if self.close_positions_on_stop and position is not None and position.is_open:
+        if self.config.close_positions_on_stop and position is not None and position != 0:
             self.close_position()
         self.log.info("Strategy stopped!")
         self.stopped = True 
 
         # VISUALIZER UPDATEN
         try:
-            unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
+            unrealized_pnl = self.portfolio.unrealized_pnl(self.config.instrument_id)
         except Exception as e:
             self.log.warning(f"Could not calculate unrealized PnL: {e}")
             unrealized_pnl = None
-        venue = self.instrument_id.venue
+        venue = self.config.instrument_id.venue
         account = self.portfolio.account(venue)
         usd_balance = account.balances_total()
 
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usd_balance)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.config.instrument_id) if self.portfolio.net_position(self.config.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
         #self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="RSI", value=float(self.rsi.value) if self.rsi.value is not None else None)

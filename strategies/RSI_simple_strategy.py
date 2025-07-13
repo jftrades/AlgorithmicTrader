@@ -39,7 +39,7 @@ class RSISimpleStrategy(Strategy):
     def __init__(self, config: RSISimpleStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
-        self.bar_type = BarType.from_str(config.bar_type)
+        self.bar_type = config.bar_type
         self.trade_size = config.trade_size
         self.rsi_period = config.rsi_period
         self.rsi_overbought = config.rsi_overbought
@@ -64,7 +64,7 @@ class RSISimpleStrategy(Strategy):
         self.collector.initialise_logging_indicator("account_balance", 5)
         self.collector.initialise_logging_indicator("balance", 5)
 
-        self.risk_manager = RiskManager(self)
+        self.risk_manager = RiskManager(self, 0.01)
         self.order_types = OrderTypes(self)
 
         
@@ -88,7 +88,7 @@ class RSISimpleStrategy(Strategy):
             return 
         
         self.entry_logic()
-        self.update_visualizer_data(bar, usdt_balance)
+        self.update_visualizer_data(Bar, usdt_balance)
 
     def entry_logic(self, bar: Bar):
         rsi_value = self.rsi.value

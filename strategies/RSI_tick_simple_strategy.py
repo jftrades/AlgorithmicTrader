@@ -76,7 +76,7 @@ class RSITickSimpleStrategy(Strategy):
         self.collector.initialise_logging_indicator("unrealized_pnl", 4)
         self.collector.initialise_logging_indicator("balance", 5)
 
-        self.risk_manager = RiskManager(self)
+        self.risk_manager = RiskManager(self, 0.01)
         self.order_types = OrderTypes(self)
 
         # Get the account using the venue instead of account_id
@@ -128,7 +128,11 @@ class RSITickSimpleStrategy(Strategy):
                 self.order_types.submit_long_market_order(self.config.trade_size)
             self.last_rsi_cross = "rsi_oversold"
 
-        self.update_visualizer_data()
+        venue = self.instrument_id.venue
+        account = self.portfolio.account(venue)
+        usdt_balance = account.balance_total(Currency.from_str("USDT")).as_double() if account else 0
+
+        self.update_visualizer_data(tick, usdt_balance, rsi_value)
   
 
     def on_position_event(self, event: PositionEvent) -> None:
@@ -138,9 +142,9 @@ class RSITickSimpleStrategy(Strategy):
         pass
 
     def close_position(self) -> None:
-        net_position = self.strategy.portfolio.net_position(self.strategy.instrument_id)
+        net_position = self.portfolio.net_position(self.instrument_id)
         if net_position is not None and net_position != 0:
-            self.order_types.close_position_by_market_order
+            self.order_types.close_position_by_market_order()
         else:
             self.log.info(f"No open position to close for {self.instrument_id}.")
             
@@ -189,8 +193,8 @@ class RSITickSimpleStrategy(Strategy):
             self.close_position()
         self.stop()
 
-    def update_visualizer_data(self, tick: TradeTick, usdt_balance: Decimal) -> None:
-     # VISUALIZER UPDATE - Jeden Tick für vollständige Tick-Daten
+    def update_visualizer_data(self, tick: TradeTick, usdt_balance: Decimal, rsi_value: float) -> None:
+        # VISUALIZER UPDATE - Jeden Tick für vollständige Tick-Daten
         net_position = self.portfolio.net_position(self.instrument_id)
         unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
         venue = self.instrument_id.venue
