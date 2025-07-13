@@ -36,16 +36,22 @@ class RSISimpleStrategyConfig(StrategyConfig):
     close_positions_on_stop: bool = True
     
     
-class RSISimpleStrategy(Strategy):
+class RSISimpleStrategy(BaseStrategy, Strategy):
     def __init__(self, config: RSISimpleStrategyConfig):
-        self.base_strategy.base__init__(config)
+        super().__init__(config)
+        self.instrument_id = config.instrument_id
+        self.trade_size = config.trade_size
+        self.close_positions_on_stop = config.close_positions_on_stop
+        self.venue = self.instrument_id.venue
+        self.risk_manager = None
         self.bar_type = config.bar_type
         self.rsi_period = config.rsi_period
         self.rsi_overbought = config.rsi_overbought
         self.rsi_oversold = config.rsi_oversold
         self.rsi = RelativeStrengthIndex(period=self.rsi_period)
         self.last_rsi_cross = None
-        self.stopped = False  # Flag to indicate if the strategy has been stopped
+        self.stopped = False 
+        self.realized_pnl = 0 
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
@@ -63,11 +69,10 @@ class RSISimpleStrategy(Strategy):
 
         self.risk_manager = RiskManager(self, 0.01)
         self.order_types = OrderTypes(self)
-        self.base_strategy = BaseStrategy(self)
 
         
     def get_position(self):
-        self.base_strategy.base_get_position()
+        return self.base_get_position()
 
     def on_bar(self, bar: Bar) -> None:
         self.rsi.handle_bar(bar)
@@ -115,10 +120,10 @@ class RSISimpleStrategy(Strategy):
         self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open)
 
     def close_position(self) -> None:
-        self.base_strategy.base_close_position()
+        return self.base_close_position()
     
     def on_stop(self) -> None:
-        self.base_strategy.base_on_stop()
+        self.base_on_stop()
 
         self.stopped = True  
         net_position = self.portfolio.net_position(self.instrument_id)
@@ -140,11 +145,11 @@ class RSISimpleStrategy(Strategy):
 
         #self.collector.visualize()  # Visualize the data if enabled
     def on_order_filled(self, order_filled) -> None:
-        self.base_strategy.base_on_order_filled(order_filled)
+        return self.base_on_order_filled(order_filled)
 
     def on_position_closed(self, position_closed) -> None:
-        self.base_strategy.base_on_position_closed(position_closed)
+        return self.base_on_position_closed(position_closed)
 
     def on_error(self, error: Exception) -> None:
-        self.base_strategy.base_on_error(error)
+        return self.base_on_error(error)
 

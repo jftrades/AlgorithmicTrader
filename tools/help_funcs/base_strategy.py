@@ -6,14 +6,6 @@ from nautilus_trader.common.enums import LogColor
 
 
 class BaseStrategy(Strategy):
-    def base__init__(self, config: StrategyConfig):
-        super().__init__(config)
-        self.instrument_id = config.instrument_id
-        self.trade_size = config.trade_size
-        self.close_positions_on_stop = config.close_positions_on_stop
-        self.venue = self.instrument_id.venue
-        self.risk_manager = None
-
     def base_get_position(self):
         if hasattr(self, "cache") and self.cache is not None:
             positions = self.cache.positions_open(instrument_id=self.instrument_id)

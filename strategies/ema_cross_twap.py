@@ -60,11 +60,17 @@ class EMACrossTWAPConfig(StrategyConfig, frozen=True):
     close_positions_on_stop: bool = True
 
 
-class EMACrossTWAP(Strategy):
+class EMACrossTWAP(BaseStrategy, Strategy):
 
     def __init__(self, config: EMACrossTWAPConfig) -> None:
+        super().__init__(config)
         self.collector = BacktestDataCollector()
-        self.base_strategy.base__init__(config)
+        self.instrument_id = config.instrument_id
+        self.trade_size = config.trade_size
+        self.close_positions_on_stop = config.close_positions_on_stop
+        self.venue = self.instrument_id.venue
+        self.risk_manager = None
+        self.realized_pnl = 0
         PyCondition.is_true(
             config.fast_ema_period < config.slow_ema_period,
             "{config.fast_ema_period=} must be less than {config.slow_ema_period=}",
@@ -93,10 +99,8 @@ class EMACrossTWAP(Strategy):
             self.stop()
             return
         
-        self.base_strategy = BaseStrategy(self)
         self.risk_manager = RiskManager(self)
         self.order_types = OrderTypes(self)
-        self.collector = BacktestDataCollector()
         self.collector.initialise_logging_indicator("fast_ema", 0)
         self.collector.initialise_logging_indicator("slow_ema", 0)
         self.collector.initialise_logging_indicator("position", 1)
@@ -117,7 +121,7 @@ class EMACrossTWAP(Strategy):
         self._plot_log = []
 
     def get_position(self):
-            self.base_strategy.base_get_position()
+        return self.base_get_position()
 
     def on_instrument(self, instrument: Instrument) -> None:
         pass
@@ -191,10 +195,10 @@ class EMACrossTWAP(Strategy):
         pass
 
     def close_position(self) -> None:
-        self.base_strategy.base_close_position()
+        return self.base_close_position()
     
     def on_stop(self) -> None:
-        self.base_strategy.base_on_stop()
+        self.base_on_stop()
         # VISUALIZER UPDATEN
         try:
             unrealized_pnl = self.portfolio.unrealized_pnl(self.config.instrument_id)

@@ -42,9 +42,14 @@ class FVGStrategyConfig(StrategyConfig):
     #...
     close_positions_on_stop: bool = True 
     
-class FVGStrategy(Strategy):
+class FVGStrategy(BaseStrategy, Strategy):
     def __init__(self, config: FVGStrategyConfig):
-        self.base_strategy.base__init__(config)
+        super().__init__(config)
+        self.instrument_id = config.instrument_id
+        self.trade_size = config.trade_size
+        self.close_positions_on_stop = config.close_positions_on_stop
+        self.venue = self.instrument_id.venue
+        self.risk_manager = None
         self.bar_type = config.bar_type
         self.fvg_detector = FVG_Analyser()
         self.retest_analyser = RetestAnalyser()
@@ -69,10 +74,9 @@ class FVGStrategy(Strategy):
         risk_reward_ratio = Decimal("2")  # 2:1 Risk-Reward Ratio
         self.risk_manager = RiskManager(Decimal("0"), risk_percent, max_leverage, min_account_balance, risk_reward_ratio)                          
         self.order_types = OrderTypes(self)
-        self.base_strategy = BaseStrategy(self)
 
     def get_position(self):
-        self.base_strategy.base_get_position()
+        return self.base_get_position()
 
     def on_bar(self, bar: Bar) -> None: 
         # Get account balance and update risk manager
@@ -159,19 +163,19 @@ class FVGStrategy(Strategy):
             self.retest_analyser.set_box_retest_zone(upper=fvg_high, lower=fvg_low, long_retest=False)
 
     def close_position(self) -> None:
-        self.base_strategy.base_close_position()
+        return self.base_close_position()
     
     def on_stop(self) -> None:
-        self.base_strategy.base_on_stop()
+        return self.base_on_stop()
 
     def on_order_filled(self, order_filled) -> None:
-        self.base_strategy.base_on_order_filled(order_filled)
+        return self.base_on_order_filled(order_filled)
 
     def on_position_closed(self, position_closed) -> None:
-        self.base_strategy.base_on_position_closed(position_closed)
+        return self.base_on_position_closed(position_closed)
 
     def on_error(self, error: Exception) -> None:
-        self.base_strategy.base_on_error(error)
+        return self.base_on_error(error)
 
     def get_account_balance(self) -> Decimal:
         # Get account balance for risk manager

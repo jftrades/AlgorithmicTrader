@@ -38,9 +38,15 @@ class NameDerStrategyConfig(StrategyConfig):
     #...
     close_positions_on_stop: bool = True 
     
-class NameDerStrategy(Strategy):
+class NameDerStrategy(BaseStrategy, Strategy):
     def __init__(self, config: NameDerStrategyConfig):
-        self.base_strategy.base__init__(config)
+        super().__init__(config)
+        self.base_strategy = BaseStrategy(config)
+        self.instrument_id = config.instrument_id
+        self.trade_size = config.trade_size
+        self.close_positions_on_stop = config.close_positions_on_stop
+        self.venue = self.instrument_id.venue
+        self.risk_manager = None
         self.bar_type = config.bar_type
         self.bar_counter = 0
 
@@ -50,7 +56,6 @@ class NameDerStrategy(Strategy):
         self.log.info("Strategy started!")
         self.risk_manager = RiskManager(self)
         self.order_types = OrderTypes(self)
-        self.base_strategy = BaseStrategy(self)
         self.collector = BacktestDataCollector()
         self.collector.initialise_logging_indicator("position", 1)
         self.collector.initialise_logging_indicator("realized_pnl", 2)
@@ -79,7 +84,7 @@ class NameDerStrategy(Strategy):
         pass
 
     def close_position(self) -> None:
-        self.base_strategy.base_close_position()
+        return self.base_strategy.base_close_position()
     
     def on_stop(self) -> None:
         self.base_strategy.base_on_stop()
@@ -105,13 +110,13 @@ class NameDerStrategy(Strategy):
 
 
     def on_order_filled(self, order_filled) -> None:
-        self.base_strategy.base_on_order_filled(order_filled)
+        return self.base_strategy.base_on_order_filled(order_filled)
 
     def on_position_closed(self, position_closed) -> None:
-        self.base_strategy.base_on_position_closed(position_closed)
+        return self.base_strategy.base_on_position_closed(position_closed)
 
     def on_error(self, error: Exception) -> None:
-        self.base_strategy.base_on_error(error)
+        return self.base_strategy.base_on_error(error)
     
     def update_visualizer_data(self, bar: Bar) -> None:
         net_position = self.portfolio.net_position(self.instrument_id)
