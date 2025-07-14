@@ -33,7 +33,7 @@ def run_backtest_and_visualize(run_config, TradingDashboard=None):
     Returns:
         results: Backtest Ergebnisse
     """
-    # Backtest ausführen
+    # Backtest ausführenp
     try:
         node = BacktestNode(configs=[run_config])
         print("Starte Backtest...")

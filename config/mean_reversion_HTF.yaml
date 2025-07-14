@@ -1,0 +1,10 @@
+# hier rein kommt die yaml für die mean_reversion_HTF_execution bzw. die mean_reversion_HTF_strategy
+#ESH4, ESH5, ESM4, ESM5, ESU5, ESU5, ESZ4, ESZ5
+contracts:
+
+catalog_path: "C:/Users/Ferdi/Desktop/projectx/AlgorithmicTrader/data/DATA_STORAGE/data_catalog_wrangled/ES_FUTURES_2024_GLBX"
+trade_size: 0.5
+rsi_period: 3
+rsi_overbought: 0.75
+rsi_oversold: 0.25
+close_positions_on_stop: true

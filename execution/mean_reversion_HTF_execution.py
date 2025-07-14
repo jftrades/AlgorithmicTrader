@@ -28,16 +28,18 @@ start_date = "2024-01-01T00:00:00Z"
 end_date = "2024-12-30T23:59:59Z"
 
 # Parameter - anpassen für deine Strategie !!!!!!
-symbol = Symbol("ESH4")
+symbol = Symbol("ES")
 venue = Venue("GLBX")
 instrument_id = InstrumentId(symbol, venue)
-instrument_id_str = "ESH4.GLBX"
-hourly_bar_type = "ESH4.GLBX-1-HOUR-LAST-EXTERNAL"
-daily_bar_type = "ESH4.GLBX-1-DAY-LAST-INTERNAL@1-HOUR-EXTERNAL"
+instrument_id_str = "ES.GLBX"
+hourly_bar_type = "ES.GLBX-1-HOUR-LAST-EXTERNAL"
+daily_bar_type = "ES.GLBX-1-DAY-LAST-INTERNAL@1-HOUR-EXTERNAL"
 start_date = "2024-01-01T00:00:00Z"
 end_date = "2024-12-30T23:59:59Z"
 catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled" / "ES_FUTURES_2024_GLBX" )
 
+catalog = ParquetDataCatalog(catalog_path)
+catalog
 # DataConfig
 data_config = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:Bar",
