@@ -23,7 +23,7 @@ from nautilus_trader.backtest.results import BacktestResult
 from core.visualizing.dashboard import TradingDashboard
 
 # Hier die gleichen Parameter wie aus strategy aber halt anpassen
-symbol = Symbol("BTCUSDT")
+symbol = Symbol("BTCUSDT-PERP")
 venue = Venue("BINANCE")
 instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = "BTCUSDT-PERP.BINANCE"

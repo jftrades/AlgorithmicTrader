@@ -27,7 +27,7 @@ start_date = "2024-01-01T00:00:00Z"
 end_date = "2024-01-01T23:59:59Z"
 
 # Parameter 
-symbol = Symbol("BTCUSDT")
+symbol = Symbol("BTCUSDT-PERP")
 venue = Venue("BINANCE")
 instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = "BTCUSDT-PERP.BINANCE"

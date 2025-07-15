@@ -1,7 +1,4 @@
-"""
-Einfache Databento ES.FUT Download/Transform für NautilusTrader 1.219
-Folgt Databento Standards - keine komplexen Konvertierungen
-"""
+
 import time
 import databento as db
 import pandas as pd
@@ -25,7 +22,8 @@ def download_dbn(symbol, start_date, end_date, dataset, schema, api_key, raw_dir
         symbols=symbol,
         schema=schema,
         split_duration="month",
-        stype_in="continuous",  # ← Standard ES.FUT
+        stype_in="raw_symbol",
+        stype_out="instrument_id",
     )
     
     print(f"[INFO] Job ID: {job['id']}")
@@ -42,10 +40,10 @@ def download_dbn(symbol, start_date, end_date, dataset, schema, api_key, raw_dir
     return files
 
 
-def transform_dbn_to_parquet(symbol, raw_dir, catalog_root_path, venue="GLBX", delete_raw_dir=True):
+def transform_dbn_to_parquet(symbol, raw_dir, catalog_root_path, venue="NASDAQ", delete_raw_dir=True):
     raw_dir = Path(raw_dir)
     
-    organized_path = Path(catalog_root_path) / "ES_FUTURES_2024_GLBX"
+    organized_path = Path(catalog_root_path) / f"{symbol}_{venue}"
     organized_path.mkdir(parents=True, exist_ok=True)
     
     files = list(raw_dir.rglob("*.dbn*"))
@@ -80,38 +78,3 @@ def transform_dbn_to_parquet(symbol, raw_dir, catalog_root_path, venue="GLBX", d
         shutil.rmtree(raw_dir)
         
     print(f"[INFO] ✓ Fertig in: {organized_path}")
-
-def continous_reprocessing_parquet(
-    contract_dir,
-    output_contract_dir,
-    continuous_contract_name="ES.c.0.GLBX"
-):
-    import pandas as pd
-    from pathlib import Path
-
-    contract_dir = Path(contract_dir)
-    output_contract_dir = Path(output_contract_dir)
-    output_contract_dir.mkdir(parents=True, exist_ok=True)
-
-    # Rekursiv alle Parquet-Dateien in allen Unterordnern finden
-    contract_files = sorted(contract_dir.rglob("*.parquet"))
-    contract_dfs = []
-    for file in contract_files:
-        if file.stat().st_size > 0:
-            try:
-                df = pd.read_parquet(file)
-                if "ts_event" in df.columns:
-                    contract_dfs.append(df)
-                else:
-                    print(f"[WARNING] Datei {file} enthält keine 'ts_event'-Spalte und wird übersprungen.")
-            except Exception as e:
-                print(f"[WARNING] Datei {file} konnte nicht als Parquet geladen werden: {e}")
-
-    if contract_dfs:
-        continuous_contract_df = pd.concat(contract_dfs, ignore_index=True)
-        continuous_contract_df.sort_values("ts_event", inplace=True)
-        continuous_contract_path = output_contract_dir / f"{continuous_contract_name}.parquet"
-        continuous_contract_df.to_parquet(continuous_contract_path)
-        print(f"[INFO] Continuous Future Parquet gespeichert unter: {continuous_contract_path}")
-    else:
-        print("[WARNING] Keine gültigen Parquet-Kontraktdateien mit 'ts_event'-Spalte gefunden.")
