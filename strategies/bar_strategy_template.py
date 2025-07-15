@@ -62,17 +62,11 @@ class NameDerStrategy(BaseStrategy, Strategy):
         self.collector.initialise_logging_indicator("unrealized_pnl", 3)
         self.collector.initialise_logging_indicator("balance", 4)
 
-    def get_position(self):
-        self.base_strategy.base_get_position()
-
     def on_bar(self, bar: Bar) -> None:
-        # Get account balance and update risk manager
-        usdt_balance = self.get_account_balance()
-        self.risk_manager.update_account_balance(usdt_balance)
         # Strategie Logik aufteilen un z.B. def long_trade, def short_trade
         # diese Hilfsmethoden in on_bar aufrufen
         # und auf die order_types und risk_manager Hilfsmethoden zugreifen
-        self.update_visualizer_data(bar, usdt_balance)
+        self.update_visualizer_data(bar)
 
     def on_order_event(self, event: OrderEvent) -> None:
         pass
@@ -131,3 +125,6 @@ class NameDerStrategy(BaseStrategy, Strategy):
         self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance)
         self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
+
+    def get_position(self):
+        self.base_strategy.base_get_position()

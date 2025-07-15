@@ -46,6 +46,7 @@ class FVGStrategy(BaseStrategy, Strategy):
     def __init__(self, config: FVGStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
+        self.venue = self.instrument_id.venue
         self.trade_size = config.trade_size
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
@@ -72,7 +73,8 @@ class FVGStrategy(BaseStrategy, Strategy):
         max_leverage = Decimal("2")
         min_account_balance = Decimal("1000") 
         risk_reward_ratio = Decimal("2")  # 2:1 Risk-Reward Ratio
-        self.risk_manager = RiskManager(Decimal("0"), risk_percent, max_leverage, min_account_balance, risk_reward_ratio)                          
+        
+        self.risk_manager = RiskManager(self, 0.01)
         self.order_types = OrderTypes(self)
 
     def get_position(self):
@@ -80,8 +82,6 @@ class FVGStrategy(BaseStrategy, Strategy):
 
     def on_bar(self, bar: Bar) -> None: 
         # Get account balance and update risk manager
-        usdt_balance = self.get_account_balance()
-        self.risk_manager.update_account_balance(usdt_balance)
 
         # Update FVG detector with new bar
         self.fvg_detector.update_bars(bar)
@@ -90,13 +90,13 @@ class FVGStrategy(BaseStrategy, Strategy):
         self.check_for_fvg()
 
         # Check for retest opportunities and execute trades
-        self.check_for_bullish_retest(bar, usdt_balance)
-        self.check_for_bearish_retest(bar, usdt_balance)
+        self.check_for_bullish_retest(bar)
+        self.check_for_bearish_retest(bar)
 
         # Update visualizer data
-        self.update_visualizer_data(bar, usdt_balance)
+        self.update_visualizer_data(bar)
 
-    def check_for_bullish_retest(self, bar: Bar, usdt_balance: Decimal) -> None:
+    def check_for_bullish_retest(self, bar: Bar) -> None:
         is_bullish_retest, bullish_zone = self.retest_analyser.check_box_retest_zone(price=bar.low, filter="long")
         
         if is_bullish_retest and self.risk_manager.check_if_balance_is_sufficient():
@@ -110,12 +110,12 @@ class FVGStrategy(BaseStrategy, Strategy):
             if not is_position_valid:
                 self.log.error("Invalid position size calculated. Skipping order submission.")
             else:
-                self.execute_buy_order(entry_price, stop_loss, position_size, usdt_balance)
+                self.execute_buy_order(entry_price, stop_loss, position_size)
                 
             # Remove the retested zone
             self.retest_analyser.remove_box_retest_zone(bullish_zone["upper"], bullish_zone["lower"])
 
-    def check_for_bearish_retest(self, bar: Bar, usdt_balance: Decimal) -> None:
+    def check_for_bearish_retest(self, bar: Bar) -> None:
         is_bearish_retest, bearish_zone = self.retest_analyser.check_box_retest_zone(price=bar.high, filter="short")
         
         if is_bearish_retest and self.risk_manager.check_if_balance_is_sufficient():
@@ -129,26 +129,26 @@ class FVGStrategy(BaseStrategy, Strategy):
             if not is_position_valid:
                 self.log.error("Invalid position size calculated. Skipping order submission.")
             else:
-                self.execute_sell_order(entry_price, stop_loss, position_size, usdt_balance)
+                self.execute_sell_order(entry_price, stop_loss, position_size)
 
             # Remove the retested zone
             self.retest_analyser.remove_box_retest_zone(bearish_zone["upper"], bearish_zone["lower"])
 
-    def execute_buy_order(self, entry_price: Decimal, stop_loss: Decimal, position_size: Decimal, usdt_balance: Decimal) -> None:
+    def execute_buy_order(self, entry_price: Decimal, stop_loss: Decimal, position_size: Decimal) -> None:
         position_size = round(position_size, self.instrument.size_precision)
         take_profit = self.risk_manager.calculate_tp_price(entry_price, stop_loss)
                     
         self.order_types.submit_long_bracket_order(position_size, entry_price, stop_loss, take_profit)
                     
-        self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}, USDT={usdt_balance}")
+        self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}")
 
-    def execute_sell_order(self, entry_price: Decimal, stop_loss: Decimal, position_size: Decimal, usdt_balance: Decimal) -> None:
+    def execute_sell_order(self, entry_price: Decimal, stop_loss: Decimal, position_size: Decimal) -> None:
         position_size = round(position_size, self.instrument.size_precision)
         take_profit = self.risk_manager.calculate_tp_price(entry_price, stop_loss)
                     
         self.order_types.submit_short_bracket_order(position_size, entry_price, stop_loss, take_profit)
         
-        self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}, USDT={usdt_balance}")
+        self.log.info(f"Order-Submit: Entry={entry_price}, SL={stop_loss}, TP={take_profit}, Size={position_size}")
 
     def check_for_fvg(self):
         is_bullish_fvg, (fvg_high, fvg_low) = self.fvg_detector.is_bullish_fvg()
@@ -195,11 +195,10 @@ class FVGStrategy(BaseStrategy, Strategy):
                 return positions[0]
         return None
     
-    def update_visualizer_data(self, bar: Bar, usdt_balance: Decimal) -> None:
+    def update_visualizer_data(self, bar: Bar) -> None:
         net_position = self.portfolio.net_position(self.instrument_id)
         unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
-        
-        self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
+        self.realized_pnl = self.portfolio.realized_pnl(self.instrument_id)
 
         self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)

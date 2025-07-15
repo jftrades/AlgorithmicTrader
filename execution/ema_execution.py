@@ -22,8 +22,8 @@ from core.visualizing.dashboard import TradingDashboard
 # Diese Strings müssen exakt zu dem passen, was der Transformer geschrieben hat
 # und was die Strategie erwartet.
 # Der Transformer schreibt jetzt für "...-EXTERNAL" aufgrund des letzten Fehlers.
-instrument_id_str = "BTCUSDT.BINANCE"
-bar_type_str_for_configs = "BTCUSDT.BINANCE-15-MINUTE-LAST-EXTERNAL"
+instrument_id_str = "BTCUSDT-PERP.BINANCE"
+bar_type_str_for_configs = "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
 
 start_date = "2024-10-01T00:00:00Z"
 end_date = "2024-10-31T00:00:00Z"
@@ -43,8 +43,8 @@ data_config = BacktestDataConfig(
 # VenueConfig
 venue_config = BacktestVenueConfig(
     name="BINANCE",
-    oms_type="NETTING", account_type="CASH",
-    starting_balances=[Money(Decimal("5000"), USDT), Money(Decimal("0.1"), BTC)],
+    oms_type="NETTING", account_type="MARGIN",
+    starting_balances=["100000 USDT"]
 )
 
 # StrategyConfig (Importable)

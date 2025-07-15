@@ -161,7 +161,7 @@ class EMACrossTWAP(BaseStrategy, Strategy):
                 self.buy()
                 signal = "BUY"
             elif self.portfolio.is_net_short(self.config.instrument_id):
-                self.close_all_positions(self.config.instrument_id)
+                self.close_position()
                 self.buy()
                 signal = "BUY"
         # SELL LOGIC
@@ -170,7 +170,7 @@ class EMACrossTWAP(BaseStrategy, Strategy):
                 self.sell()
                 signal = "SELL"
             elif self.portfolio.is_net_long(self.config.instrument_id):
-                self.close_all_positions(self.config.instrument_id)
+                self.close_position()
                 self.sell()
                 signal = "SELL"
 

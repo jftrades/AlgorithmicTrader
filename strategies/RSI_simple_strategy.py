@@ -56,8 +56,8 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
         self.subscribe_bars(self.bar_type)
-        self.subscribe_trade_ticks(self.instrument_id)
-        self.subscribe_quote_ticks(self.instrument_id)
+        #self.subscribe_trade_ticks(self.instrument_id)
+        #self.subscribe_quote_ticks(self.instrument_id)
         self.log.info("Strategy started!")
         self.collector = BacktestDataCollector()
         self.collector.initialise_logging_indicator("RSI", 1)
@@ -79,15 +79,13 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         if not self.rsi.initialized:
             return
 
-        usdt_balance = self.get_account_balance()
-        self.risk_manager.update_account_balance(usdt_balance)
-
         open_orders = self.cache.orders_open(instrument_id=self.instrument_id)
         if open_orders:
             return 
         
-        self.entry_logic()
-        self.update_visualizer_data(Bar, usdt_balance)
+        self.entry_logic(bar)
+        self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
+        self.update_visualizer_data(bar)
 
     def entry_logic(self, bar: Bar):
         rsi_value = self.rsi.value
@@ -103,7 +101,7 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
                 self.order_types.submit_long_market_order(self.config.trade_size)
             self.last_rsi_cross = "rsi_oversold"
 
-    def update_visualizer_data(self,bar: Bar, sudt_balance: Decimal) -> None:
+    def update_visualizer_data(self, bar: Bar) -> None:
         net_position = self.portfolio.net_position(self.instrument_id)
         unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
         venue = self.instrument_id.venue
@@ -117,7 +115,7 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance)
-        self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open)
+
 
     def close_position(self) -> None:
         return self.base_close_position()

@@ -3,7 +3,7 @@ from nautilus_trader.model.currencies import USDT, USD
 from nautilus_trader.model.identifiers import AccountId
 
 class RiskManager:
-    def __init__(self, strategy, risk_percent: Decimal, max_leverage: Decimal = Decimal("5.0"), min_account_balance: Decimal = Decimal("10"), risk_reward_ratio: Decimal = Decimal("2")) -> None:
+    def __init__(self, strategy, risk_percent: Decimal = Decimal(0.01), max_leverage: Decimal = Decimal("5.0"), min_account_balance: Decimal = Decimal("10"), risk_reward_ratio: Decimal = Decimal("2")) -> None:
         self.strategy = strategy
         self.risk_percent = risk_percent
         self.max_leverage = max_leverage
@@ -13,7 +13,7 @@ class RiskManager:
     def calculate_position_size(self, entry_price: Decimal, stop_loss_price: Decimal) -> Decimal:
         valid_position = True
         account_balance = self.get_account_balance()
-        risk_amount = account_balance * self.risk_percent
+        risk_amount = Decimal(account_balance) * Decimal(self.risk_percent)
         risk_per_unit = abs(entry_price - stop_loss_price)
 
         # Ensure the risk per unit is valid
