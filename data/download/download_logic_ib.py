@@ -20,7 +20,7 @@ async def download__ib_historical_data():
 
     # Define contracts
     contracts = [
-        IBContract(secType="STK", symbol="SPY", exchange="ARCA", primaryExchange="ARCA"),
+        IBContract(secType="STK", symbol="SPY", exchange="SMART", primaryExchange="ARCA"),
     ]
 
     # Request instruments
@@ -33,7 +33,7 @@ async def download__ib_historical_data():
         end_date_time=datetime.datetime(2025, 1, 1, 16, 30),
         tz_name="America/New_York",
         contracts=contracts,
-        use_rth=True,
+        use_rth=False,
     )
 
     # Save to catalog

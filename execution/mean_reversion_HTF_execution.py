@@ -24,7 +24,7 @@ from nautilus_trader.trading.config import ImportableStrategyConfig
 from tools.help_funcs.help_funcs_execution import run_backtest_and_visualize, setup_visualizer
 from core.visualizing.dashboard import TradingDashboard
 
-start_date = "2024-01-01T00:00:00Z"
+start_date = "2018-01-01T00:00:00Z"
 end_date = "2024-5-29T23:59:59Z"
 
 # Parameter - anpassen für deine Strategie !!!!!!
@@ -34,9 +34,9 @@ instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = "SPY.ARCA"
 hourly_bar_type = "SPY.ARCA-1-HOUR-LAST-EXTERNAL"
 daily_bar_type = "SPY.ARCA-1-DAY-LAST-INTERNAL@1-HOUR-EXTERNAL"
-start_date = "2024-01-01T00:00:00Z"
+start_date = "2018-01-01T00:00:00Z"
 end_date = "2024-12-30T23:59:59Z"
-catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled" / "data" )
+catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 
 # DataConfig
 data_config = BacktestDataConfig(
