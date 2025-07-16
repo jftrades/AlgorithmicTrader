@@ -3,7 +3,7 @@ from decimal import Decimal
 from nautilus_trader.model.data import Bar
 
 class TTTBreakout_Analyser:
-    def __init__(self, lookback: int = 15, atr_mult: float = 1.25, max_counter: int = 6):
+    def __init__(self, lookback: int = 10, atr_mult: float = 1.5, max_counter: int = 8):
         self.lookback = lookback
         self.bars: List[Bar] = []
         self.state = "SEARCH_STRONG"

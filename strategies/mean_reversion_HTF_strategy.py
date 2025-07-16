@@ -36,8 +36,7 @@ from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 
 class MeanReversionHTFStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
-    hourly_bar_type: str 
-    daily_bar_type: str
+    bar_type: str 
     trade_size: Decimal
     rsi_period: int
     rsi_overbought: float
@@ -52,8 +51,7 @@ class MeanReversionHTFStrategy(BaseStrategy, Strategy):
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
         self.risk_manager = None
-        self.hourly_bar_type = BarType.from_str(config.hourly_bar_type)
-        self.daily_bar_type = BarType.from_str(config.daily_bar_type)
+        self.bar_type = BarType.from_str(config.bar_type)
         self.rsi_period = config.rsi_period
         self.rsi_overbought = config.rsi_overbought
         self.rsi_oversold = config.rsi_oversold
@@ -65,8 +63,7 @@ class MeanReversionHTFStrategy(BaseStrategy, Strategy):
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
-        self.subscribe_bars(self.hourly_bar_type)
-        self.subscribe_bars(self.daily_bar_type) 
+        self.subscribe_bars(self.bar_type)
         self.log.info("Strategy started!")
 
         risk_percent = Decimal("0.01")  # 0.5%
@@ -86,18 +83,12 @@ class MeanReversionHTFStrategy(BaseStrategy, Strategy):
 
     def get_position(self):
         return self.base_get_position()
-
-    def on_bar(self, bar: Bar) -> None:
-        bar_type_str = str(bar.bar_type)
-        if "1-DAY-LAST-INTERNAL" in bar_type_str:
-            self._handle_daily_bar(bar) 
-            self.update_visualizer_data(bar)
-        
-        elif "1-HOUR-LAST-EXTERNAL" in bar_type_str:
-            self._handle_hourly_bar(bar)
     
-    def _handle_hourly_bar(self, bar: Bar) -> None:
+    def on_bar(self, bar: Bar) -> None:
         self.breakout_analyser.update_bars(bar)
+
+        self.rsi.handle_bar(bar) 
+        self.update_visualizer_data(bar)
 
         is_breakout, breakout_dir = self.breakout_analyser.is_tttbreakout() # TTT Breakout prüfen
 
@@ -111,23 +102,19 @@ class MeanReversionHTFStrategy(BaseStrategy, Strategy):
 
         if is_breakout:
             current_rsi = self.rsi.value
-            if breakout_dir == "long" and current_rsi is not None and 0.65 <= current_rsi <= 0.9:
+            if breakout_dir == "long" and current_rsi is not None and 0.6 <= current_rsi <= 0.9:
                 self.execute_long_trade(bar)
-            elif breakout_dir == "short" and current_rsi is not None and 0.65 <= current_rsi <= 0.9:
+            elif breakout_dir == "short" and current_rsi is not None and 0. <= current_rsi <= 0.9:
                 self.execute_short_trade(bar)
         
-        self.update_visualizer_data(bar)
-
-    def _handle_daily_bar(self, bar: Bar) -> None:
-        self.rsi.handle_bar(bar)  # RSI mit dem neuen Daily-Bar updaten
         self.update_visualizer_data(bar)
 
     def execute_long_trade(self, bar: Bar):
         self.log.info("Executing LONG trade: RSI oversold + TTT breakout")
         entry_price = bar.close
         atr = self.breakout_analyser._calc_atr()
-        stop_loss = entry_price - 2 * atr
-        take_profit = entry_price + 4 * atr
+        stop_loss = entry_price - 3 * atr
+        take_profit = entry_price + 25 * atr
 
         position_size, _ = self.risk_manager.calculate_position_size(
             entry_price=entry_price,
@@ -140,8 +127,8 @@ class MeanReversionHTFStrategy(BaseStrategy, Strategy):
         self.log.info("Executing SHORT trade: RSI overbought + TTT breakout")
         entry_price = bar.close
         atr = self.breakout_analyser._calc_atr()
-        stop_loss = entry_price + 2 * atr
-        take_profit = entry_price - 4 * atr
+        stop_loss = entry_price + 3 * atr
+        take_profit = entry_price - 5 * atr
 
         position_size, _ = self.risk_manager.calculate_position_size(
             entry_price=entry_price,
@@ -199,8 +186,8 @@ class MeanReversionHTFStrategy(BaseStrategy, Strategy):
 
         rsi_value = float(self.rsi.value) if self.rsi.value is not None else None
 
-        if self.rsi.initialized and "1-DAY-LAST-INTERNAL" in str(bar.bar_type):
-            self.collector.add_indicator(timestamp=bar.ts_event, name="RSI", value=rsi_value)
+    
+        self.collector.add_indicator(timestamp=bar.ts_event, name="RSI", value=rsi_value)
         self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
         self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl else None)

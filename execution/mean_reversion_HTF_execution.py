@@ -24,17 +24,16 @@ from nautilus_trader.trading.config import ImportableStrategyConfig
 from tools.help_funcs.help_funcs_execution import run_backtest_and_visualize, setup_visualizer
 from core.visualizing.dashboard import TradingDashboard
 
-start_date = "2018-01-01T00:00:00Z"
-end_date = "2024-5-29T23:59:59Z"
+start_date = "2008-01-01T00:00:00Z"
+end_date = "2024-12-30T23:59:59Z"
 
 # Parameter - anpassen für deine Strategie !!!!!!
 symbol = Symbol("SPY")
 venue = Venue("ARCA")
 instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = "SPY.ARCA"
-hourly_bar_type = "SPY.ARCA-1-HOUR-LAST-EXTERNAL"
-daily_bar_type = "SPY.ARCA-1-DAY-LAST-INTERNAL@1-HOUR-EXTERNAL"
-start_date = "2018-01-01T00:00:00Z"
+bar_type = "SPY.ARCA-1-DAY-LAST-EXTERNAL"
+start_date = "2008-01-01T00:00:00Z"
 end_date = "2024-12-30T23:59:59Z"
 catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 
@@ -42,7 +41,7 @@ catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE"
 data_config = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:Bar",
     catalog_path=catalog_path,
-    bar_types=[hourly_bar_type, daily_bar_type],
+    bar_types=[bar_type],
     instrument_ids=[instrument_id_str]
 )
 
@@ -61,10 +60,9 @@ strategy_config = ImportableStrategyConfig(
     config_path="strategies.mean_reversion_HTF_strategy:MeanReversionHTFStrategyConfig",
     config={
         "instrument_id": instrument_id_str,
-        "hourly_bar_type": hourly_bar_type,    
-        "daily_bar_type": daily_bar_type,  
+        "bar_type": bar_type,    
         "trade_size": "0.5",
-        "rsi_period": 3,
+        "rsi_period": 15,
         "rsi_overbought": 0.75,
         "rsi_oversold": 0.25,
         "close_positions_on_stop": True
