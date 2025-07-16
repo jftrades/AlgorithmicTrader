@@ -7,11 +7,11 @@ from data.download.download_logic_index import download_dbn, transform_dbn_to_pa
 load_dotenv()
 
 # Parameter
-symbol = "SPY"
-start_date = "2024-01-01"
-end_date = "2024-12-31"
+symbol = "AAPL"
+start_date = "2018-05-01"
+end_date = "2025-07-14"
 dataset = "XNAS.ITCH"
-venue = "NASDAQ"
+venue = "Nasdaq"
 base_data_dir = str(Path(__file__).resolve().parents[1] / "DATA_STORAGE")
 raw_dir = Path(base_data_dir) / "raw_downloads"
 catalog_root_path = Path(base_data_dir) / "data_catalog_wrangled"
@@ -22,7 +22,7 @@ if not api_key:
 
 if __name__ == "__main__":
     # Download OHLCV und Definitionen
-    for schema in ["ohlcv-1h", "definition"]:
+    for schema in ["ohlcv-1d", "definition"]:
         download_dbn(
             symbol=symbol,
             start_date=start_date,

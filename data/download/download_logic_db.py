@@ -40,7 +40,7 @@ def download_dbn(symbol, start_date, end_date, dataset, schema, api_key, raw_dir
     return files
 
 
-def transform_dbn_to_parquet(symbol, raw_dir, catalog_root_path, venue="NASDAQ", delete_raw_dir=True):
+def transform_dbn_to_parquet(symbol, raw_dir, catalog_root_path, venue="Nasdaq", delete_raw_dir=True):
     raw_dir = Path(raw_dir)
     
     organized_path = Path(catalog_root_path) / f"{symbol}_{venue}"
