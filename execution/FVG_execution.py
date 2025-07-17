@@ -7,6 +7,7 @@ from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.backtest.config import BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig, BacktestRunConfig
 from nautilus_trader.trading.config import ImportableStrategyConfig
 from tools.help_funcs.help_funcs_execution import run_backtest, extract_metrics
+import shutil
 
 # Parameter laden
 yaml_path = str(Path(__file__).resolve().parents[1] / "config" / "fvg.yaml")
@@ -52,8 +53,10 @@ venue_config = BacktestVenueConfig(
 
 results_dir = Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "results"
 results_dir.mkdir(parents=True, exist_ok=True)
+tmp_runs_dir = results_dir.parent / "_tmp_runs"
+tmp_runs_dir.mkdir(parents=True, exist_ok=True)
 
-
+run_dirs = []
 all_results = []
 for i, combination in enumerate(itertools.product(*values)):
     run_params = dict(zip(keys, combination))
@@ -74,13 +77,42 @@ for i, combination in enumerate(itertools.product(*values)):
 
     result = run_backtest(run_config)
     run_id = f"run_{i}_{uuid.uuid4().hex[:6]}"
-    run_dir = Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "results" / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    tmp_run_dir = tmp_runs_dir / run_id
+    tmp_run_dir.mkdir(parents=True, exist_ok=True)
+    run_dirs.append((run_id, tmp_run_dir))
 
     metrics = extract_metrics(result, run_params, run_id)
     all_results.append(metrics)
 
+    try:
+        # Kopiere Indikatoren
+        indicators_src = results_dir / "indicators"
+        indicators_dst = tmp_run_dir / "indicators"
+        if indicators_src.exists():
+            shutil.copytree(indicators_src, indicators_dst, dirs_exist_ok=True)
+        # Kopiere Bars und Trades
+        for fname in ["bars.csv", "trades.csv"]:
+            src = results_dir / fname
+            dst = tmp_run_dir / fname
+            if src.exists():
+                shutil.copy2(src, dst)
+    except Exception as e:
+        print(f"Fehler beim Kopieren der Run-Daten: {e}")
+
 # Nach allen Runs:
+for run_id, tmp_run_dir in run_dirs:
+    final_run_dir = results_dir / run_id
+    if final_run_dir.exists():
+        shutil.rmtree(final_run_dir)
+    if tmp_run_dir.exists():
+        shutil.move(str(tmp_run_dir), str(final_run_dir))
+    else:
+        print(f"Warnung: Quellordner {tmp_run_dir} existiert nicht und kann nicht verschoben werden.")
+
+# Optional: temporären Ordner löschen
+if tmp_runs_dir.exists():
+    shutil.rmtree(tmp_runs_dir, ignore_errors=True)
+
 df = pd.DataFrame(all_results)
 
 # Optional: Sortierung nach Sharpe Ratio (absteigend)
@@ -90,3 +122,17 @@ df = pd.DataFrame(all_results)
 
 df.to_csv(results_dir / "all_backtest_results.csv", index=False)
 print(df)
+
+# Lösche zentrale Indikatoren, Bars und Trades nach dem Verschieben der Runs
+indicators_dir = results_dir / "indicators"
+bars_file = results_dir / "bars.csv"
+trades_file = results_dir / "trades.csv"
+
+if indicators_dir.exists() and indicators_dir.is_dir():
+    shutil.rmtree(indicators_dir)
+if bars_file.exists():
+    bars_file.unlink()
+if trades_file.exists():
+    trades_file.unlink()
+
+print("Aufräumen abgeschlossen. Nur Run-Ordner und all_backtest_results.csv bleiben erhalten.")
