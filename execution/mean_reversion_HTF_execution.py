@@ -16,27 +16,25 @@ from tools.help_funcs.help_funcs_execution import run_backtest, extract_metrics
 yaml_path = str(Path(__file__).resolve().parents[1] / "config" / "mean_reversion_HTF.yaml")
 params = load_params(yaml_path)
 
-param_grid = {
-    "trade_size": params["trade_size"],
-    "rsi_period": params["rsi_period"],
-    "rsi_overbought": params["rsi_overbought"],
-    "rsi_oversold": params["rsi_oversold"],
-    "ttt_lookback": params["ttt_lookback"],
-    "ttt_atr_mult": params["ttt_atr_mult"],
-    "ttt_max_counter": params["ttt_max_counter"],
-    "close_positions_on_stop": params["close_positions_on_stop"],
-}
-keys, values = zip(*param_grid.items())
+param_grid = {k: v for k, v in params.items() if isinstance(v, list)}
+keys, values = zip(*param_grid.items()) if param_grid else ([], [])
 
-start_date = "2008-01-01T00:00:00Z"
-end_date = "2024-12-30T23:59:59Z"
+static_params = {k: v for k, v in params.items() if not isinstance(v, list)}
 
-# Parameter - anpassen für deine Strategie !!!!!!
+start_date = params["start_date"]
+end_date = params["end_date"]
+
+# Parameter
 symbol = Symbol(params["symbol"])
 venue = Venue(params["venue"])
 instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = params["instrument_id"]
 bar_type = params["bar_type"]
+risk_percent = params["risk_percent"]
+max_leverage = params["max_leverage"]
+min_account_balance = params["min_account_balance"]
+risk_reward_ratio = params["risk_reward_ratio"]
+
 catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 
 # DataConfig
@@ -56,16 +54,14 @@ venue_config = BacktestVenueConfig(
     starting_balances=["100000 USD"]
 )
 
-start_date = "2008-01-01T00:00:00Z"
-end_date = "2024-12-30T23:59:59Z"
-
 results_dir = Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "results"
 results_dir.mkdir(parents=True, exist_ok=True)
 
 all_results = []
 for i, combination in enumerate(itertools.product(*values)):
     run_params = dict(zip(keys, combination))
-    print(f"Run {i}: {run_params}")
+    config_params = {**run_params, **static_params}
+    print(f"Run {i}: {config_params}")
     # StrategyConfig 
     strategy_config = ImportableStrategyConfig(
         strategy_path="strategies.mean_reversion_HTF_strategy:MeanReversionHTFStrategy",
@@ -81,6 +77,10 @@ for i, combination in enumerate(itertools.product(*values)):
             "ttt_atr_mult": run_params["ttt_atr_mult"],
             "ttt_max_counter": run_params["ttt_max_counter"],
             "close_positions_on_stop": run_params["close_positions_on_stop"],
+            "risk_percent": risk_percent,
+            "max_leverage": max_leverage,
+            "min_account_balance": min_account_balance,
+            "risk_reward_ratio": risk_reward_ratio,
         }
     )
 

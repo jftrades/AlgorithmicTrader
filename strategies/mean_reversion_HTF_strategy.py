@@ -44,6 +44,10 @@ class MeanReversionHTFStrategyConfig(StrategyConfig):
     ttt_lookback: int
     ttt_atr_mult: float
     ttt_max_counter: int 
+    risk_percent: float
+    max_leverage: float
+    min_account_balance: float
+    risk_reward_ratio: float
     close_positions_on_stop: bool = True
 
 class MeanReversionHTFStrategy(BaseStrategy, Strategy):
@@ -79,7 +83,13 @@ class MeanReversionHTFStrategy(BaseStrategy, Strategy):
         max_leverage = Decimal("2")
         min_account_balance = Decimal("1000") 
         risk_reward_ratio = Decimal("2")  # 2:1 Risk-Reward Ratio
-        self.risk_manager = RiskManager(self, risk_percent, max_leverage, min_account_balance, risk_reward_ratio)
+        self.risk_manager = RiskManager(
+            self,
+            Decimal(str(self.config.risk_percent)),
+            Decimal(str(self.config.max_leverage)),
+            Decimal(str(self.config.min_account_balance)),
+            Decimal(str(self.config.risk_reward_ratio))
+        )
         self.order_types = OrderTypes(self)
         self.collector = BacktestDataCollector()
 
