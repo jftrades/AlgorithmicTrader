@@ -8,6 +8,8 @@ from nautilus_trader.backtest.config import BacktestDataConfig, BacktestVenueCon
 from nautilus_trader.trading.config import ImportableStrategyConfig
 from tools.help_funcs.help_funcs_execution import run_backtest, extract_metrics
 import shutil
+import yaml
+import copy
 
 # Parameter laden
 yaml_path = str(Path(__file__).resolve().parents[1] / "config" / "mean_reversion_HTF.yaml")
@@ -62,6 +64,20 @@ for i, combination in enumerate(itertools.product(*values)):
     run_params = dict(zip(keys, combination))
     config_params = {**run_params, **static_params}
     print(f"Run {i}: {config_params}")
+    run_id = f"run_{i}_{uuid.uuid4().hex[:6]}"
+
+    # config im run-ordner speichern
+    run_config_dict = copy.deepcopy(params)
+    for k, v in run_params.items():
+        run_config_dict[k] = v
+    for k, v in static_params.items():
+        run_config_dict[k] = v
+    tmp_run_dir = tmp_runs_dir / run_id
+    tmp_run_dir.mkdir(parents=True, exist_ok=True)
+    with open(tmp_run_dir / "run_config.yaml", "w", encoding="utf-8") as f:
+        yaml.dump(run_config_dict, f, allow_unicode=True, sort_keys=False)
+
+
     # StrategyConfig 
     strategy_config = ImportableStrategyConfig(
         strategy_path="strategies.mean_reversion_HTF_strategy:MeanReversionHTFStrategy",
@@ -76,7 +92,6 @@ for i, combination in enumerate(itertools.product(*values)):
     run_config = BacktestRunConfig(data=[data_config], venues=[venue_config], engine=engine_config, start=start_date, end=end_date)
 
     result = run_backtest(run_config)
-    run_id = f"run_{i}_{uuid.uuid4().hex[:6]}"
     tmp_run_dir = tmp_runs_dir / run_id
     tmp_run_dir.mkdir(parents=True, exist_ok=True)
     run_dirs.append((run_id, tmp_run_dir))
