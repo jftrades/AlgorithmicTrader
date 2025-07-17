@@ -30,12 +30,15 @@ class RSISimpleStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: BarType
     trade_size: Decimal
+    risk_percent: float
+    max_leverage: float
+    min_account_balance: float
     rsi_period: int
     rsi_overbought: float
     rsi_oversold: float
     close_positions_on_stop: bool = True
     
-    
+     
 class RSISimpleStrategy(BaseStrategy, Strategy):
     def __init__(self, config: RSISimpleStrategyConfig):
         super().__init__(config)
@@ -67,7 +70,12 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         self.collector.initialise_logging_indicator("account_balance", 5)
         self.collector.initialise_logging_indicator("balance", 5)
 
-        self.risk_manager = RiskManager(self, 0.01)
+        self.risk_manager = RiskManager(
+            self,
+            Decimal(str(self.config.risk_percent)),
+            Decimal(str(self.config.max_leverage)),
+            Decimal(str(self.config.min_account_balance)),
+        )
         self.order_types = OrderTypes(self)
 
         

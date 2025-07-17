@@ -4,7 +4,9 @@ from nautilus_trader.model.data import Bar
 
 
 class FVG_Analyser:
-    def __init__(self):
+    def __init__(self, min_size: float, lookback: int):
+        self.min_size = min_size
+        self.lookback = lookback
         self.bar_buffer: List[Bar] = []  # Buffer to store the last three bars
 
     def update_bars(self, bar: Bar) -> None:

@@ -88,7 +88,7 @@ class MeanReversionHTFStrategy(BaseStrategy, Strategy):
         )
         self.order_types = OrderTypes(self)
         self.collector = BacktestDataCollector()
-
+ 
         self.collector.initialise_logging_indicator("RSI", 1)
         self.collector.initialise_logging_indicator("position", 2)
         self.collector.initialise_logging_indicator("realized_pnl", 3)

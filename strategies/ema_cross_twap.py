@@ -53,10 +53,14 @@ class EMACrossTWAPConfig(StrategyConfig, frozen=True):
     instrument_id: InstrumentId
     bar_type: BarType
     trade_size: Decimal
-    fast_ema_period: PositiveInt = 10
-    slow_ema_period: PositiveInt = 20
-    twap_horizon_secs: PositiveFloat = 30.0
-    twap_interval_secs: PositiveFloat = 3.0
+    fast_ema_period: int
+    slow_ema_period: int
+    twap_horizon_secs: float
+    twap_interval_secs: float
+    risk_percent: float
+    max_leverage: float
+    min_account_balance: float
+    risk_reward_ratio: float
     close_positions_on_stop: bool = True
 
 
@@ -99,7 +103,12 @@ class EMACrossTWAP(BaseStrategy, Strategy):
             self.stop()
             return
         
-        self.risk_manager = RiskManager(self)
+        self.risk_manager = RiskManager(
+            self,
+            Decimal(str(self.config.risk_percent)),
+            Decimal(str(self.config.max_leverage)),
+            Decimal(str(self.config.min_account_balance)),
+        )
         self.order_types = OrderTypes(self)
         self.collector.initialise_logging_indicator("fast_ema", 0)
         self.collector.initialise_logging_indicator("slow_ema", 0)
@@ -114,7 +123,7 @@ class EMACrossTWAP(BaseStrategy, Strategy):
 
         # Get historical data
         self.request_bars(self.config.bar_type)
-
+ 
         # Subscribe to live data
         self.subscribe_bars(self.config.bar_type)
         self.subscribe_quote_ticks(self.config.instrument_id)

@@ -62,22 +62,7 @@ for i, combination in enumerate(itertools.product(*values)):
     strategy_config = ImportableStrategyConfig(
         strategy_path="strategies.mean_reversion_HTF_strategy:MeanReversionHTFStrategy",
         config_path="strategies.mean_reversion_HTF_strategy:MeanReversionHTFStrategyConfig",
-        config={
-            "instrument_id": instrument_id_str,
-            "bar_type": bar_type,    
-            "trade_size": run_params["trade_size"],
-            "rsi_period": run_params["rsi_period"],
-            "rsi_overbought": run_params["rsi_overbought"],
-            "rsi_oversold": run_params["rsi_oversold"],
-            "ttt_lookback": run_params["ttt_lookback"],
-            "ttt_atr_mult": run_params["ttt_atr_mult"],
-            "ttt_max_counter": run_params["ttt_max_counter"],
-            "close_positions_on_stop": run_params["close_positions_on_stop"],
-            "risk_percent": risk_percent,
-            "max_leverage": max_leverage,
-            "min_account_balance": min_account_balance,
-            "risk_reward_ratio": risk_reward_ratio,
-        }
+        config=config_params
     )
 
     # EnigneConfig

@@ -4,10 +4,6 @@ from typing import Any
 import sys
 from pathlib import Path
 
-# Add the project root to the Python path
-project_root = Path(__file__).resolve().parent.parent
-sys.path.append(str(project_root))
-
 # Nautilus Kern offizielle Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
@@ -31,6 +27,10 @@ from tools.structure.fvg import FVG_Analyser
 from tools.order_management.risk_manager import RiskManager
 from tools.order_management.order_types import OrderTypes
 
+# Add the project root to the Python path
+project_root = Path(__file__).resolve().parent.parent
+sys.path.append(str(project_root))
+
 
 # Import new modular classes
 
@@ -39,8 +39,13 @@ class FVGStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: BarType
     trade_size: Decimal
-    #...
-    close_positions_on_stop: bool = True 
+    risk_percent: float
+    max_leverage: float
+    min_account_balance: float
+    risk_reward_ratio: float
+    fvg_min_size: float
+    fvg_lookback: int
+    close_positions_on_stop: bool
     
 class FVGStrategy(BaseStrategy, Strategy):
     def __init__(self, config: FVGStrategyConfig):
@@ -52,7 +57,7 @@ class FVGStrategy(BaseStrategy, Strategy):
         self.venue = self.instrument_id.venue
         self.risk_manager = None
         self.bar_type = config.bar_type
-        self.fvg_detector = FVG_Analyser()
+        self.fvg_detector = FVG_Analyser(min_size=self.config.fvg_min_size, lookback=self.config.fvg_lookback)
         self.retest_analyser = RetestAnalyser()
         self.risk_manager = None  # Will be initialized with account balance
         self.bar_counter = 0
@@ -69,12 +74,14 @@ class FVGStrategy(BaseStrategy, Strategy):
         self.collector.initialise_logging_indicator("realized_pnl", 2)
         self.collector.initialise_logging_indicator("unrealized_pnl", 3)
         self.collector.initialise_logging_indicator("balance", 4)
-        risk_percent = Decimal("0.005")  # 0.5%
-        max_leverage = Decimal("2")
-        min_account_balance = Decimal("1000") 
-        risk_reward_ratio = Decimal("2")  # 2:1 Risk-Reward Ratio
         
-        self.risk_manager = RiskManager(self, 0.01)
+        self.risk_manager = RiskManager(
+            self,
+            Decimal(str(self.config.risk_percent)),
+            Decimal(str(self.config.max_leverage)),
+            Decimal(str(self.config.min_account_balance)),
+            Decimal(str(self.config.risk_reward_ratio))
+        )
         self.order_types = OrderTypes(self)
 
     def get_position(self):

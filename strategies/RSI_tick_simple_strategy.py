@@ -36,9 +36,13 @@ from nautilus_trader.model.objects import Currency
 class RSITickSimpleStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     trade_size: Decimal
+    risk_percent: float
+    max_leverage: float
+    min_account_balance: float
     rsi_period: int
     rsi_overbought: float
     rsi_oversold: float
+    close_positions_on_stop: bool = True
     tick_buffer_size: int = 1000
     close_positions_on_stop: bool = True 
     
@@ -60,7 +64,7 @@ class RSITickSimpleStrategy(BaseStrategy, Strategy):
         self.tick_counter = 0
         self.trade_ticks = []
         self.last_logged_balance = None
-        self.realized_pnl = 0 
+        self.realized_pnl = 0   # Track last logged balance
 
 
     def on_start(self) -> None:
@@ -78,7 +82,12 @@ class RSITickSimpleStrategy(BaseStrategy, Strategy):
         self.collector.initialise_logging_indicator("unrealized_pnl", 4)
         self.collector.initialise_logging_indicator("balance", 5)
 
-        self.risk_manager = RiskManager(self, 0.01)
+        self.risk_manager = RiskManager(
+            self,
+            Decimal(str(self.config.risk_percent)),
+            Decimal(str(self.config.max_leverage)),
+            Decimal(str(self.config.min_account_balance)),
+        )
         self.order_types = OrderTypes(self)
 
         # Get the account using the venue instead of account_id
