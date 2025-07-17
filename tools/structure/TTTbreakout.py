@@ -48,9 +48,7 @@ class TTTBreakout_Analyser:
 
         # Schritt 2: STARKE Kerze finden mit ATR
         if self.state == "SEARCH_STRONG":
-            print(f"SEARCH_STRONG: Bar O:{bar.open} C:{bar.close} ATR:{self._calc_atr()}")
             if (bar.close > bar.open) and ((bar.close - bar.open) > self.atr_mult * atr):
-                print(f"STATE: {self.state}, Counter: {self.counter}, Dir: {self.direction}, Bar: O:{bar.open} C:{bar.close}")
                 self.state = "COUNT_BEARISH"
                 self.direction = "long"
                 self.strong_bar = bar
@@ -58,7 +56,6 @@ class TTTBreakout_Analyser:
                 self.counter_bars = []
     
             elif (bar.open > bar.close) and ((bar.open - bar.close) > self.atr_mult * atr):
-                print(f"STATE: {self.state}, Counter: {self.counter}, Dir: {self.direction}, Bar: O:{bar.open} C:{bar.close}")
                 self.state = "COUNT_BULLISH"
                 self.direction = "short"
                 self.strong_bar = bar
@@ -76,7 +73,6 @@ class TTTBreakout_Analyser:
                     self._reset()
             elif self.counter >= 2:
                 self.boundary = self.strong_bar.close
-                print(f"STATE: {self.state}, Counter: {self.counter}, Dir: {self.direction}, Bar: O:{bar.open} C:{bar.close}")
                 self.state = "WAIT_BULLISH"
             else:
                 self._reset()
@@ -89,8 +85,7 @@ class TTTBreakout_Analyser:
                 if self.counter > self.max_counter:
                     self._reset()
             elif self.counter >= 2:
-                self.boundary = self.strong_bar.close
-                print(f"STATE: {self.state}, Counter: {self.counter}, Dir: {self.direction}, Bar: O:{bar.open} C:{bar.close}") 
+                self.boundary = self.strong_bar.close 
                 self.state = "WAIT_BEARISH"
             else:
                 self._reset()
@@ -100,14 +95,12 @@ class TTTBreakout_Analyser:
         elif self.state == "WAIT_BULLISH":
             if bar.close > bar.open:
                 self.range_candle = bar
-                print(f"STATE: {self.state}, Counter: {self.counter}, Dir: {self.direction}, Bar: O:{bar.open} C:{bar.close}")
                 self.state = "CONFIRM_RANGE_BULLISH"
             return False, ""
 
         elif self.state == "WAIT_BEARISH":
             if bar.close < bar.open:
                 self.range_candle = bar
-                print(f"STATE: {self.state}, Counter: {self.counter}, Dir: {self.direction}, Bar: O:{bar.open} C:{bar.close}")
                 self.state = "CONFIRM_RANGE_BEARISH"
             return False, ""
         
@@ -116,8 +109,7 @@ class TTTBreakout_Analyser:
             if bar.close > self.boundary or bar.close < self.range_candle.open:
                 self._reset()
             else:
-                self.effective_boundary = self.range_candle.open
-                print(f"STATE: {self.state}, Counter: {self.counter}, Dir: {self.direction}, Bar: O:{bar.open} C:{bar.close}")    
+                self.effective_boundary = self.range_candle.open  
                 self.state = "ACTIVE_RANGE_LONG"
             return False, ""
 
@@ -125,14 +117,12 @@ class TTTBreakout_Analyser:
             if bar.close < self.boundary or bar.close > self.range_candle.open:
                 self._reset()
             else:
-                self.effective_boundary = self.range_candle.open
-                print(f"STATE: {self.state}, Counter: {self.counter}, Dir: {self.direction}, Bar: O:{bar.open} C:{bar.close}")    
+                self.effective_boundary = self.range_candle.open 
                 self.state = "ACTIVE_RANGE_SHORT"
             return False, ""
 
         # Schritt 6: Breakout abwarten
         elif self.state in ("ACTIVE_RANGE_LONG", "ACTIVE_RANGE_SHORT"):
-            print(f"ACTIVE_RANGE: close={bar.close}, eff_boundary={self.effective_boundary}")
             # Breakout nach oben
             if bar.close > self.effective_boundary:
                 self.last_breakout = ("long", bar)

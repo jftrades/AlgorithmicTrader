@@ -41,7 +41,10 @@ class MeanReversionHTFStrategyConfig(StrategyConfig):
     rsi_period: int
     rsi_overbought: float
     rsi_oversold: float
-    close_positions_on_stop: bool = True 
+    ttt_lookback: int
+    ttt_atr_mult: float
+    ttt_max_counter: int 
+    close_positions_on_stop: bool = True
 
 class MeanReversionHTFStrategy(BaseStrategy, Strategy):
     def __init__(self, config:MeanReversionHTFStrategyConfig):
@@ -60,6 +63,12 @@ class MeanReversionHTFStrategy(BaseStrategy, Strategy):
         self.stopped = False
         self.realized_pnl = 0
         self.bar_counter = 0
+        self.breakout_analyser = TTTBreakout_Analyser(
+            lookback=config.ttt_lookback,
+            atr_mult=config.ttt_atr_mult,
+            max_counter=config.ttt_max_counter
+        )
+        
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
@@ -72,7 +81,6 @@ class MeanReversionHTFStrategy(BaseStrategy, Strategy):
         risk_reward_ratio = Decimal("2")  # 2:1 Risk-Reward Ratio
         self.risk_manager = RiskManager(self, risk_percent, max_leverage, min_account_balance, risk_reward_ratio)
         self.order_types = OrderTypes(self)
-        self.breakout_analyser = TTTBreakout_Analyser(lookback=15, atr_mult=1.25, max_counter=6)
         self.collector = BacktestDataCollector()
 
         self.collector.initialise_logging_indicator("RSI", 1)

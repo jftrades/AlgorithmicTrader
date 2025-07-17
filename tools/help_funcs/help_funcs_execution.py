@@ -1,19 +1,20 @@
 # Standard Library Importe
 import sys
 import time
+import pandas as pd
+import re
 from pathlib import Path
 
 # Nautilus Kern Importe
 from nautilus_trader.backtest.node import BacktestNode
 from core.visualizing.dashboard import TradingDashboard
 
+def run_backtest(run_config):
+    node = BacktestNode([run_config])  # Übergib eine Liste!
+    result = node.run()
+    return result
+
 def setup_visualizer():
-    """
-    Setzt den Visualizer-Pfad und importiert TradingDashboard
-    
-    Returns:
-        TradingDashboard: Dashboard Klasse
-    """
     VIS_PATH = Path(__file__).resolve().parent.parent / "data" / "visualizing"
     
     if str(VIS_PATH) not in sys.path:
@@ -21,18 +22,34 @@ def setup_visualizer():
     
     return TradingDashboard
 
+def extract_metrics(result, run_params, run_id):
+    metrics = {}
+    if result and hasattr(result, "__getitem__"):
+        result_obj = result[0]
+        # Standard-Infos
+        metrics.update(run_params)
+        metrics["run_id"] = getattr(result_obj, "run_id", None)
+        metrics["backtest_start"] = getattr(result_obj, "backtest_start", None)
+        metrics["backtest_end"] = getattr(result_obj, "backtest_end", None)
+        metrics["elapsed_time"] = getattr(result_obj, "elapsed_time", None)
+        metrics["iterations"] = getattr(result_obj, "iterations", None)
+        metrics["total_events"] = getattr(result_obj, "total_events", None)
+        metrics["total_orders"] = getattr(result_obj, "total_orders", None)
+        metrics["total_positions"] = getattr(result_obj, "total_positions", None)
+        # PnL/Return-Metriken (z.B. nur USDT)
+        if hasattr(result_obj, "stats_pnls") and "USDT" in result_obj.stats_pnls:
+            for k, v in result_obj.stats_pnls["USDT"].items():
+                metrics[f"USDT_{k}"] = v
+        if hasattr(result_obj, "stats_returns"):
+            for k, v in result_obj.stats_returns.items():
+                metrics[f"RET_{k}"] = v
+    else:
+        # Fallback: nur Parameter speichern
+        metrics.update(run_params)
+        metrics["run_id"] = run_id
+    return metrics
 
 def run_backtest_and_visualize(run_config, TradingDashboard=None):
-    """
-    Führt Backtest aus und startet Visualizer
-    
-    Args:
-        run_config: Nautilus BacktestRunConfig
-        TradingDashboard: Optional - falls bereits mit setup_visualizer() geholt
-    
-    Returns:
-        results: Backtest Ergebnisse
-    """
     # Backtest ausführenp
     try:
         node = BacktestNode(configs=[run_config])
@@ -96,3 +113,5 @@ def run_backtest_and_visualize(run_config, TradingDashboard=None):
     visualizer.visualize(visualize_after_backtest=True)
 
     return results
+
+

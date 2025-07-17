@@ -6,3 +6,4 @@ data/DATA_STORAGE/
 *.env
 AlgorithmicTrader.egg-info/
 core/DATA_STORAGE/
+data/BACKTEST_RESULTS/
