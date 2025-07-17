@@ -79,10 +79,6 @@ class MeanReversionHTFStrategy(BaseStrategy, Strategy):
         self.subscribe_bars(self.bar_type)
         self.log.info("Strategy started!")
 
-        risk_percent = Decimal("0.01")  # 0.5%
-        max_leverage = Decimal("2")
-        min_account_balance = Decimal("1000") 
-        risk_reward_ratio = Decimal("2")  # 2:1 Risk-Reward Ratio
         self.risk_manager = RiskManager(
             self,
             Decimal(str(self.config.risk_percent)),

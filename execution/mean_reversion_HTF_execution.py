@@ -1,9 +1,5 @@
-import os
-import json
 import itertools
 import pandas as pd
-import shutil
-import glob
 import uuid
 from pathlib import Path
 from tools.help_funcs.yaml_loader import load_params
@@ -47,11 +43,11 @@ data_config = BacktestDataConfig(
 
 # VenueConfig 
 venue_config = BacktestVenueConfig(
-    name="ARCA",
-    oms_type="NETTING",
-    account_type="MARGIN", 
-    base_currency="USD",
-    starting_balances=["100000 USD"]
+    name=str(venue), 
+    oms_type=params.get("oms_type", "NETTING"),
+    account_type=params.get("account_type", "MARGIN"),
+    base_currency=params.get("base_currency", "USD"),
+    starting_balances=[params.get("starting_account_balance", "100000 USD")]
 )
 
 results_dir = Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "results"

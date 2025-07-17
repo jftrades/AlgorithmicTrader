@@ -23,3 +23,9 @@ risk_percent: 0.01
 max_leverage: 2
 min_account_balance: 1000
 risk_reward_ratio: 2
+
+# Account/Venue-Parameter
+starting_account_balance: "100000 USD"
+base_currency: "USD"
+account_type: "MARGIN"
+oms_type: "NETTING"
