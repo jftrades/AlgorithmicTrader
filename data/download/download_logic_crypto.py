@@ -21,6 +21,7 @@ from nautilus_trader.persistence.loaders import CSVTickDataLoader
 from nautilus_trader.persistence.wranglers import TradeTickDataWrangler
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 import glob
+from nautilus_trader.core.nautilus_pyo3 import InstrumentId, Symbol, Venue
 import os
 
 class TickDownloader:
@@ -105,18 +106,11 @@ class BarDownloader:
     def __init__(self, symbol, interval, start_date, end_date, base_data_dir):
         self.symbol = symbol
         self.interval = interval
-        # Stelle sicher, dass start_date und end_date datetime.date sind
-        if isinstance(start_date, str):
-            self.start_date = dt.datetime.strptime(start_date, "%Y-%m-%d").date()
-        else:
-            self.start_date = start_date
-        if isinstance(end_date, str):
-            self.end_date = dt.datetime.strptime(end_date, "%Y-%m-%d").date()
-        else:
-            self.end_date = end_date
-        self.base_data_dir = Path(base_data_dir)
-        self.temp_raw_download_dir = self.base_data_dir / "temp_raw_downloads"
-        self.processed_dir = self.base_data_dir / f"processed_bar_data_{self.start_date}_to_{self.end_date}" / "csv"
+        self.start_date = start_date
+        self.end_date = end_date
+        self.base_data_dir = base_data_dir
+        self.temp_raw_download_dir = Path(base_data_dir) / "temp_raw_downloads"
+        self.processed_dir = Path(base_data_dir) / f"processed_bar_data_{self.start_date}_to_{self.end_date}" / "csv"
 
     def run(self):
         self.temp_raw_download_dir.mkdir(parents=True, exist_ok=True)
@@ -189,13 +183,20 @@ class BarDownloader:
             return
         start_dt = pd.to_datetime(df_final["open_time_ms"].min(), unit="ms")
         end_dt = pd.to_datetime(df_final["open_time_ms"].max(), unit="ms")
-        filename = f"{self.symbol}_1MINUTE_{self.start_date}_to_{self.end_date}.csv"
-        output_path = self.processed_dir / filename
+
+        # Korrekte Output-Path-Berechnung
+        interval_num = int(self.interval.lower().replace("m", ""))
+        interval_str = f"{interval_num}MINUTE"
+        start_str = self.start_date.strftime("%Y-%m-%d") if hasattr(self.start_date, "strftime") else str(self.start_date)
+        end_str = self.end_date.strftime("%Y-%m-%d") if hasattr(self.end_date, "strftime") else str(self.end_date)
+        processed_dir = Path(self.base_data_dir) / f"processed_bar_data_{start_str}_to_{end_str}" / "csv"
+        processed_dir.mkdir(parents=True, exist_ok=True)
+        output_path = processed_dir / f"{self.symbol}_{interval_str}_{start_str}_to_{end_str}.csv"
+
         df_final.to_csv(output_path, index=False, header=False)
         print(f"✅ CSV erfolgreich gespeichert: {output_path.resolve()}")
         print(f"📅 Zeitbereich: {start_dt} bis {end_dt}")
         if self.temp_raw_download_dir.exists():
-            import shutil
             shutil.rmtree(self.temp_raw_download_dir)
             print(f"🧹 Temporäres Verzeichnis gelöscht: {self.temp_raw_download_dir.resolve()}")
 
@@ -209,6 +210,8 @@ class BarTransformer:
         price_precision,
         size_precision,
         output_columns=None,
+        symbol=None,
+        is_perp=False,
     ):
         self.csv_path = Path(csv_path)
         self.catalog_root_path = Path(catalog_root_path)
@@ -219,6 +222,8 @@ class BarTransformer:
         self.output_columns = output_columns or [
             "timestamp", "open_time_ms", "open", "high", "low", "close", "volume", "number_of_trades"
         ]
+        self.symbol = symbol
+        self.is_perp = is_perp
 
     def run(self):
         print(f"INFO: Daten werden für BarType '{self.target_bar_type_obj}' vorbereitet.")
@@ -258,15 +263,22 @@ class BarTransformer:
             print("WARNUNG: Keine gültigen Bar-Objekte vom Wrangler erhalten. Beende.")
             return
 
-        self.catalog_root_path.mkdir(parents=True, exist_ok=True)
+        bar_type_dir = (
+            self.catalog_root_path / "data" / 
+            ("crypto_perpetual" if self.is_perp else "crypto_spot") / 
+            self.wrangler_init_bar_type_string
+        )
+        if bar_type_dir.exists():
+            print(f"[INFO] Entferne alten Zielordner: {bar_type_dir}")
+            shutil.rmtree(bar_type_dir)
         catalog = ParquetDataCatalog(path=self.catalog_root_path)
+        instrument_for_meta = get_instrument(self.symbol, self.is_perp)
+        catalog.write_data([instrument_for_meta])
+        catalog.write_data(final_bars)
 
-        instrument_for_meta = TestInstrumentProvider.btcusdt_perp_binance()
         if instrument_for_meta.size_precision != self.size_precision:
             print(f"WARNUNG: size_precision des TestInstruments ({instrument_for_meta.size_precision}) != {self.size_precision}")
 
-        catalog.write_data([instrument_for_meta])
-        catalog.write_data(final_bars)
 
         print(f"✅ {len(final_bars)} Bars in '{self.catalog_root_path.resolve()}' gespeichert.")
 
@@ -292,3 +304,13 @@ def find_csv_file(symbol, processed_dir):
     if len(csv_files) > 1:
         print(f"[WARN] Mehrere CSV-Dateien gefunden: {csv_files}. Verwende die erste.")
     return csv_files[0]
+
+def get_instrument(symbol: str, is_perp: bool):
+    if is_perp:
+        # Futures (PERP)
+        return TestInstrumentProvider.btcusdt_perp_binance() if symbol.upper() == "BTCUSDT" else \
+            InstrumentId(Symbol(f"{symbol}-PERP"), Venue("BINANCE"))
+    else:
+        # Spot
+        return TestInstrumentProvider.btcusdt_binance() if symbol.upper() == "BTCUSDT" else \
+            InstrumentId(Symbol(symbol), Venue("BINANCE"))

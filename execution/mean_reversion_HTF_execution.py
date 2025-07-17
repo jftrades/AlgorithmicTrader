@@ -46,8 +46,8 @@ venue_config = BacktestVenueConfig(
     name=str(venue), 
     oms_type=params.get("oms_type", "NETTING"),
     account_type=params.get("account_type", "MARGIN"),
-    base_currency=params.get("base_currency", "USD"),
-    starting_balances=[params.get("starting_account_balance", "100000 USD")]
+    base_currency=params.get("base_currency", "USDT"),
+    starting_balances=[params.get("starting_account_balance", "100000 USDT")]
 )
 
 results_dir = Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "results"

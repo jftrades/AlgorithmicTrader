@@ -23,6 +23,6 @@ min_account_balance: 1000
 
 # Account/Venue-Parameter
 starting_account_balance: "100000 USDT"
-base_currency: "USD"
+base_currency: "USDT"
 account_type: "MARGIN"
 oms_type: "NETTING"

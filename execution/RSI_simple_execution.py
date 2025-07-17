@@ -29,7 +29,6 @@ bar_type = params["bar_type"]
 risk_percent = params["risk_percent"]
 max_leverage = params["max_leverage"]
 min_account_balance = params["min_account_balance"]
-risk_reward_ratio = params["risk_reward_ratio"]
 
 catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 

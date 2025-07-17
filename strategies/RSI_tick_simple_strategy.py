@@ -62,6 +62,7 @@ class RSITickSimpleStrategy(BaseStrategy, Strategy):
         self.last_rsi_cross = None 
         self.stopped = False  # Flag to indicate if the strategy has been stopped
         self.tick_counter = 0
+        self.last_rsi = None
         self.trade_ticks = []
         self.last_logged_balance = None
         self.realized_pnl = 0   # Track last logged balance
@@ -72,6 +73,7 @@ class RSITickSimpleStrategy(BaseStrategy, Strategy):
         self.subscribe_trade_ticks(self.instrument_id)
         bar_type = BarType.from_str(f"{self.instrument_id}-5-MINUTE-LAST-INTERNAL")
         self.subscribe_bars(bar_type)
+        self.last_rsi = self.rsi.value
         self.subscribe_trade_ticks(self.instrument_id)
         self.log.info("Tick Strategy started!")
 

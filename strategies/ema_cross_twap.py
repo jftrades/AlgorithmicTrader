@@ -60,7 +60,6 @@ class EMACrossTWAPConfig(StrategyConfig, frozen=True):
     risk_percent: float
     max_leverage: float
     min_account_balance: float
-    risk_reward_ratio: float
     close_positions_on_stop: bool = True
 
 

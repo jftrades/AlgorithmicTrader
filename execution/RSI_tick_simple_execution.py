@@ -30,14 +30,19 @@ tick_buffer_size = params["tick_buffer_size"]
 risk_percent = params["risk_percent"]
 max_leverage = params["max_leverage"]
 min_account_balance = params["min_account_balance"]
-risk_reward_ratio = params["risk_reward_ratio"]
 
 catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 
-# DataConfig
-data_config = BacktestDataConfig(
+# DataConfig für Ticks UND Bars
+data_config_ticks = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:TradeTick",
     catalog_path=catalog_path,
+    instrument_ids=[instrument_id_str]
+)
+data_config_bars = BacktestDataConfig(
+    data_cls="nautilus_trader.model.data:Bar",
+    catalog_path=catalog_path,
+    bar_types=[bar_types], 
     instrument_ids=[instrument_id_str]
 )
 
@@ -70,7 +75,7 @@ for i, combination in enumerate(itertools.product(*values)):
     engine_config = BacktestEngineConfig(strategies=[strategy_config])
 
     # RunConfig  
-    run_config = BacktestRunConfig(data=[data_config], venues=[venue_config], engine=engine_config, start=start_date, end=end_date)
+    run_config = BacktestRunConfig(data=[data_config_ticks, data_config_bars], venues=[venue_config], engine=engine_config, start=start_date, end=end_date)
 
     result = run_backtest(run_config)
     run_id = f"run_{i}_{uuid.uuid4().hex[:6]}"
