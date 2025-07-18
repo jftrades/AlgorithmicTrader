@@ -1,7 +1,5 @@
-# hier rein kommt dann die HTF mean reversion strategy basierend auf:
-# RSI, vllt VWAP und breakout oder so in der richtigen Zone - rumprobieren
-# diese strat wird dann gehedged mit einer nur trendfollowing strategie
- 
+# eine unproitable und unangepasste Strategie die mit RSI und dem TTTBreakout simpel long term nach trades sucht.
+
 # Standard Library Importe
 from decimal import Decimal
 from typing import Any
