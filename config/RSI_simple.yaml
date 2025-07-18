@@ -10,8 +10,8 @@ end_date: "2024-10-31T00:00:00Z"
 
 # Strategie-Parameter
 rsi_period: [10, 15, 20]
-rsi_overbought: [0.75]
-rsi_oversold: [0.25]
+rsi_overbought: [0.75, 0.8]
+rsi_oversold: [0.25, 0.2]
 
 # Risk-Parameter
 trade_size: [0.5]

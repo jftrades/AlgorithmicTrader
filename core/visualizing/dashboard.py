@@ -1,11 +1,13 @@
 import dash
-from dash import dcc, html, Input, Output, callback_context
+from dash import dcc, html, Input, Output, State, callback_context
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
 from datetime import datetime, timedelta
 from pathlib import Path
 import os
+from dash import dash_table
+from dash import dcc
 
 # Einfaches Dashboard
 app = dash.Dash(__name__)
@@ -19,6 +21,7 @@ class TradingDashboard:
         self.indicators_df = {}
         self.nautilus_result = None
         self.metrics = None
+        self.all_results_df = None
         
         # Pfad zu den gespeicherten CSVs (gleich wie im DataCollector)
         if data_path is not None:
@@ -59,6 +62,13 @@ class TradingDashboard:
                         print(f"Indikator {indicator_name} geladen: {len(indicator_df)} Einträge, Plot-ID: 1 (default)")
                     
                     self.indicators_df[indicator_name] = indicator_df
+            all_results_path = self.data_path.parent / "all_backtest_results.csv"
+            if all_results_path.exists():
+                try:
+                    self.all_results_df = pd.read_csv(all_results_path)
+                    print(f"all_backtest_results.csv geladen: {len(self.all_results_df)} Runs")
+                except Exception as e:
+                    print(f"Fehler beim Laden von all_backtest_results.csv: {e}")
                     
         except Exception as e:
             print(f"Fehler beim Laden der CSV-Dateien: {e}")
@@ -164,7 +174,6 @@ class DashboardApp:
         return html.Div([
             # Header mit Gradient-Background
             html.Div([
-                # Credits oben rechts
                 html.Div("by Raph & Ferdi", style={
                     'position': 'absolute',
                     'top': '8px',
@@ -179,7 +188,7 @@ class DashboardApp:
                     'textAlign': 'center', 
                     'color': '#ffffff', 
                     'marginBottom': '0px',
-                    'marginTop': '0px',  # Kein Abstand zur Oberkante
+                    'marginTop': '0px',
                     'fontFamily': 'Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
                     'fontWeight': '700',
                     'letterSpacing': '-0.02em',
@@ -197,21 +206,21 @@ class DashboardApp:
                 })
             ], style={
                 'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                'padding': '15px 20px',  # Gleichmäßiges Padding oben und unten
+                'padding': '15px 20px',
                 'marginBottom': '0px',
                 'borderRadius': '0',
                 'boxShadow': '0 4px 16px rgba(0,0,0,0.1)',
                 'position': 'relative',
                 'display': 'flex',
                 'flexDirection': 'column',
-                'justifyContent': 'center',  # Inhalt vertikal zentrieren
+                'justifyContent': 'center',
                 'alignItems': 'center',
                 'minHeight': '85px'
             }),
             
             # Main Content Container
             html.Div([
-                # Trade Details Panel (professionell gestylt)
+                # Trade Details Panel
                 html.Div([
                     html.Div(id='trade-details-panel', children=[
                         html.Div([
@@ -247,7 +256,7 @@ class DashboardApp:
                     'position': 'relative'
                 }),
 
-                # Hauptchart für Bars und Trades (mit Card-Design)
+                # Hauptchart für Bars und Trades
                 html.Div([
                     html.Div([
                         html.H3("Price Data & Trading Signals", style={
@@ -268,12 +277,12 @@ class DashboardApp:
                     })
                 ], style={'margin': '15px 20px'}),
                 
-                # Container für alle Indikator-Subplots (zusammengefasst)
+                # Container für alle Indikator-Subplots
                 html.Div([
                     html.Div(id='indicators-container')
                 ], style={'margin': '10px 20px'}),
                 
-                # Performance Metriken (Premium Card Design)
+                # Performance Metriken
                 html.Div([
                     html.Div([
                         html.H3("Performance Metrics", style={
@@ -298,8 +307,22 @@ class DashboardApp:
                         'border': '1px solid rgba(222, 226, 230, 0.6)'
                     })
                 ], style={'margin': '15px 20px'}),
-                
-                # Refresh Button (moderne Version)
+
+                # Übersichtstabelle für alle Runs
+                html.Div([
+                    html.H3("All Backtest Results", style={
+                        'color': '#2c3e50',
+                        'marginBottom': '20px',
+                        'fontFamily': 'Inter, system-ui, sans-serif',
+                        'fontWeight': '600',
+                        'fontSize': '20px',
+                        'letterSpacing': '-0.01em'
+                    }),
+                    html.Div(id='all-results-table'),
+                    dcc.Store(id='filter-sharpe-active', data=False)
+                ], style={'margin': '15px 20px'}),
+
+                # Refresh Button
                 html.Div([
                     html.Button('Update Dashboard', id='refresh-btn', n_clicks=0,
                                 style={
@@ -335,14 +358,17 @@ class DashboardApp:
     def _register_callbacks(self):
         @self.app.callback(
             [Output('price-chart', 'figure'),
-             Output('indicators-container', 'children'),
-             Output('metrics-display', 'children'),
-             Output('trade-details-panel', 'children')],
+            Output('indicators-container', 'children'),
+            Output('metrics-display', 'children'),
+            Output('trade-details-panel', 'children'),
+            Output('all-results-table', 'children')],
             [Input('refresh-btn', 'n_clicks'),
-             Input('price-chart', 'clickData')],
+            Input('price-chart', 'clickData'),
+            Input('filter-sharpe-active', 'data')],
             prevent_initial_call=False
         )
-        def update_dashboard(refresh_clicks, clickData):
+        
+        def update_dashboard(refresh_clicks, clickData, filter_active):
             try:
                 # Bestimme welcher Input getriggert wurde
                 ctx = dash.callback_context
@@ -363,6 +389,13 @@ class DashboardApp:
                 except Exception as e:
                     print(f"Fehler bei Metriken: {e}")
                     metrics_table = html.Div("Metrics could not be loaded")
+                
+                # NEU: Tabelle für alle Runs
+                try:
+                    all_results_table = self.create_all_results_table(filter_active)
+                except Exception as e:
+                    print(f"Fehler bei all_results_table: {e}")
+                    all_results_table = html.Div("Backtest results could not be loaded")
                 
                 # Trade-Details und Chart basierend auf Click-Data
                 if triggered_id == 'price-chart' and clickData and self.trades_df is not None and not self.trades_df.empty:
@@ -406,20 +439,173 @@ class DashboardApp:
                     price_fig = go.Figure()
                     price_fig.update_layout(title="Chart could not be loaded")
                 
-                return price_fig, indicators_components, metrics_table, trade_details
-            
+                return price_fig, indicators_components, metrics_table, trade_details, all_results_table
             except Exception as e:
                 print(f"Allgemeiner Callback-Fehler: {e}")
-                # Fallback-Rückgabe
                 empty_fig = go.Figure()
                 empty_fig.update_layout(title="Error loading dashboard")
-                return empty_fig, [], html.Div("Error"), self.get_default_trade_details()
-
+                return empty_fig, [], html.Div("Error"), self.get_default_trade_details(), html.Div("Error")
+        
+        @self.app.callback(
+            Output('filter-sharpe-active', 'data'),
+            Input('custom-filter-btn', 'n_clicks'),
+            State('filter-sharpe-active', 'data'),
+            prevent_initial_call=True
+        )
+        def toggle_sharpe_filter(n_clicks, current_state):
+            if n_clicks is None:
+                return False
+            return not current_state
+        
         # Dynamische Callbacks für Indikator-Subplots nur wenn Indikatoren vorhanden
         try:
             self._register_indicator_sync_callbacks()
         except Exception as e:
             print(f"Fehler bei Indikator-Callbacks: {e}")
+    
+    def create_all_results_table(self, filter_active=False):
+        """Erstellt eine cleane, sortierbare Tabelle für alle Runs."""
+        results_path = Path(__file__).resolve().parents[2] / "data" / "DATA_STORAGE" / "results" / "all_backtest_results.csv"
+        if not results_path.exists():
+            return html.Div("No backtest results found.", style={'textAlign': 'center', 'color': '#6c757d'})
+        try:
+            all_results_df = pd.read_csv(results_path)
+        except Exception as e:
+            print(f"Fehler beim Laden von all_backtest_results.csv: {e}")
+            return html.Div("No backtest results found.", style={'textAlign': 'center', 'color': '#6c757d'})
+        if all_results_df.empty:
+            return html.Div("No backtest results found.", style={'textAlign': 'center', 'color': '#6c757d'})
+
+        # Finde Sharpe-Ratio-Spalte robust
+        sharpe_col = None
+        for col in all_results_df.columns:
+            if "sharpe" in col.lower():
+                sharpe_col = col
+                break
+
+        # Finde erste numerische Spalte für Default-Sortierung
+        sort_by = None
+        for col in all_results_df.columns:
+            if pd.api.types.is_numeric_dtype(all_results_df[col]):
+                sort_by = col
+                break
+
+        columns = [{"name": i, "id": i, "deletable": False, "selectable": False, "hideable": False} for i in all_results_df.columns]
+
+        # Filter-Button
+        if filter_active:
+            filter_label = "Filtered by Sharpe Ratio"
+            filter_bg = "#27ae60"
+            filter_color = "white"
+        else:
+            filter_label = "Filter by Sharpe Ratio"
+            filter_bg = "#f8f9fa"
+            filter_color = "#222"
+
+        filter_button = html.Button(
+            f"🔍 {filter_label}",
+            id="custom-filter-btn",
+            n_clicks=0,
+            style={
+                'float': 'right',
+                'marginBottom': '18px',
+                'background': filter_bg,
+                'color': filter_color,
+                'border': '1.5px solid #e5e7eb',
+                'borderRadius': '12px',
+                'padding': '8px 22px',
+                'fontFamily': 'Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+                'fontWeight': '600',
+                'fontSize': '16px',
+                'cursor': 'pointer',
+                'boxShadow': 'none',
+                'transition': 'background 0.2s, color 0.2s'
+            }
+        )
+
+        df = all_results_df.copy()
+        if filter_active:
+            if sharpe_col:
+                try:
+                    df[sharpe_col] = pd.to_numeric(df[sharpe_col], errors='coerce')
+                    df[sharpe_col] = df[sharpe_col].fillna(-1e9)
+                    df = df.sort_values(by=sharpe_col, ascending=False)
+                except Exception as e:
+                    print(f"Fehler beim Sortieren nach Sharpe Ratio: {e}")
+            else:
+                return html.Div([
+                    filter_button,
+                    html.Div("No Sharpe Ratio column found for sorting.", style={'color': '#dc3545', 'marginTop': '10px'})
+                ])
+        elif sort_by:
+            df = df.sort_values(by=sort_by, ascending=False)
+
+        return html.Div([
+            html.Div([
+                filter_button
+            ], style={'width': '100%', 'display': 'flex', 'justifyContent': 'flex-end'}),
+            dash_table.DataTable(
+                data=df.to_dict('records'),
+                columns=columns,
+                style_table={
+                    'overflowX': 'auto',
+                    'borderRadius': '16px',
+                    'background': '#fff',
+                    'margin': '0 0 30px 0',
+                    'border': '1px solid #e5e7eb',
+                },
+                style_cell={
+                    'fontFamily': 'Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+                    'fontSize': '16px',
+                    'padding': '12px 8px',
+                    'textAlign': 'center',
+                    'border': 'none',
+                    'background': '#fff',
+                },
+                style_header={
+                    'background': '#f8f9fa',
+                    'color': '#222',
+                    'fontWeight': '700',
+                    'fontSize': '17px',
+                    'borderTopLeftRadius': '16px',
+                    'borderTopRightRadius': '16px',
+                    'border': 'none',
+                    'fontFamily': 'Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+                    'letterSpacing': '-0.01em'
+                },
+                style_data={
+                    'border': 'none',
+                },
+                style_data_conditional=[
+                    {
+                        'if': {'row_index': 'odd'},
+                        'backgroundColor': '#f6f8fa'
+                    },
+                    {
+                        'if': {'state': 'selected'},
+                        'backgroundColor': '#e5e7eb',
+                        'border': 'none',
+                    },
+                ],
+                style_as_list_view=True,
+                filter_action='none',
+                sort_action='none',
+                page_size=10,
+                css=[{
+                    'selector': '.dash-spreadsheet-container .dash-spreadsheet-inner tr:first-child th:first-child',
+                    'rule': 'border-top-left-radius: 16px;'
+                }, {
+                    'selector': '.dash-spreadsheet-container .dash-spreadsheet-inner tr:first-child th:last-child',
+                    'rule': 'border-top-right-radius: 16px;'
+                }, {
+                    'selector': '.dash-spreadsheet-container .dash-spreadsheet-inner tr:last-child td:first-child',
+                    'rule': 'border-bottom-left-radius: 16px;'
+                }, {
+                    'selector': '.dash-spreadsheet-container .dash-spreadsheet-inner tr:last-child td:last-child',
+                    'rule': 'border-bottom-right-radius: 16px;'
+                }]
+            )
+        ], style={'marginTop': '18px'})
     
     def get_default_trade_details(self):
         """Standard Trade-Details Anzeige."""
