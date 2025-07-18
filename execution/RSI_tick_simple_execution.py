@@ -6,10 +6,12 @@ from tools.help_funcs.yaml_loader import load_params
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.backtest.config import BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig, BacktestRunConfig
 from nautilus_trader.trading.config import ImportableStrategyConfig
-from tools.help_funcs.help_funcs_execution import run_backtest, extract_metrics
+from tools.help_funcs.help_funcs_execution import run_backtest, extract_metrics, visualize_existing_run
 import shutil
 import yaml
 import copy
+from glob import glob
+import os
 
 # Parameter laden
 yaml_path = str(Path(__file__).resolve().parents[1] / "config" / "RSI_tick_simple.yaml")
@@ -102,6 +104,9 @@ for i, combination in enumerate(itertools.product(*values)):
 
     metrics = extract_metrics(result, run_params, run_id)
     all_results.append(metrics)
+    metrics_df = pd.DataFrame([metrics])
+    metrics_df.to_csv(tmp_run_dir / "performance_metrics.csv", index=False)
+
 
     try:
         # Kopiere Indikatoren
@@ -132,12 +137,10 @@ for run_id, tmp_run_dir in run_dirs:
 if tmp_runs_dir.exists():
     shutil.rmtree(tmp_runs_dir, ignore_errors=True)
 
-df = pd.DataFrame(all_results)
+if (tmp_run_dir / "performance_metrics.csv").exists():
+    shutil.move(str(tmp_run_dir / "performance_metrics.csv"), str(final_run_dir / "performance_metrics.csv"))
 
-# Optional: Sortierung nach Sharpe Ratio (absteigend)
-# sort_by = "RET_Sharpe Ratio (252 days)"  # oder eine andere Spalte
-# if sort_by in df.columns:
-    # df = df.sort_values(by=sort_by, ascending=False)
+df = pd.DataFrame(all_results)
 
 df.to_csv(results_dir / "all_backtest_results.csv", index=False)
 print(df)
@@ -155,3 +158,19 @@ if trades_file.exists():
     trades_file.unlink()
 
 print("Aufräumen abgeschlossen. Nur Run-Ordner und all_backtest_results.csv bleiben erhalten.")
+
+# --- NEU: Bestes Sharpe Ratio finden und visualisieren ---
+sharpe_col = "RET_Sharpe Ratio (252 days)"
+if sharpe_col in df.columns:
+    best_idx = df[sharpe_col].astype(float).idxmax()
+    run_prefix = f"run_{best_idx}_"
+    candidates = [f for f in os.listdir(results_dir) if f.startswith(run_prefix) and os.path.isdir(results_dir / f)]
+    if candidates:
+        best_run_dir = results_dir / candidates[0]
+        print(f"Starte Visualisierung für besten Run-Ordner: {best_run_dir} (Sharpe: {df.loc[best_idx, sharpe_col]})")
+        from tools.help_funcs.help_funcs_execution import visualize_existing_run
+        visualize_existing_run(best_run_dir)
+    else:
+        print(f"FEHLER: Kein passender Run-Ordner mit Prefix {run_prefix} gefunden!")
+else:
+    print(f"Spalte '{sharpe_col}' nicht gefunden, keine Visualisierung gestartet.")

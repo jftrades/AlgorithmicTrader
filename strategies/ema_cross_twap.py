@@ -186,6 +186,18 @@ class EMACrossTWAP(BaseStrategy, Strategy):
         self.collector.add_indicator(timestamp=bar.ts_event, name="fast_ema", value=float(self.fast_ema.value) if self.fast_ema.value is not None else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="slow_ema", value=float(self.slow_ema.value) if self.slow_ema.value is not None else None)
         self.collector.add_bar(timestamp=bar.ts_event,open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
+        venue = self.config.instrument_id.venue
+        account = self.portfolio.account(venue)
+        usd_balance = account.balances_total()
+        self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=self.portfolio.net_position(self.config.instrument_id) if self.portfolio.net_position(self.config.instrument_id) is not None else None)
+        try:
+            unrealized_pnl = self.portfolio.unrealized_pnl(self.config.instrument_id)
+        except Exception as e:
+            unrealized_pnl = None
+        self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
+
 
     def on_order_filled(self, order_filled) -> None:
         ret = self.collector.add_trade_details(order_filled)

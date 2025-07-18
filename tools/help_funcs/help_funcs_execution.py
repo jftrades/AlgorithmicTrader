@@ -22,6 +22,25 @@ def setup_visualizer():
     
     return TradingDashboard
 
+def visualize_existing_run(data_path, TradingDashboard=None):
+    if TradingDashboard is None:
+        TradingDashboard = setup_visualizer()
+    visualizer = TradingDashboard(data_path=data_path)
+    visualizer.load_data_from_csv()
+    # NEU: Lade performance_metrics.csv, falls vorhanden
+    perf_path = Path(data_path) / "performance_metrics.csv"
+    if perf_path.exists():
+        try:
+            perf_df = pd.read_csv(perf_path)
+            if not perf_df.empty:
+                metrics = perf_df.iloc[0].to_dict()
+                visualizer.metrics = metrics
+                print("Performance-Metriken aus performance_metrics.csv geladen.")
+        except Exception as e:
+            print(f"Fehler beim Laden von performance_metrics.csv: {e}")
+    print("Starte Dashboard für bestehenden Run...")
+    visualizer.visualize(visualize_after_backtest=True)
+
 def extract_metrics(result, run_params, run_id):
     metrics = {}
     if result and hasattr(result, "__getitem__"):
@@ -49,7 +68,7 @@ def extract_metrics(result, run_params, run_id):
         metrics["run_id"] = run_id
     return metrics
 
-def run_backtest_and_visualize(run_config, TradingDashboard=None):
+def run_backtest_and_visualize(run_config, data_path=None, TradingDashboard=None):
     # Backtest ausführenp
     try:
         node = BacktestNode(configs=[run_config])
@@ -93,7 +112,7 @@ def run_backtest_and_visualize(run_config, TradingDashboard=None):
     if TradingDashboard is None:
         TradingDashboard = setup_visualizer()
     
-    visualizer = TradingDashboard()
+    visualizer = TradingDashboard(data_path=data_path) if data_path else TradingDashboard()
     visualizer.collect_results(results)
     visualizer.load_data_from_csv()
 

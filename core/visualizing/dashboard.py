@@ -13,7 +13,7 @@ app.title = "Simple Trading Dashboard"
 
 # Klasse für das Trading Dashboard
 class TradingDashboard:
-    def __init__(self):
+    def __init__(self, data_path=None):
         self.bars_df = None
         self.trades_df = None
         self.indicators_df = {}
@@ -21,8 +21,11 @@ class TradingDashboard:
         self.metrics = None
         
         # Pfad zu den gespeicherten CSVs (gleich wie im DataCollector)
-        base_dir = Path(__file__).resolve().parents[2]  # geht von core/visualizing/ auf AlgorithmicTrader/
-        self.data_path = base_dir / "data" / "DATA_STORAGE" / "results"
+        if data_path is not None:
+            self.data_path = Path(data_path)
+        else:
+            base_dir = Path(__file__).resolve().parents[2]
+            self.data_path = base_dir / "data" / "DATA_STORAGE" / "results"
 
     def load_data_from_csv(self):
         """Lädt alle CSV-Dateien aus dem DataCollector-Pfad."""
