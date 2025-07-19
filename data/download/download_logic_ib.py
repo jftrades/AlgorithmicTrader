@@ -29,7 +29,7 @@ async def download__ib_historical_data():
     # Request historical bars
     bars = await client.request_bars(
         bar_specifications=["5-MINUTE-LAST"],
-        start_date_time=datetime.datetime(2018, 1, 1, 9, 30),
+        start_date_time=datetime.datetime(2008, 1, 1, 9, 30),
         end_date_time=datetime.datetime(2025, 1, 1, 16, 30),
         tz_name="America/New_York",
         contracts=contracts,
