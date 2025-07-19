@@ -41,7 +41,6 @@ class Mean3ReversionHTFStrategyConfig(StrategyConfig):
     risk_percent: float
     max_leverage: float
     min_account_balance: float
-    vwap_bar_type: str
     vwap_zscore_window: int
     vwap_zscore_entry: float
     kalman_process_var: float
@@ -59,7 +58,9 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
         self.venue = self.instrument_id.venue
         self.risk_manager = None
         self.bar_type = BarType.from_str(config.bar_type)
-        self.vwap_bar_type = BarType.from_str(config.vwap_bar_type)
+        self.zscore_neutral_counter = 3
+        self.prev_zscore = None
+        self.current_kalman_mean = None
         self.stopped = False
         self.realized_pnl = 0
         self.bar_counter = 0
@@ -70,7 +71,6 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
         self.subscribe_bars(self.bar_type)
-        self.subscribe_bars(self.vwap_bar_type)
         self.log.info("Strategy started!")
 
         self.risk_manager = RiskManager(
@@ -98,50 +98,63 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
         return self.base_get_position()
     
     def on_bar(self, bar: Bar) -> None:
-        # VWAP immer mit Hourly Bars updaten
-        if bar.bar_type == self.vwap_bar_type:
-            self.vwap_zscore.update(bar)
+        self.current_kalman_mean = self.kalman.update(float(bar.close))
+        vwap_value, zscore = self.vwap_zscore.update(bar)
 
-        if bar.bar_type == self.bar_type:
-            kalman_mean = self.kalman.update(float(bar.close))
-            if kalman_mean is None:
-                self.prev_close = bar.close
-                return
+        if self.current_kalman_mean is not None and zscore is not None:
+            if bar.close < vwap_value < self.current_kalman_mean:
+                self.check_for_long_trades(bar, zscore)
+            elif bar.close > vwap_value > self.current_kalman_mean:
+                self.check_for_short_trades(bar, zscore)
 
-            if bar.close < kalman_mean:
-                self.long_logic(bar)
-                self.check_for_long_exit(bar)
-            elif bar.close > kalman_mean:
-                self.short_logic(bar)
-                self.check_for_short_exit(bar)
-
+        self.check_for_long_exit(bar)
+        self.check_for_short_exit(bar)
+            
         self.update_visualizer_data(bar)
 
-    def long_logic (self, bar):
-        if self.prev_close is not None and bar.close < self.prev_close * 0.98:
-            self.order_types.submit_long_market_order(self.config.trade_size)
-        
         self.prev_close = bar.close
+        self.prev_zscore = zscore
 
-    def short_logic (self, bar):
-        if self.prev_close is not None and bar.close > self.prev_close * 1.02:
+    def check_for_long_trades(self, bar: Bar, zscore: float):
+        zscore_entry = self.config.vwap_zscore_entry
+        if self.prev_zscore is None or self.prev_close is None:
+            return
+
+        if self.prev_zscore >= -zscore_entry and zscore < -zscore_entry:
+            self.order_types.submit_long_market_order(self.config.trade_size)
+
+    def check_for_short_trades(self, bar: Bar, zscore: float):
+        zscore_entry = self.config.vwap_zscore_entry
+        if self.prev_zscore is None or self.prev_close is None:
+            return
+
+        if self.prev_zscore <= zscore_entry and zscore > zscore_entry:
             self.order_types.submit_short_market_order(self.config.trade_size)
-        
-        self.prev_close = bar.close
 
     def check_for_long_exit(self, bar):
         kalman_mean = self.kalman.mean
         position = self.get_position()
-        if position is not None and position.quantity > 0 and bar.close > kalman_mean:
-            self.log.info(f"LONG EXIT: Close {bar.close} > Kalman {kalman_mean}")
+        if (
+            position is not None
+            and position.quantity > 0
+            and self.prev_close is not None
+            and self.prev_close < kalman_mean
+            and bar.close >= kalman_mean
+        ):
+            self.log.info(f"LONG EXIT: Cross above Kalman {kalman_mean}")
             self.order_types.close_position_by_market_order()
-
 
     def check_for_short_exit(self, bar):
         kalman_mean = self.kalman.mean
         position = self.get_position()
-        if position is not None and position.quantity < 0 and bar.close < kalman_mean:
-            self.log.info(f"SHORT EXIT: Close {bar.close} < Kalman {kalman_mean}")
+        if (
+            position is not None
+            and position.quantity < 0
+            and self.prev_close is not None
+            and self.prev_close > kalman_mean
+            and bar.close <= kalman_mean
+        ):
+            self.log.info(f"SHORT EXIT: Cross below Kalman {kalman_mean}")
             self.order_types.close_position_by_market_order()
 
     def on_position_event(self, event: PositionEvent) -> None:
@@ -163,7 +176,7 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         usd_balance = account.balances_total()
-        vwap_value = self.vwap_zscore.vwap.value
+        vwap_value = self.vwap_zscore.current_vwap_value
         bands = self.vwap_zscore.get_bands()
         vwap_zscore = None
 
@@ -200,12 +213,11 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
             usd_balance = account.balances_total()
             
             kalman_mean = self.kalman.mean
-            vwap_value, vwap_zscore = self.vwap_zscore.update(bar)
+            vwap_value = self.vwap_zscore.current_vwap_value
             bands = self.vwap_zscore.get_bands()
 
             self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_mean", value=kalman_mean)
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap", value=vwap_value)
-            self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_zscore", value=vwap_zscore)
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_upper_1", value=bands["upper_1"])
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_lower_1", value=bands["lower_1"])
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_upper_2", value=bands["upper_2"])

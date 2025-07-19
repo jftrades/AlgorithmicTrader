@@ -11,6 +11,7 @@ class VWAPZScore:
         self.vwap_lookback = vwap_lookback
         self.price_volume_window = []
         self.volume_window = []
+        self.current_vwap_value = None
 
     def update(self, bar):
         self.vwap.handle_bar(bar)
@@ -28,6 +29,8 @@ class VWAPZScore:
             vwap_value = sum(self.price_volume_window) / sum(self.volume_window) if sum(self.volume_window) > 0 else price
         else:
             vwap_value = self.vwap.value
+
+        self.current_vwap_value = vwap_value
 
         # Spread und Z-Score wie gehabt
         spread = price - vwap_value
@@ -52,13 +55,10 @@ class VWAPZScore:
         self.zscore_window = window
 
     def get_bands(self, sigma: int = 2):
-        """
-        Gibt die VWAP-Z-Score-Bänder für 1σ und 2σ zurück.
-        """
         if len(self.spread_window) >= 2:
             mean = np.mean(self.spread_window)
             std = np.std(self.spread_window)
-            vwap = self.vwap.value
+            vwap = self.current_vwap_value 
             bands = {
                 "upper_1": vwap + std,
                 "lower_1": vwap - std,

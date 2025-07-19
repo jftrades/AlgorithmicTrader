@@ -3,7 +3,6 @@ symbol: "SPY"
 venue: "ARCA"
 instrument_id: "SPY.ARCA"
 bar_type: "SPY.ARCA-1-DAY-LAST-EXTERNAL"
-vwap_bar_type: "SPY.ARCA-1-HOUR-LAST-EXTERNAL"
 
 # Backtest-Zeitraum
 start_date: "2008-01-01T00:00:00Z"
@@ -13,14 +12,14 @@ end_date: "2024-12-30T23:59:59Z"
 kalman_process_var: 0.00001
 kalman_measurement_var: 0.01
 kalman_window: 10
-vwap_lookback: 5
-vwap_zscore_window: 30
-vwap_zscore_entry: 1.5
+vwap_lookback: 20
+vwap_zscore_window: 20
+vwap_zscore_entry: 2
 
 
 # Risk-Parameter
-trade_size: [0.5]
-close_positions_on_stop: [true]
+trade_size: 0.5
+close_positions_on_stop: true
 risk_percent: 0.01
 max_leverage: 2
 min_account_balance: 1000

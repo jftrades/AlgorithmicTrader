@@ -7,6 +7,7 @@ from tools.help_funcs.help_funcs_strategy import create_tags
 class OrderTypes:
     def __init__(self, strategy):
         self.strategy = strategy
+        self.instrument = strategy.instrument
         pass
 
     def submit_long_market_order(self, quantity: Decimal): 
