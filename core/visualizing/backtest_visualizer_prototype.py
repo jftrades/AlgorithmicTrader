@@ -94,7 +94,7 @@ class BacktestDataCollector:
             'value': value
         })
 
-    def add_trade_details(self, order_filled):
+    def add_trade_details(self, order_filled, parent_id):
         """
         Füllt die Details des Trades aus einem OrderFilled-Objekt.
         Sucht in self.trades nach passender id und ergänzt price_actual und fee.
@@ -104,10 +104,12 @@ class BacktestDataCollector:
         price_actual = order_filled.last_px
         fee = order_filled.commission
 
+
         for trade in self.trades:
             if trade.id == id:
                 trade.open_price_actual = price_actual
                 trade.fee = fee
+                trade.parent_id = parent_id
                 break
 
     def add_closed_trade(self, position_closed):
@@ -118,11 +120,11 @@ class BacktestDataCollector:
         # open_price_actual = position_closed.avg_px_open
 
         for trade in self.trades:
-            if trade.id == id:
+            if trade.id == id or trade.parent_id == id:
                 trade.closed_timestamp = closed_timestamp
                 trade.realized_pnl = realized_pnl
                 trade.close_price_actual = close_price_actual
-                # trade.open_price_actual = open_price_actual
+                #trade.open_price_actual = open_price_actual
                 
         
     # In BacktestDataCollector:

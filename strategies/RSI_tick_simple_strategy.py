@@ -199,4 +199,4 @@ class RSITickSimpleStrategy(BaseStrategy, Strategy):
             self.collector.add_indicator(timestamp=tick.ts_event, name="RSI", value=float(rsi_value))
             self.collector.add_indicator(timestamp=tick.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
             self.collector.add_indicator(timestamp=tick.ts_event, name="realized_pnl", value=float(self.realized_pnl))
-            self.collector.add_indicator(timestamp=tick.ts_event, name="balance", value=usdt_balance)
+            self.collector.add_indicator(timestamp=tick.ts_event, name="balance", value=usdt_balance.as_double())

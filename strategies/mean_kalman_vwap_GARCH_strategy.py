@@ -203,12 +203,12 @@ class MeankalmanvwapGARCHStrategy(BaseStrategy, Strategy):
             unrealized_pnl = None
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
-        usd_balance = account.balances_total()
+        usd_balance = account.balance_total()
         vwap_value = self.vwap_zscore.current_vwap_value
         kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
 
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="garch_volatility", value=self.current_garch_vola)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usd_balance)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usd_balance.as_double())
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
@@ -236,18 +236,18 @@ class MeankalmanvwapGARCHStrategy(BaseStrategy, Strategy):
             unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
             venue = self.instrument_id.venue
             account = self.portfolio.account(venue)
-            usd_balance = account.balances_total()
+            usd_balance = account.balance_total()
             
             kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
             vwap_value = self.vwap_zscore.current_vwap_value
 
+
             self.collector.add_indicator(timestamp=bar.ts_event, name="garch_volatility", value=self.current_garch_vola)
-            self.log.info(f"VISUAL: ts={bar.ts_event}, close={bar.close}, vwap={vwap_value}, kalman={kalman_mean}")
             self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_mean", value=kalman_mean)
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap", value=vwap_value)
             self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
             self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
             self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl else None)
-            self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance)
+            self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance.as_double())
             self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_zscore", value=self.current_zscore)

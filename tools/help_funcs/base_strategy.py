@@ -28,7 +28,9 @@ class BaseStrategy(Strategy):
         self.log.info(logging_message, color=LogColor.GREEN)
 
     def base_on_order_filled(self, order_filled) -> None:
-        self.collector.add_trade_details(order_filled)
+        position = self.cache.position(order_filled.position_id)
+        parent_id = position.opening_order_id
+        self.collector.add_trade_details(order_filled, parent_id)
         self.log.info(
             f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
 

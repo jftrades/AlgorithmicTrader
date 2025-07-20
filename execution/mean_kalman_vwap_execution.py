@@ -83,7 +83,7 @@ for i, combination in enumerate(itertools.product(*values)):
     # StrategyConfig 
     strategy_config = ImportableStrategyConfig(
         strategy_path="strategies.mean_kalman_vwap_strategy:MeankalmanvwapStrategy",
-        config_path="strategies.mean_kalman_vwap_strategy:MeankalmanvwaptrategyConfig",
+        config_path="strategies.mean_kalman_vwap_strategy:MeankalmanvwapStrategyConfig",
         config=config_params
     )
 

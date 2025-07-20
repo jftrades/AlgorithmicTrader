@@ -14,8 +14,8 @@ kalman_measurement_var: 0.01
 kalman_window: 10
 vwap_lookback: 10
 zscore_window: 10
-vwap_zscore_entry_long: -2
-vwap_zscore_entry_short: 2
+vwap_zscore_entry_long: [-2]
+vwap_zscore_entry_short: [2.4]
 
 # GARCH-Parameter
 garch_window: 500         
@@ -24,7 +24,7 @@ garch_q: 1
 garch_vola_threshold: 2.0
 
 # Risk-Parameter
-trade_size: 0.5
+trade_size: 1
 close_positions_on_stop: true
 risk_percent: 0.01
 max_leverage: 2

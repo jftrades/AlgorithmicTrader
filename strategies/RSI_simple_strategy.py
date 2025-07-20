@@ -114,7 +114,7 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
-        usd_balance = account.balances_total()
+        usdt_balance = account.balance_total()
 
         rsi_value = float(self.rsi.value) if self.rsi.value is not None else None
 
@@ -122,7 +122,7 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
         self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl else None)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usdt_balance.as_double())
 
 
     def close_position(self) -> None:
@@ -139,10 +139,9 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         unrealized_pnl = 0
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
-        usdt_balance = account.balance_total(Currency.from_str("USDT")).as_double() 
+        usdt_balance = account.balance_total()
 
-
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="account_balance", value=usdt_balance)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usdt_balance.as_double())
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
