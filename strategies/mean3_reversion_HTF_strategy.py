@@ -33,6 +33,7 @@ from nautilus_trader.common.enums import LogColor
 from collections import deque
 from tools.indicators.kalman_filter_1D import KalmanFilter1D
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
+from tools.indicators.GARCH import GARCH
 
 class Mean3ReversionHTFStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
