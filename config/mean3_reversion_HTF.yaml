@@ -11,10 +11,9 @@ end_date: "2024-12-30T23:59:59Z"
 # Strategie-Parameter
 kalman_process_var: 0.00001
 kalman_measurement_var: 0.01
-kalman_window: 10
-vwap_lookback: 20
-vwap_zscore_window: 20
-vwap_zscore_entry: 2
+kalman_window: [50]
+vwap_window: [10, 12, 15]
+vwap_zscore_entry: [2, 2.25, 2.5]
 
 
 # Risk-Parameter

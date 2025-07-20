@@ -91,24 +91,9 @@ class OrderTypes:
         self.strategy.collector.add_trade(order)  
 
     def close_position_by_market_order(self):
-        net_position = self.strategy.portfolio.net_position(self.strategy.instrument_id)
-        if net_position is None or net_position == 0:
+        position = self.strategy.get_position()
+        if position is None or position.quantity == 0:
             self.strategy.log.info("No open position to close.")
             return
 
-        if net_position > 0:
-            order_side = OrderSide.SELL
-            action = "SHORT"
-        else:
-            order_side = OrderSide.BUY
-            action = "BUY"
-
-        order = self.strategy.order_factory.market(
-            instrument_id=self.strategy.instrument_id,
-            order_side=order_side,
-            quantity=Quantity(abs(net_position), self.instrument.size_precision),
-            time_in_force=TimeInForce.GTC,
-            tags=create_tags(action=action, type="CLOSE")
-        )
-        self.strategy.submit_order(order)
-        self.strategy.collector.add_trade(order)
+        self.strategy.close_position()

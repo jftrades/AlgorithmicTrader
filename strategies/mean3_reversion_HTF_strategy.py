@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Any
 import sys
 from pathlib import Path
-
+import numpy as np
 # Nautilus Kern offizielle Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
@@ -32,7 +32,7 @@ from tools.help_funcs.base_strategy import BaseStrategy
 from nautilus_trader.common.enums import LogColor
 from collections import deque
 from tools.indicators.kalman_filter_1D import KalmanFilter1D
-from tools.indicators.VWAP_ZScore import VWAPZScore
+from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
 
 class Mean3ReversionHTFStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
@@ -41,12 +41,11 @@ class Mean3ReversionHTFStrategyConfig(StrategyConfig):
     risk_percent: float
     max_leverage: float
     min_account_balance: float
-    vwap_zscore_window: int
+    vwap_window: int
     vwap_zscore_entry: float
     kalman_process_var: float
     kalman_measurement_var: float
     kalman_window: int
-    vwap_lookback: int = None
     close_positions_on_stop: bool = True
 
 class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
@@ -65,7 +64,11 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
         self.realized_pnl = 0
         self.bar_counter = 0
         self.prev_close = None
-        self.vwap_zscore = VWAPZScore(zscore_window=config.vwap_zscore_window, zscore_entry=config.vwap_zscore_entry, vwap_lookback=config.vwap_lookback)
+        self.vwap_zscore = VWAPZScoreHTF(
+            zscore_window=config.vwap_window,
+            zscore_entry=config.vwap_zscore_entry,
+            vwap_lookback=config.vwap_window
+        )
         self.kalman = KalmanFilter1D(process_var=config.kalman_process_var, measurement_var=config.kalman_measurement_var, window=config.kalman_window)
 
     def on_start(self) -> None:
@@ -88,11 +91,11 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
         self.collector.initialise_logging_indicator("vwap_upper_2", 0)
         self.collector.initialise_logging_indicator("vwap_lower_2", 0)
         self.collector.initialise_logging_indicator("kalman_mean", 0)
-        self.collector.initialise_logging_indicator("position", 1)
-        self.collector.initialise_logging_indicator("realized_pnl", 2)
-        self.collector.initialise_logging_indicator("unrealized_pnl", 3)
-        self.collector.initialise_logging_indicator("balance", 4)
-        self.collector.initialise_logging_indicator("vwap_zscore", 5)
+        self.collector.initialise_logging_indicator("vwap_zscore", 1)
+        self.collector.initialise_logging_indicator("position", 2)
+        self.collector.initialise_logging_indicator("realized_pnl", 3)
+        self.collector.initialise_logging_indicator("unrealized_pnl", 4)
+        self.collector.initialise_logging_indicator("balance", 5)
 
     def get_position(self):
         return self.base_get_position()
@@ -100,11 +103,12 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
     def on_bar(self, bar: Bar) -> None:
         self.current_kalman_mean = self.kalman.update(float(bar.close))
         vwap_value, zscore = self.vwap_zscore.update(bar)
+        self.current_zscore = zscore
 
         if self.current_kalman_mean is not None and zscore is not None:
-            if bar.close < vwap_value < self.current_kalman_mean:
+            if bar.close < vwap_value and vwap_value < self.current_kalman_mean:
                 self.check_for_long_trades(bar, zscore)
-            elif bar.close > vwap_value > self.current_kalman_mean:
+            elif bar.close > vwap_value and vwap_value > self.current_kalman_mean:
                 self.check_for_short_trades(bar, zscore)
 
         self.check_for_long_exit(bar)
@@ -119,7 +123,7 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
         zscore_entry = self.config.vwap_zscore_entry
         if self.prev_zscore is None or self.prev_close is None:
             return
-
+        
         if self.prev_zscore >= -zscore_entry and zscore < -zscore_entry:
             self.order_types.submit_long_market_order(self.config.trade_size)
 
@@ -127,9 +131,10 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
         zscore_entry = self.config.vwap_zscore_entry
         if self.prev_zscore is None or self.prev_close is None:
             return
-
+        
         if self.prev_zscore <= zscore_entry and zscore > zscore_entry:
             self.order_types.submit_short_market_order(self.config.trade_size)
+
 
     def check_for_long_exit(self, bar):
         kalman_mean = self.kalman.mean
@@ -141,21 +146,21 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
             and self.prev_close < kalman_mean
             and bar.close >= kalman_mean
         ):
-            self.log.info(f"LONG EXIT: Cross above Kalman {kalman_mean}")
             self.order_types.close_position_by_market_order()
 
     def check_for_short_exit(self, bar):
-        kalman_mean = self.kalman.mean
+        vwap_mean = np.mean(self.vwap_zscore.vwaps) if len(self.vwap_zscore.vwaps) > 0 else None
         position = self.get_position()
         if (
             position is not None
             and position.quantity < 0
             and self.prev_close is not None
-            and self.prev_close > kalman_mean
-            and bar.close <= kalman_mean
+            and vwap_mean is not None
+            and self.prev_close > vwap_mean
+            and bar.close <= vwap_mean
         ):
-            self.log.info(f"SHORT EXIT: Cross below Kalman {kalman_mean}")
             self.order_types.close_position_by_market_order()
+
 
     def on_position_event(self, event: PositionEvent) -> None:
         pass
@@ -177,16 +182,17 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
         account = self.portfolio.account(venue)
         usd_balance = account.balances_total()
         vwap_value = self.vwap_zscore.current_vwap_value
+        kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
         bands = self.vwap_zscore.get_bands()
-        vwap_zscore = None
+
 
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usd_balance)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_mean", value=self.kalman.mean)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_mean", value=kalman_mean)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap", value=vwap_value)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap_zscore", value=vwap_zscore)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap_zscore", value=self.current_zscore)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap_upper_1", value=bands["upper_1"])
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap_lower_1", value=bands["lower_1"])
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap_upper_2", value=bands["upper_2"])
@@ -199,6 +205,7 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
         return self.base_on_order_filled(order_filled)
 
     def on_position_closed(self, position_closed) -> None:
+        self.log.info(f"Position closed: {position_closed}")
         return self.base_on_position_closed(position_closed)
 
     def on_error(self, error: Exception) -> None:
@@ -212,10 +219,12 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
             account = self.portfolio.account(venue)
             usd_balance = account.balances_total()
             
-            kalman_mean = self.kalman.mean
+            kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
             vwap_value = self.vwap_zscore.current_vwap_value
             bands = self.vwap_zscore.get_bands()
 
+
+            self.log.info(f"VISUAL: ts={bar.ts_event}, close={bar.close}, vwap={vwap_value}, kalman={kalman_mean}")
             self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_mean", value=kalman_mean)
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap", value=vwap_value)
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_upper_1", value=bands["upper_1"])
@@ -227,3 +236,4 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
             self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl else None)
             self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance)
             self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
+            self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_zscore", value=self.current_zscore)
