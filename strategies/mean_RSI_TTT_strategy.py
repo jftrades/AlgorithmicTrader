@@ -32,7 +32,7 @@ from nautilus_trader.common.enums import LogColor
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 
 
-class MeanReversionHTFStrategyConfig(StrategyConfig):
+class MeanRSITTTStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: str 
     trade_size: Decimal
@@ -48,8 +48,8 @@ class MeanReversionHTFStrategyConfig(StrategyConfig):
     risk_reward_ratio: float
     close_positions_on_stop: bool = True
 
-class MeanReversionHTFStrategy(BaseStrategy, Strategy):
-    def __init__(self, config:MeanReversionHTFStrategyConfig):
+class MeanRSITTTStrategy(BaseStrategy, Strategy):
+    def __init__(self, config:MeanRSITTTStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
         self.trade_size = config.trade_size

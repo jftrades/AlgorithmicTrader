@@ -1,3 +1,4 @@
+###
 import itertools
 import pandas as pd
 import uuid
@@ -14,7 +15,7 @@ from glob import glob
 import os
 
 # Parameter laden
-yaml_path = str(Path(__file__).resolve().parents[1] / "config" / "mean2_reversion_HTF.yaml")
+yaml_path = str(Path(__file__).resolve().parents[1] / "config" / "mean_kalman_vwap.yaml")
 params = load_params(yaml_path)
 
 param_grid = {k: v for k, v in params.items() if isinstance(v, list)}
@@ -81,8 +82,8 @@ for i, combination in enumerate(itertools.product(*values)):
 
     # StrategyConfig 
     strategy_config = ImportableStrategyConfig(
-        strategy_path="strategies.mean2_reversion_HTF_strategy:Mean2ReversionHTFStrategy",
-        config_path="strategies.mean2_reversion_HTF_strategy:Mean2ReversionHTFStrategyConfig",
+        strategy_path="strategies.mean_kalman_vwap_strategy:MeankalmanvwapStrategy",
+        config_path="strategies.mean_kalman_vwap_strategy:MeankalmanvwaptrategyConfig",
         config=config_params
     )
 

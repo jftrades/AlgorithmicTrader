@@ -32,7 +32,7 @@ from nautilus_trader.common.enums import LogColor
 from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
 from collections import deque
 
-class Mean2ReversionHTFStrategyConfig(StrategyConfig):
+class MeanemaStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: str 
     trade_size: Decimal
@@ -45,8 +45,8 @@ class Mean2ReversionHTFStrategyConfig(StrategyConfig):
     min_bars_over_fast_ema: int
     close_positions_on_stop: bool = True
 
-class Mean2ReversionHTFStrategy(BaseStrategy, Strategy):
-    def __init__(self, config:Mean2ReversionHTFStrategyConfig):
+class MeanemaStrategy(BaseStrategy, Strategy):
+    def __init__(self, config:MeanemaStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
         self.trade_size = config.trade_size

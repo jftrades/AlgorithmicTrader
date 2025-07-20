@@ -115,15 +115,15 @@ class BacktestDataCollector:
         closed_timestamp = position_closed.ts_closed
         realized_pnl = position_closed.realized_pnl
         close_price_actual = position_closed.avg_px_close
-        open_price_actual = position_closed.avg_px_open
+        # open_price_actual = position_closed.avg_px_open
 
         for trade in self.trades:
             if trade.id == id:
                 trade.closed_timestamp = closed_timestamp
                 trade.realized_pnl = realized_pnl
                 trade.close_price_actual = close_price_actual
-                trade.open_price_actual = open_price_actual
-                break
+                # trade.open_price_actual = open_price_actual
+                
         
     # In BacktestDataCollector:
     def add_trade(self, new_order):

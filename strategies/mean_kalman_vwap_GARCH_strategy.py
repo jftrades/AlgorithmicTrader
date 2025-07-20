@@ -36,7 +36,7 @@ from tools.indicators.kalman_filter_1D import KalmanFilter1D
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
 from tools.indicators.GARCH import GARCH
 
-class Mean3ReversionHTFStrategyConfig(StrategyConfig):
+class MeankalmanvwapGARCHStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: str 
     trade_size: Decimal
@@ -56,8 +56,8 @@ class Mean3ReversionHTFStrategyConfig(StrategyConfig):
     garch_vola_threshold: float = 2.0
     close_positions_on_stop: bool = True
 
-class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
-    def __init__(self, config:Mean3ReversionHTFStrategyConfig):
+class MeankalmanvwapGARCHStrategy(BaseStrategy, Strategy):
+    def __init__(self, config:MeankalmanvwapGARCHStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
         self.trade_size = config.trade_size
@@ -215,7 +215,6 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_mean", value=kalman_mean)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap", value=vwap_value)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap_zscore", value=self.current_zscore)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="garch_volatility", value=self.current_garch_vola)
 
 
         logging_message = self.collector.save_data()
@@ -252,4 +251,3 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
             self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance)
             self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_zscore", value=self.current_zscore)
-            self.collector.add_indicator(timestamp=bar.ts_event, name="garch_volatility", value=self.current_garch_vola)

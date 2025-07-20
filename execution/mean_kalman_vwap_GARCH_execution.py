@@ -1,3 +1,4 @@
+###
 import itertools
 import pandas as pd
 import uuid
@@ -14,7 +15,7 @@ from glob import glob
 import os
 
 # Parameter laden
-yaml_path = str(Path(__file__).resolve().parents[1] / "config" / "mean_reversion_HTF.yaml")
+yaml_path = str(Path(__file__).resolve().parents[1] / "config" / "mean_kalman_vwap_GARCH.yaml")
 params = load_params(yaml_path)
 
 param_grid = {k: v for k, v in params.items() if isinstance(v, list)}
@@ -34,7 +35,6 @@ bar_type = params["bar_type"]
 risk_percent = params["risk_percent"]
 max_leverage = params["max_leverage"]
 min_account_balance = params["min_account_balance"]
-risk_reward_ratio = params["risk_reward_ratio"]
 
 catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 
@@ -82,8 +82,8 @@ for i, combination in enumerate(itertools.product(*values)):
 
     # StrategyConfig 
     strategy_config = ImportableStrategyConfig(
-        strategy_path="strategies.mean_reversion_HTF_strategy:MeanReversionHTFStrategy",
-        config_path="strategies.mean_reversion_HTF_strategy:MeanReversionHTFStrategyConfig",
+        strategy_path="strategies.mean_kalman_vwap_GARCH_strategy:MeankalmanvwapGARCHStrategy",
+        config_path="strategies.mean_kalman_vwap_GARCH_strategy:MeankalmanvwapGARCHStrategyConfig",
         config=config_params
     )
 
