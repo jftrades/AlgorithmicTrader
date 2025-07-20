@@ -11,6 +11,7 @@ from typing import Any
 import sys
 from pathlib import Path
 import numpy as np
+import pandas as pd
 # Nautilus Kern offizielle Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
@@ -49,6 +50,10 @@ class Mean3ReversionHTFStrategyConfig(StrategyConfig):
     kalman_process_var: float
     kalman_measurement_var: float
     kalman_window: int
+    garch_window: int = 500
+    garch_p: int = 1
+    garch_q: int = 1
+    garch_vola_threshold: float = 2.0
     close_positions_on_stop: bool = True
 
 class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
@@ -74,6 +79,14 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
             vwap_lookback=config.vwap_lookback
         )
         self.kalman = KalmanFilter1D(process_var=config.kalman_process_var, measurement_var=config.kalman_measurement_var, window=config.kalman_window)
+        self.garch_window = config.garch_window
+        self.garch_p = config.garch_p
+        self.garch_q = config.garch_q
+        self.garch_vola_threshold = config.garch_vola_threshold
+        self.returns_window = deque(maxlen=self.garch_window)
+        self.garch = None
+        self.current_garch_vola = None
+
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
@@ -92,10 +105,11 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
         self.collector.initialise_logging_indicator("vwap", 0)
         self.collector.initialise_logging_indicator("kalman_mean", 0)
         self.collector.initialise_logging_indicator("vwap_zscore", 1)
-        self.collector.initialise_logging_indicator("position", 2)
-        self.collector.initialise_logging_indicator("realized_pnl", 3)
-        self.collector.initialise_logging_indicator("unrealized_pnl", 4)
-        self.collector.initialise_logging_indicator("balance", 5)
+        self.collector.initialise_logging_indicator("garch_volatility", 2)
+        self.collector.initialise_logging_indicator("position", 3)
+        self.collector.initialise_logging_indicator("realized_pnl", 4)
+        self.collector.initialise_logging_indicator("unrealized_pnl", 5)
+        self.collector.initialise_logging_indicator("balance", 6)
 
     def get_position(self):
         return self.base_get_position()
@@ -105,11 +119,31 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
         vwap_value, zscore = self.vwap_zscore.update(bar)
         self.current_zscore = zscore
 
-        if self.current_kalman_mean is not None and zscore is not None:
-            if bar.close < vwap_value and bar.close < self.current_kalman_mean:
-                self.check_for_long_trades(bar, zscore)
-            elif bar.close > vwap_value and bar.close > self.current_kalman_mean:
-                self.check_for_short_trades(bar, zscore)
+        if self.prev_close is not None:
+            ret = np.log(float(bar.close) / float(self.prev_close))
+            self.returns_window.append(ret)
+
+            if len(self.returns_window) == self.garch_window:
+                returns_series = pd.Series(self.returns_window)
+                self.garch = GARCH(returns_series, window=self.garch_window)
+                self.garch.fit(p=self.garch_p, q=self.garch_q)
+                self.current_garch_vola = self.garch.result.conditional_volatility.iloc[-1]
+            else:
+                self.current_garch_vola = None
+        else:
+            self.current_garch_vola = None
+
+        if self.current_garch_vola is not None and self.current_garch_vola < self.garch_vola_threshold:
+            if self.current_kalman_mean is not None and zscore is not None:
+                if bar.close < vwap_value and bar.close < self.current_kalman_mean:
+                    self.check_for_long_trades(bar, zscore)
+                elif bar.close > vwap_value and bar.close > self.current_kalman_mean:
+                    self.check_for_short_trades(bar, zscore)
+
+        else:
+            if self.current_garch_vola is not None:
+                self.log.info(f"GARCH-Volatilität {self.current_garch_vola:.2f} über Schwelle {self.garch_vola_threshold}, kein Trade.")
+
 
         self.check_for_long_exit(bar)
         self.check_for_short_exit(bar)
@@ -173,7 +207,7 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
         vwap_value = self.vwap_zscore.current_vwap_value
         kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
 
-
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="garch_volatility", value=self.current_garch_vola)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usd_balance)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
@@ -181,6 +215,8 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_mean", value=kalman_mean)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap", value=vwap_value)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap_zscore", value=self.current_zscore)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="garch_volatility", value=self.current_garch_vola)
+
 
         logging_message = self.collector.save_data()
         self.log.info(logging_message, color=LogColor.GREEN)
@@ -206,7 +242,7 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
             kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
             vwap_value = self.vwap_zscore.current_vwap_value
 
-
+            self.collector.add_indicator(timestamp=bar.ts_event, name="garch_volatility", value=self.current_garch_vola)
             self.log.info(f"VISUAL: ts={bar.ts_event}, close={bar.close}, vwap={vwap_value}, kalman={kalman_mean}")
             self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_mean", value=kalman_mean)
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap", value=vwap_value)
@@ -216,3 +252,4 @@ class Mean3ReversionHTFStrategy(BaseStrategy, Strategy):
             self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance)
             self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_zscore", value=self.current_zscore)
+            self.collector.add_indicator(timestamp=bar.ts_event, name="garch_volatility", value=self.current_garch_vola)
