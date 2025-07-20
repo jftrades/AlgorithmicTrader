@@ -6,9 +6,10 @@ class VWAPZScoreHTF:
     VWAP + Z-Score für Higher Timeframe (z.B. Daily) Bars.
     Kein Nautilus-Intraday-VWAP, sondern eigene Rolling-Berechnung!
     """
-    def __init__(self, zscore_window: int = 60, zscore_entry: float = 1.0, vwap_lookback: int = 20):
+    def __init__(self, zscore_window: int = 60, zscore_entry_long: float = 1.0, zscore_entry_short: float = 1.0, vwap_lookback: int = 20):
         self.zscore_window = zscore_window
-        self.zscore_entry = zscore_entry
+        self.zscore_entry_long = zscore_entry_long
+        self.zscore_entry_long = zscore_entry_short
         self.vwap_lookback = vwap_lookback
         self.price_volume_window = deque(maxlen=vwap_lookback)
         self.volume_window = deque(maxlen=vwap_lookback)
@@ -52,13 +53,3 @@ class VWAPZScoreHTF:
         self.zscore_window = window
         self.vwaps = deque(maxlen=window)
 
-    def get_bands(self, levels=(1, 2)):
-        if len(self.vwaps) < self.zscore_window:
-            return {f"upper_{lvl}": None for lvl in levels} | {f"lower_{lvl}": None for lvl in levels}
-        mean = np.mean(self.vwaps)
-        std = np.std(self.vwaps)
-        bands = {}
-        for lvl in levels:
-            bands[f"upper_{lvl}"] = mean + lvl * std
-            bands[f"lower_{lvl}"] = mean - lvl * std
-        return bands

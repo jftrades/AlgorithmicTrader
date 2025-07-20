@@ -10,7 +10,7 @@ class OrderTypes:
         self.instrument = strategy.instrument
         pass
 
-    def submit_long_market_order(self, quantity: Decimal): 
+    def submit_long_market_order(self, quantity: Decimal, price: Decimal = None): 
         order = self.strategy.order_factory.market(
             instrument_id=self.strategy.instrument_id,
             order_side=OrderSide.BUY,
@@ -21,7 +21,7 @@ class OrderTypes:
         self.strategy.submit_order(order)
         self.strategy.collector.add_trade(order)
     
-    def submit_short_market_order(self, quantity: Decimal): 
+    def submit_short_market_order(self, quantity: Decimal, price: Decimal = None): 
         order = self.strategy.order_factory.market(
             instrument_id=self.strategy.instrument_id,
             order_side=OrderSide.SELL,
