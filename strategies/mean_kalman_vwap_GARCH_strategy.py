@@ -124,7 +124,7 @@ class MeankalmanvwapGARCHStrategy(BaseStrategy, Strategy):
             self.returns_window.append(ret)
 
             if len(self.returns_window) == self.garch_window:
-                returns_series = pd.Series(self.returns_window)
+                returns_series = pd.Series(self.returns_window) * 100
                 self.garch = GARCH(returns_series, window=self.garch_window)
                 self.garch.fit(p=self.garch_p, q=self.garch_q)
                 self.current_garch_vola = self.garch.result.conditional_volatility.iloc[-1]

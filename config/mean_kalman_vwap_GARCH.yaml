@@ -12,19 +12,19 @@ end_date: "2024-12-30T23:59:59Z"
 kalman_process_var: 0.00001
 kalman_measurement_var: 0.01
 kalman_window: 10
-vwap_lookback: 10
-zscore_window: 10
-vwap_zscore_entry_long: [-2]
-vwap_zscore_entry_short: [2.4]
+vwap_lookback: [8, 10, 12]
+zscore_window: [8, 10, 12]
+vwap_zscore_entry_long: [-1.8, -2, -2.2]
+vwap_zscore_entry_short: [2.2, 2.4, 2.6]
 
 # GARCH-Parameter
-garch_window: 500         
+garch_window: 750         
 garch_p: 1                
 garch_q: 1                
-garch_vola_threshold: 2.0
+garch_vola_threshold: 2.5
 
 # Risk-Parameter
-trade_size: 1
+trade_size: 5
 close_positions_on_stop: true
 risk_percent: 0.01
 max_leverage: 2
