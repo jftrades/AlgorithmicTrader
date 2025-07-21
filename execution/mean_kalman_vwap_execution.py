@@ -7,7 +7,7 @@ from tools.help_funcs.yaml_loader import load_params
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.backtest.config import BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig, BacktestRunConfig
 from nautilus_trader.trading.config import ImportableStrategyConfig
-from tools.help_funcs.help_funcs_execution import run_backtest, extract_metrics, visualize_existing_run
+from tools.help_funcs.help_funcs_execution import run_backtest, extract_metrics, visualize_existing_run, show_quantstats_report
 import shutil
 import yaml
 import copy
@@ -165,6 +165,19 @@ if sharpe_col in df.columns:
         print(f"Starte Visualisierung für besten Run-Ordner: {best_run_dir} (Sharpe: {df.loc[best_idx, sharpe_col]})")
         from tools.help_funcs.help_funcs_execution import visualize_existing_run
         visualize_existing_run(best_run_dir)
+
+        balance_path = best_run_dir / "indicators" / "balance.csv"
+        if balance_path.exists():
+            balance_df = pd.read_csv(balance_path)
+            equity_series = pd.Series(
+                balance_df["value"].values,
+                index=pd.to_datetime(balance_df["timestamp"])
+            )
+            # Speichere Report direkt im Run-Ordner
+            report_path = best_run_dir / "quantstats_report.html"
+            show_quantstats_report(equity_series, title="QuantStats Report (Bester Run)", output_path=report_path)
+        else:
+            print(f"Balance-Kurve nicht gefunden unter {balance_path}, QuantStats Report wird übersprungen.")
     else:
         print(f"FEHLER: Kein passender Run-Ordner mit Prefix {run_prefix} gefunden!")
 else:

@@ -4,6 +4,8 @@ import time
 import pandas as pd
 import re
 from pathlib import Path
+import quantstats as qs
+import webbrowser, os
 
 # Nautilus Kern Importe
 from nautilus_trader.backtest.node import BacktestNode
@@ -133,4 +135,23 @@ def run_backtest_and_visualize(run_config, data_path=None, TradingDashboard=None
 
     return results
 
+def show_quantstats_report(equity_series, benchmark=None, title="QuantStats Report", output_path="quantstats_report.html"):
+    # Resample auf Tagesbasis und berechne tägliche Returns
+    equity_daily = equity_series.resample('1D').last().dropna()
+    returns = equity_daily.pct_change().dropna()
+
+    # Optional: Benchmark-Returns
+    benchmark_returns = None
+    if benchmark is not None:
+        benchmark_daily = benchmark.resample('1D').last().dropna()
+        benchmark_returns = benchmark_daily.pct_change().dropna()
+
+    # Erstelle Report
+    qs.reports.html(
+        returns,
+        benchmark=benchmark_returns,
+        output=str(output_path),
+        title=title
+    )
+    webbrowser.open_new_tab('file://' + os.path.abspath(str(output_path)))
 

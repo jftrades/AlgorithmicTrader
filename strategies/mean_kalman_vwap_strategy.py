@@ -38,7 +38,7 @@ from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
 class MeankalmanvwapStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: str 
-    trade_size: Decimal
+    trade_size_usd: Decimal
     risk_percent: float
     max_leverage: float
     min_account_balance: float
@@ -55,7 +55,7 @@ class MeankalmanvwapStrategy(BaseStrategy, Strategy):
     def __init__(self, config:MeankalmanvwapStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
-        self.trade_size = config.trade_size
+        self.trade_size_usd = config.trade_size_usd
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
         self.risk_manager = None
@@ -121,14 +121,18 @@ class MeankalmanvwapStrategy(BaseStrategy, Strategy):
         self.prev_zscore = zscore
 
     def check_for_long_trades(self, bar: Bar, zscore: float):
+        trade_size_usd = self.config.trade_size_usd
+        qty = max(1, int(float(trade_size_usd) // float(bar.close)))
         zscore_entry_long = self.config.vwap_zscore_entry_long
         if self.prev_zscore is not None and self.prev_zscore > zscore_entry_long and zscore < zscore_entry_long:
-            self.order_types.submit_long_market_order(self.config.trade_size, price=bar.close)
+            self.order_types.submit_long_market_order(qty, price=bar.close)
 
     def check_for_short_trades(self, bar: Bar, zscore: float):
+        trade_size_usd = self.config.trade_size_usd
+        qty = max(1, int(float(trade_size_usd) // float(bar.close)))
         zscore_entry_short = self.config.vwap_zscore_entry_short
         if self.prev_zscore is not None and self.prev_zscore <= zscore_entry_short and zscore > zscore_entry_short:
-            self.order_types.submit_short_market_order(self.config.trade_size, price=bar.close)
+            self.order_types.submit_short_market_order(qty, price=bar.close)
 
     def check_for_long_exit(self, bar):
         kalman_mean = self.kalman.mean
@@ -170,11 +174,17 @@ class MeankalmanvwapStrategy(BaseStrategy, Strategy):
             unrealized_pnl = None
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
-        usd_balance = account.balances_total()
+        usd_balance = account.balance_total()
+        if hasattr(usd_balance, "as_double"):
+            usd_balance_val = usd_balance.as_double()
+        elif isinstance(usd_balance, dict):
+            usd_balance_val = usd_balance.get("value", 0)
+        else:
+            usd_balance_val = float(usd_balance) if usd_balance is not None else 0
         vwap_value = self.vwap_zscore.current_vwap_value
         kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
 
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usd_balance.as_double())
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usd_balance_val)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
@@ -202,6 +212,12 @@ class MeankalmanvwapStrategy(BaseStrategy, Strategy):
             venue = self.instrument_id.venue
             account = self.portfolio.account(venue)
             usd_balance = account.balance_total()
+            if hasattr(usd_balance, "as_double"):
+                usd_balance_val = usd_balance.as_double()
+            elif isinstance(usd_balance, dict):
+                usd_balance_val = usd_balance.get("value", 0)
+            else:
+                usd_balance_val = float(usd_balance) if usd_balance is not None else 0
             
             kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
             vwap_value = self.vwap_zscore.current_vwap_value
@@ -212,6 +228,6 @@ class MeankalmanvwapStrategy(BaseStrategy, Strategy):
             self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
             self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
             self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl else None)
-            self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance.as_double())
+            self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance_val)
             self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_zscore", value=self.current_zscore)

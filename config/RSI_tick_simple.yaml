@@ -15,7 +15,7 @@ rsi_overbought: [0.75]
 rsi_oversold: [0.25]
 
 # Risk-Parameter
-trade_size: [0.5]
+trade_size_usdt: 1000
 close_positions_on_stop: [true]
 risk_percent: 0.01
 max_leverage: 2

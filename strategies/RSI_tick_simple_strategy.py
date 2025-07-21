@@ -35,7 +35,7 @@ from nautilus_trader.model.objects import Currency
 
 class RSITickSimpleStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
-    trade_size: Decimal
+    trade_size_usdt: Decimal
     risk_percent: float
     max_leverage: float
     min_account_balance: float
@@ -50,7 +50,7 @@ class RSITickSimpleStrategy(BaseStrategy, Strategy):
     def __init__(self, config: RSITickSimpleStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
-        self.trade_size = config.trade_size
+        self.trade_size_usdt = config.trade_size_usdt
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
         self.risk_manager = None
@@ -112,6 +112,8 @@ class RSITickSimpleStrategy(BaseStrategy, Strategy):
         
 
     def on_trade_tick(self, tick: TradeTick) -> None:  
+        trade_size_usdt = float(self.config.trade_size_usdt)
+        qty = max(1, int(trade_size_usdt // float(tick.close)))
         rsi_value = self.rsi.value if self.rsi.initialized else None
         if rsi_value is None:
             return  # RSI noch nicht initialisiert, daher keine Logik ausführen
@@ -129,12 +131,12 @@ class RSITickSimpleStrategy(BaseStrategy, Strategy):
         if rsi_value > self.rsi_overbought:
             if self.last_rsi_cross != "rsi_overbought":
                 self.close_position()
-                self.order_types.submit_short_market_order(self.config.trade_size)
+                self.order_types.submit_short_market_order(qty)
             self.last_rsi_cross = "rsi_overbought"
         elif rsi_value < self.rsi_oversold:
             if self.last_rsi_cross != "rsi_oversold":
                 self.close_position()
-                self.order_types.submit_long_market_order(self.config.trade_size)
+                self.order_types.submit_long_market_order(qty)
             self.last_rsi_cross = "rsi_oversold"
 
         venue = self.instrument_id.venue

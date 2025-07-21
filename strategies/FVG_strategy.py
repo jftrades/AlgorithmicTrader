@@ -38,7 +38,7 @@ sys.path.append(str(project_root))
 class FVGStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: BarType
-    trade_size: Decimal
+    trade_size_usdt: Decimal
     risk_percent: float
     max_leverage: float
     min_account_balance: float
@@ -52,7 +52,7 @@ class FVGStrategy(BaseStrategy, Strategy):
         super().__init__(config)
         self.instrument_id = config.instrument_id
         self.venue = self.instrument_id.venue
-        self.trade_size = config.trade_size
+        self.trade_size_usdt = config.trade_size_usdt
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
         self.risk_manager = None

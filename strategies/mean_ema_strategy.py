@@ -35,7 +35,7 @@ from collections import deque
 class MeanemaStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: str 
-    trade_size: Decimal
+    trade_size_usd: Decimal
     fast_ema_period: int
     slow_ema_period: int
     risk_percent: float
@@ -49,7 +49,7 @@ class MeanemaStrategy(BaseStrategy, Strategy):
     def __init__(self, config:MeanemaStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
-        self.trade_size = config.trade_size
+        self.trade_size_usd = config.trade_size_usd
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
         self.risk_manager = None
@@ -114,6 +114,8 @@ class MeanemaStrategy(BaseStrategy, Strategy):
         self.update_visualizer_data(bar)
 
     def long_logic (self, bar):
+        trade_size_usd = float(self.config.trade_size_usd)
+        qty = max(1, int(float(trade_size_usd) // float(bar.close)))
         if len(self.last_under_fast_ema) == self.min_bars_under_fast_ema:
             if (
                 self.prev_close is not None
@@ -122,7 +124,7 @@ class MeanemaStrategy(BaseStrategy, Strategy):
                 and bar.close >= self.fast_ema.value
                 and all(self.last_under_fast_ema)
             ):
-                self.order_types.submit_long_market_order(self.config.trade_size)
+                self.order_types.submit_long_market_order(qty)
                 self.log.info("Long-Order submitted!")
 
         if self.fast_ema.value is not None and self.prev_close is not None:
@@ -130,6 +132,8 @@ class MeanemaStrategy(BaseStrategy, Strategy):
         self.prev_close = bar.close
         
     def short_logic (self, bar):
+        trade_size_usd = float(self.config.trade_size_usd)
+        qty = max(1, int(float(trade_size_usd) // float(bar.close)))
         if len(self.last_over_fast_ema) == self.min_bars_over_fast_ema:
             if (
                 self.prev_close is not None
@@ -138,7 +142,7 @@ class MeanemaStrategy(BaseStrategy, Strategy):
                 and bar.close <= self.fast_ema.value
                 and all(self.last_over_fast_ema)
             ):
-                self.order_types.submit_short_market_order(self.config.trade_size)
+                self.order_types.submit_short_market_order(qty)
                 self.log.info("Short-Order submitted!")
 
         if self.fast_ema.value is not None and self.prev_close is not None:

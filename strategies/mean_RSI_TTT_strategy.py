@@ -35,7 +35,7 @@ from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 class MeanRSITTTStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: str 
-    trade_size: Decimal
+    trade_size_usd: Decimal
     rsi_period: int
     rsi_overbought: float
     rsi_oversold: float
@@ -52,7 +52,7 @@ class MeanRSITTTStrategy(BaseStrategy, Strategy):
     def __init__(self, config:MeanRSITTTStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
-        self.trade_size = config.trade_size
+        self.trade_size_usd = config.trade_size_usd
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
         self.risk_manager = None

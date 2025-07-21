@@ -39,7 +39,7 @@ from tools.indicators.GARCH import GARCH
 class MeankalmanvwapGARCHStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: str 
-    trade_size: Decimal
+    trade_size_usd: Decimal
     risk_percent: float
     max_leverage: float
     min_account_balance: float
@@ -60,7 +60,7 @@ class MeankalmanvwapGARCHStrategy(BaseStrategy, Strategy):
     def __init__(self, config:MeankalmanvwapGARCHStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
-        self.trade_size = config.trade_size
+        self.trade_size_usd = config.trade_size_usd
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
         self.risk_manager = None
@@ -154,14 +154,18 @@ class MeankalmanvwapGARCHStrategy(BaseStrategy, Strategy):
         self.prev_zscore = zscore
 
     def check_for_long_trades(self, bar: Bar, zscore: float):
+        trade_size_usd = self.config.trade_size_usd
+        qty = max(1, int(float(trade_size_usd) // float(bar.close)))
         zscore_entry_long = self.config.vwap_zscore_entry_long
         if self.prev_zscore is not None and self.prev_zscore > zscore_entry_long and zscore < zscore_entry_long:
-            self.order_types.submit_long_market_order(self.config.trade_size, price=bar.close)
+            self.order_types.submit_long_market_order(qty, price=bar.close)
 
     def check_for_short_trades(self, bar: Bar, zscore: float):
+        trade_size_usd = self.config.trade_size_usd
+        qty = max(1, int(float(trade_size_usd) // float(bar.close)))
         zscore_entry_short = self.config.vwap_zscore_entry_short
         if self.prev_zscore is not None and self.prev_zscore <= zscore_entry_short and zscore > zscore_entry_short:
-            self.order_types.submit_short_market_order(self.config.trade_size, price=bar.close)
+            self.order_types.submit_short_market_order(qty, price=bar.close)
 
     def check_for_long_exit(self, bar):
         kalman_mean = self.kalman.mean

@@ -16,7 +16,7 @@ min_bars_over_fast_ema: [9,10,11]
 
 
 # Risk-Parameter
-trade_size: [0.5]
+trade_size_usd: 1000
 close_positions_on_stop: [true]
 risk_percent: 0.01
 max_leverage: 2

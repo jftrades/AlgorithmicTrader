@@ -13,7 +13,7 @@ fvg_min_size: 0.0005
 fvg_lookback: 3
 
 # Risk-Parameter
-trade_size: [0.5]
+# trade_size_usdt: 1000
 close_positions_on_stop: [true]
 risk_percent: 0.01
 max_leverage: 2

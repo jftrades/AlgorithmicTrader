@@ -53,7 +53,7 @@ from tools.order_management.risk_manager import RiskManager
 class EMACrossTWAPConfig(StrategyConfig, frozen=True):
     instrument_id: InstrumentId
     bar_type: BarType
-    trade_size: Decimal
+    trade_size_usdt: Decimal
     fast_ema_period: int
     slow_ema_period: int
     twap_horizon_secs: float
@@ -70,7 +70,7 @@ class EMACrossTWAP(BaseStrategy, Strategy):
         super().__init__(config)
         self.collector = BacktestDataCollector()
         self.instrument_id = config.instrument_id
-        self.trade_size = config.trade_size
+        self.trade_size_usdt = config.trade_size_usdt
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
         self.risk_manager = None
@@ -203,11 +203,15 @@ class EMACrossTWAP(BaseStrategy, Strategy):
     def on_order_filled(self, order_filled) -> None:
         ret = self.collector.add_trade_details(order_filled)
     
-    def buy(self) -> None:
-        self.order_types.submit_long_market_order(self.config.trade_size)
+    def buy(self, bar: Bar) -> None:
+        trade_size_usdt = float(self.config.trade_size_usdt)
+        qty = max(1, int(float(trade_size_usdt) // float(bar.close)))
+        self.order_types.submit_long_market_order(qty)
 
-    def sell(self) -> None:
-        self.order_types.submit_short_market_order(self.config.trade_size)
+    def sell(self, bar: Bar) -> None:
+        trade_size_usdt = float(self.config.trade_size_usdt)
+        qty = max(1, int(float(trade_size_usdt) // float(bar.close)))
+        self.order_types.submit_short_market_order(qty)
 
     def on_data(self, data: Data) -> None:
         pass

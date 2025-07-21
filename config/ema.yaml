@@ -15,7 +15,7 @@ twap_horizon_secs: [25, 30]
 twap_interval_secs: [2, 5]
 
 # Risk-Parameter
-trade_size: [0.5]
+trade_size_usdt: 1000
 close_positions_on_stop: [true]
 risk_percent: 0.01
 max_leverage: 2
