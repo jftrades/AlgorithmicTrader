@@ -1,4 +1,3 @@
-###
 import itertools
 import pandas as pd
 import uuid
@@ -15,7 +14,7 @@ from glob import glob
 import os
 
 # Parameter laden
-yaml_path = str(Path(__file__).resolve().parents[1] / "config" / "mean_kalman_vwap.yaml")
+yaml_path = str(Path(__file__).resolve().parents[1] / "config" / "mean_kalman_vwap_2TFs.yaml")
 params = load_params(yaml_path)
 
 param_grid = {k: v for k, v in params.items() if isinstance(v, list)}
@@ -32,6 +31,7 @@ venue = Venue(params["venue"])
 instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = params["instrument_id"]
 bar_type = params["bar_type"]
+bar_type_1h = params ["bar_type_1h"]
 risk_percent = params["risk_percent"]
 max_leverage = params["max_leverage"]
 min_account_balance = params["min_account_balance"]
@@ -42,7 +42,7 @@ catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE"
 data_config = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:Bar",
     catalog_path=catalog_path,
-    bar_types=[bar_type],
+    bar_types=[bar_type, bar_type_1h],
     instrument_ids=[instrument_id_str]
 )
 
@@ -82,8 +82,8 @@ for i, combination in enumerate(itertools.product(*values)):
 
     # StrategyConfig 
     strategy_config = ImportableStrategyConfig(
-        strategy_path="strategies.mean_kalman_vwap_strategy:MeankalmanvwapStrategy",
-        config_path="strategies.mean_kalman_vwap_strategy:MeankalmanvwapStrategyConfig",
+        strategy_path="strategies.mean_kalman_vwap_2TFs_strategy:Meankalmanvwap2TFsStrategy",
+        config_path="strategies.mean_kalman_vwap_2TFs_strategy:Meankalmanvwap2TFsStrategyConfig",
         config=config_params
     )
 
@@ -163,26 +163,6 @@ if sharpe_col in df.columns:
     if candidates:
         best_run_dir = results_dir / candidates[0]
         print(f"Starte Visualisierung für besten Run-Ordner: {best_run_dir} (Sharpe: {df.loc[best_idx, sharpe_col]})")
-
-        # indicators_dir = best_run_dir / "indicators"
-        # balance_csv = indicators_dir / "balance.csv"
-        # realized_pnl_csv = indicators_dir / "realized_pnl.csv"
-        # unrealized_pnl_csv = indicators_dir / "unrealized_pnl.csv"
-
-        # if balance_csv.exists() and realized_pnl_csv.exists() and unrealized_pnl_csv.exists():
-        #     qs_dir = best_run_dir / "quantstats"
-        #     qs_dir.mkdir(exist_ok=True)
-        #     report_path = qs_dir / "quantstats_report.html"
-        #     show_quantstats_report_from_csv(
-        #         str(balance_csv),
-        #         str(realized_pnl_csv),
-        #         str(unrealized_pnl_csv),
-        #         title="QuantStats Report (Bester Run)",
-        #         output_path=report_path
-        #     )
-        # else:
-        #     print("FEHLER: Mindestens eine der benötigten CSVs (balance, realized_pnl, unrealized_pnl) fehlt im besten Run-Ordner!")
-        #     print("Verfügbare Dateien:", list(best_run_dir.glob('*')))
         visualize_existing_run(best_run_dir)
     else:
         print(f"FEHLER: Kein passender Run-Ordner mit Prefix {run_prefix} gefunden!")

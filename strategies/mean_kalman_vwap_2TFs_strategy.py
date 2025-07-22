@@ -1,3 +1,9 @@
+# Roadmap:
+# 1. Kalman Mean 10d oder Residual-Based Mean (Regression SPY vs Sektoren) als MEAN
+# 2. 5d VWAP mit Z- Score aus nur RTH bars (diese auch gerade auf meinem rechner) -> da ETH sonst Ergebnis verfälscht (vllt auch feiner VWAP aus m bars)
+# 3. GARCH (generalized autoregressive conditional heteroscedasticity) um nicht das "fallende Messer" zu kaufen 
+# 4. wenn GARCH wieder stabil/ sich beruhigt + VWAP Z-Score passt -> Trade
+# 5. Long Exit z.B. bis mean halten & Short Exit z.B. an Z-Scores partially auflösen
 
 # Standard Library Importe
 from decimal import Decimal
@@ -29,7 +35,7 @@ from collections import deque
 from tools.indicators.kalman_filter_1D import KalmanFilter1D
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
 
-class MeankalmanvwapStrategyConfig(StrategyConfig):
+class Meankalmanvwap2TFsStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: str 
     trade_size_usd: Decimal
@@ -45,8 +51,8 @@ class MeankalmanvwapStrategyConfig(StrategyConfig):
     kalman_window: int
     close_positions_on_stop: bool = True
 
-class MeankalmanvwapStrategy(BaseStrategy, Strategy):
-    def __init__(self, config:MeankalmanvwapStrategyConfig):
+class Meankalmanvwap2TFsStrategy(BaseStrategy, Strategy):
+    def __init__(self, config:Meankalmanvwap2TFsStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
         self.trade_size_usd = config.trade_size_usd
@@ -54,6 +60,7 @@ class MeankalmanvwapStrategy(BaseStrategy, Strategy):
         self.venue = self.instrument_id.venue
         self.risk_manager = None
         self.bar_type = BarType.from_str(config.bar_type)
+        self.bar_type_1h = BarType.from_str("SPY.ARCA-1-HOUR-LAST-EXTERNAL")
         self.zscore_neutral_counter = 3
         self.prev_zscore = None
         self.current_kalman_mean = None
@@ -73,6 +80,7 @@ class MeankalmanvwapStrategy(BaseStrategy, Strategy):
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
         self.subscribe_bars(self.bar_type)
+        self.subscribe_bars(self.bar_type_1h)
         self.log.info("Strategy started!")
 
         self.risk_manager = RiskManager(
@@ -96,23 +104,27 @@ class MeankalmanvwapStrategy(BaseStrategy, Strategy):
         return self.base_get_position()
     
     def on_bar(self, bar: Bar) -> None:
-        self.current_kalman_mean = self.kalman.update(float(bar.close))
-        vwap_value, zscore = self.vwap_zscore.update(bar)
-        self.current_zscore = zscore
 
-        if self.current_kalman_mean is not None and zscore is not None:
-            if bar.close < vwap_value and bar.close < self.current_kalman_mean:
-                self.check_for_long_trades(bar, zscore)
-            elif bar.close > vwap_value and bar.close > self.current_kalman_mean:
-                self.check_for_short_trades(bar, zscore)
+        if bar.bar_type == self.bar_type:
+            self.current_kalman_mean = self.kalman.update(float(bar.close))
 
-        self.check_for_long_exit(bar)
-        self.check_for_short_exit(bar)
-            
-        self.update_visualizer_data(bar)
+        if bar.bar_type == self.bar_type_1h:
+            vwap_value, zscore = self.vwap_zscore.update(bar)
+            self.current_zscore = zscore
 
-        self.prev_close = bar.close
-        self.prev_zscore = zscore
+            # Grundbedingung: Long nur unter, Short nur über Kalman-Mean
+            if self.current_kalman_mean is not None and zscore is not None:
+                if bar.close < vwap_value and bar.close < self.current_kalman_mean:
+                    self.check_for_long_trades(bar, zscore)
+                elif bar.close > vwap_value and bar.close > self.current_kalman_mean:
+                    self.check_for_short_trades(bar, zscore)
+
+            self.check_for_long_exit(bar)
+            self.check_for_short_exit(bar)
+            self.update_visualizer_data(bar)
+
+            self.prev_close = bar.close
+            self.prev_zscore = zscore
 
     def check_for_long_trades(self, bar: Bar, zscore: float):
         trade_size_usd = self.config.trade_size_usd
@@ -200,7 +212,7 @@ class MeankalmanvwapStrategy(BaseStrategy, Strategy):
         return self.base_on_error(error)
 
     def update_visualizer_data(self, bar: Bar) -> None:
-        if bar.bar_type == self.bar_type:
+        if bar.bar_type == self.bar_type_1h:
             net_position = self.portfolio.net_position(self.instrument_id)
             unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
             venue = self.instrument_id.venue
@@ -225,3 +237,5 @@ class MeankalmanvwapStrategy(BaseStrategy, Strategy):
             self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance_val)
             self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_zscore", value=self.current_zscore)
+        elif bar.bar_type == self.bar_type:
+            pass

@@ -3,8 +3,9 @@ import sys
 import time
 import pandas as pd
 import re
+import numpy as np
 from pathlib import Path
-import quantstats as qs
+# import quantstats as qs
 import webbrowser, os
 
 # Nautilus Kern Importe
@@ -135,23 +136,49 @@ def run_backtest_and_visualize(run_config, data_path=None, TradingDashboard=None
 
     return results
 
-def show_quantstats_report(equity_series, benchmark=None, title="QuantStats Report", output_path="quantstats_report.html"):
-    # Resample auf Tagesbasis und berechne tägliche Returns
-    equity_daily = equity_series.resample('1D').last().dropna()
-    returns = equity_daily.pct_change().dropna()
 
-    # Optional: Benchmark-Returns
-    benchmark_returns = None
-    if benchmark is not None:
-        benchmark_daily = benchmark.resample('1D').last().dropna()
-        benchmark_returns = benchmark_daily.pct_change().dropna()
-
-    # Erstelle Report
-    qs.reports.html(
-        returns,
-        benchmark=benchmark_returns,
-        output=str(output_path),
-        title=title
-    )
-    webbrowser.open_new_tab('file://' + os.path.abspath(str(output_path)))
-
+# def quantstats_equity_curve_from_csv(balance_csv, realized_pnl_csv, unrealized_pnl_csv):
+#     # Einlesen
+#     balance = pd.read_csv(balance_csv, usecols=["timestamp", "value"])
+#     realized = pd.read_csv(realized_pnl_csv, usecols=["timestamp", "value"])
+#     unrealized = pd.read_csv(unrealized_pnl_csv, usecols=["timestamp", "value"])
+#
+#     # Alle Zeitstempel vereinheitlichen (Union statt Intersection)
+#     all_timestamps = pd.Index(sorted(set(balance["timestamp"]) | set(realized["timestamp"]) | set(unrealized["timestamp"])))
+#     balance_series = pd.Series(balance["value"].values, index=balance["timestamp"].values).reindex(all_timestamps, fill_value=0)
+#     realized_series = pd.Series(realized["value"].fillna(0).values, index=realized["timestamp"].values).reindex(all_timestamps, fill_value=0)
+#     unrealized_series = pd.Series(unrealized["value"].fillna(0).values, index=unrealized["timestamp"].values).reindex(all_timestamps, fill_value=0)
+#
+#     # Equity berechnen
+#     equity = balance_series.astype(float) + realized_series.astype(float) + unrealized_series.astype(float)
+#     equity.index = pd.to_datetime(equity.index, unit="ns")
+#     equity.name = "equity"
+#     return equity
+#
+# def show_quantstats_report_from_csv(balance_csv, realized_pnl_csv, unrealized_pnl_csv, title="QuantStats Report", output_path="quantstats_report.html"):
+#     equity = quantstats_equity_curve_from_csv(balance_csv, realized_pnl_csv, unrealized_pnl_csv)
+#     equity = equity[~equity.index.duplicated(keep='first')]
+#     if isinstance(equity, pd.DataFrame):
+#         equity = equity.iloc[:, 0]
+#     returns = equity.pct_change().dropna().astype(float)
+#     returns.index.name = None
+#     returns.name = None
+#
+#     # Check: Returns dürfen nicht leer oder konstant sein!
+#     if returns.empty or (returns == 0).all():
+#         print("WARNUNG: Die Returns-Serie ist leer oder konstant. Kein QuantStats-Report möglich.")
+#         return
+#
+#     if not isinstance(returns.index, pd.DatetimeIndex):
+#         raise ValueError("Index von returns ist kein DatetimeIndex!")
+#     if not returns.index.is_unique:
+#         raise ValueError("Index von returns ist nicht eindeutig!")
+#
+#     try:
+#         dummy_returns = pd.Series(np.random.normal(0, 0.01, 100), index=pd.date_range("2020-01-01", periods=100))
+#         qs.reports.full(dummy_returns, title="Dummy Report", output="dummy_report.html")
+#         abs_path = os.path.abspath(str(output_path))
+#         if os.path.exists(abs_path):
+#             webbrowser.open_new_tab('file://' + abs_path)
+#     except Exception as e:
+#         print("FEHLER beim Erstellen des QuantStats-Reports:", e)
