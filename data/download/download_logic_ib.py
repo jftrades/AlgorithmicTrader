@@ -20,7 +20,7 @@ async def download__ib_historical_data():
 
     # Define contracts
     contracts = [
-        IBContract(secType="STK", symbol="SPY", exchange="SMART", primaryExchange="ARCA"),
+        IBContract(secType="IND", symbol="VIX", exchange="CBOE", primaryExchange="CBOE"),
     ]
 
     # Request instruments
@@ -28,7 +28,7 @@ async def download__ib_historical_data():
 
     # Request historical bars
     bars = await client.request_bars(
-        bar_specifications=["5-MINUTE-LAST"],
+        bar_specifications=["1-HOUR-LAST"],
         start_date_time=datetime.datetime(2008, 1, 1, 9, 30),
         end_date_time=datetime.datetime(2025, 1, 1, 16, 30),
         tz_name="America/New_York",

@@ -7,7 +7,7 @@ bar_type_1h: "SPY.ARCA-1-HOUR-LAST-EXTERNAL"
 
 # Backtest-Zeitraum
 start_date: "2008-01-01T00:00:00Z"
-end_date: "2024-12-30T23:59:59Z"
+end_date: "2024-09-30T23:59:59Z"
 
 # Strategie-Parameter
 kalman_process_var: 0.00001
@@ -15,11 +15,11 @@ kalman_measurement_var: 0.01
 kalman_window: 10
 vwap_lookback: [35]
 zscore_window: [35]
-vwap_zscore_entry_long: [-1.5]
+vwap_zscore_entry_long: [-1.6]
 vwap_zscore_entry_short: [2]
 
 # Risk-Parameter
-trade_size_usd: 20000
+trade_size_usd: 200000
 close_positions_on_stop: true
 risk_percent: 0.01
 max_leverage: 2
