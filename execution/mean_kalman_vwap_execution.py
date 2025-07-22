@@ -7,12 +7,14 @@ from tools.help_funcs.yaml_loader import load_params
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.backtest.config import BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig, BacktestRunConfig
 from nautilus_trader.trading.config import ImportableStrategyConfig
-from tools.help_funcs.help_funcs_execution import run_backtest, extract_metrics, visualize_existing_run # show_quantstats_report_from_csv
+from tools.help_funcs.help_funcs_execution import run_backtest, extract_metrics, visualize_existing_run, export_equity_curve, show_quantstats_report_from_equity_csv
 import shutil
 import yaml
 import copy
 from glob import glob
 import os
+import webbrowser
+import quantstats as qs
 
 # Parameter laden
 yaml_path = str(Path(__file__).resolve().parents[1] / "config" / "mean_kalman_vwap.yaml")
@@ -118,6 +120,8 @@ for i, combination in enumerate(itertools.product(*values)):
     except Exception as e:
         print(f"Fehler beim Kopieren der Run-Daten: {e}")
 
+    export_equity_curve(tmp_run_dir) # NEUUUE help func
+
 # Nach allen Runs:
 for run_id, tmp_run_dir in run_dirs:
     final_run_dir = results_dir / run_id
@@ -164,25 +168,18 @@ if sharpe_col in df.columns:
         best_run_dir = results_dir / candidates[0]
         print(f"Starte Visualisierung für besten Run-Ordner: {best_run_dir} (Sharpe: {df.loc[best_idx, sharpe_col]})")
 
-        # indicators_dir = best_run_dir / "indicators"
-        # balance_csv = indicators_dir / "balance.csv"
-        # realized_pnl_csv = indicators_dir / "realized_pnl.csv"
-        # unrealized_pnl_csv = indicators_dir / "unrealized_pnl.csv"
-
-        # if balance_csv.exists() and realized_pnl_csv.exists() and unrealized_pnl_csv.exists():
-        #     qs_dir = best_run_dir / "quantstats"
-        #     qs_dir.mkdir(exist_ok=True)
-        #     report_path = qs_dir / "quantstats_report.html"
-        #     show_quantstats_report_from_csv(
-        #         str(balance_csv),
-        #         str(realized_pnl_csv),
-        #         str(unrealized_pnl_csv),
-        #         title="QuantStats Report (Bester Run)",
-        #         output_path=report_path
-        #     )
-        # else:
-        #     print("FEHLER: Mindestens eine der benötigten CSVs (balance, realized_pnl, unrealized_pnl) fehlt im besten Run-Ordner!")
-        #     print("Verfügbare Dateien:", list(best_run_dir.glob('*')))
+        # Minimaler QuantStats-Report direkt aus Equity
+        equity_path = best_run_dir / "indicators" / "equity.csv"
+        if equity_path.exists():
+            show_quantstats_report_from_equity_csv(
+                equity_csv=best_run_dir / "indicators" / "equity.csv",
+                benchmark_symbol=params["symbol"],  # z.B. "SPY"
+                output_path=best_run_dir / "quantstats_report.html"
+            )
+            webbrowser.open_new_tab(str((best_run_dir / "quantstats_report.html").resolve()))
+        else:
+            print("FEHLER: equity.csv nicht gefunden! Export/Logging prüfen.")
+            
         visualize_existing_run(best_run_dir)
     else:
         print(f"FEHLER: Kein passender Run-Ordner mit Prefix {run_prefix} gefunden!")

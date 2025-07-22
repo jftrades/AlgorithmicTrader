@@ -5,8 +5,10 @@ import pandas as pd
 import re
 import numpy as np
 from pathlib import Path
-# import quantstats as qs
+import quantstats as qs
 import webbrowser, os
+import glob
+import json
 
 # Nautilus Kern Importe
 from nautilus_trader.backtest.node import BacktestNode
@@ -136,49 +138,31 @@ def run_backtest_and_visualize(run_config, data_path=None, TradingDashboard=None
 
     return results
 
+def export_equity_curve(run_dir):
+    equity_path = run_dir / "indicators" / "equity.csv"
+    try:
+        balance_df = pd.read_csv(run_dir / "indicators" / "balance.csv", usecols=["timestamp", "value"])
+        unrealized_df = pd.read_csv(run_dir / "indicators" / "unrealized_pnl.csv", usecols=["timestamp", "value"])
+        merged = pd.merge(balance_df, unrealized_df, on="timestamp", suffixes=("_balance", "_unrealized"), how="outer").fillna(0)
+        merged["equity"] = merged["value_balance"].astype(float) + merged["value_unrealized"].astype(float)
+        merged[["timestamp", "equity"]].to_csv(equity_path, index=False)
+        print(f"Echte Equity-Kurve exportiert: {equity_path}")
+    except Exception as e:
+        print(f"Equity-Export fehlgeschlagen: {e}")
 
-# def quantstats_equity_curve_from_csv(balance_csv, realized_pnl_csv, unrealized_pnl_csv):
-#     # Einlesen
-#     balance = pd.read_csv(balance_csv, usecols=["timestamp", "value"])
-#     realized = pd.read_csv(realized_pnl_csv, usecols=["timestamp", "value"])
-#     unrealized = pd.read_csv(unrealized_pnl_csv, usecols=["timestamp", "value"])
-#
-#     # Alle Zeitstempel vereinheitlichen (Union statt Intersection)
-#     all_timestamps = pd.Index(sorted(set(balance["timestamp"]) | set(realized["timestamp"]) | set(unrealized["timestamp"])))
-#     balance_series = pd.Series(balance["value"].values, index=balance["timestamp"].values).reindex(all_timestamps, fill_value=0)
-#     realized_series = pd.Series(realized["value"].fillna(0).values, index=realized["timestamp"].values).reindex(all_timestamps, fill_value=0)
-#     unrealized_series = pd.Series(unrealized["value"].fillna(0).values, index=unrealized["timestamp"].values).reindex(all_timestamps, fill_value=0)
-#
-#     # Equity berechnen
-#     equity = balance_series.astype(float) + realized_series.astype(float) + unrealized_series.astype(float)
-#     equity.index = pd.to_datetime(equity.index, unit="ns")
-#     equity.name = "equity"
-#     return equity
-#
-# def show_quantstats_report_from_csv(balance_csv, realized_pnl_csv, unrealized_pnl_csv, title="QuantStats Report", output_path="quantstats_report.html"):
-#     equity = quantstats_equity_curve_from_csv(balance_csv, realized_pnl_csv, unrealized_pnl_csv)
-#     equity = equity[~equity.index.duplicated(keep='first')]
-#     if isinstance(equity, pd.DataFrame):
-#         equity = equity.iloc[:, 0]
-#     returns = equity.pct_change().dropna().astype(float)
-#     returns.index.name = None
-#     returns.name = None
-#
-#     # Check: Returns dürfen nicht leer oder konstant sein!
-#     if returns.empty or (returns == 0).all():
-#         print("WARNUNG: Die Returns-Serie ist leer oder konstant. Kein QuantStats-Report möglich.")
-#         return
-#
-#     if not isinstance(returns.index, pd.DatetimeIndex):
-#         raise ValueError("Index von returns ist kein DatetimeIndex!")
-#     if not returns.index.is_unique:
-#         raise ValueError("Index von returns ist nicht eindeutig!")
-#
-#     try:
-#         dummy_returns = pd.Series(np.random.normal(0, 0.01, 100), index=pd.date_range("2020-01-01", periods=100))
-#         qs.reports.full(dummy_returns, title="Dummy Report", output="dummy_report.html")
-#         abs_path = os.path.abspath(str(output_path))
-#         if os.path.exists(abs_path):
-#             webbrowser.open_new_tab('file://' + abs_path)
-#     except Exception as e:
-#         print("FEHLER beim Erstellen des QuantStats-Reports:", e)
+def show_quantstats_report_from_equity_csv(
+    equity_csv,
+    benchmark_symbol=None,
+    output_path=None
+):
+    # Equity-Kurve ladens
+    equity_df = pd.read_csv(equity_csv, usecols=["timestamp", "equity"])
+    equity = pd.Series(equity_df["equity"].values, index=pd.to_datetime(equity_df["timestamp"], unit="ns"))
+    returns = equity.pct_change().dropna()
+
+    # Benchmark von Yahoo Finance laden
+    benchmark = None
+    if benchmark_symbol:
+        benchmark = qs.utils.download_returns(benchmark_symbol)
+
+    qs.reports.html(returns, benchmark=benchmark, output=str(output_path) if output_path else None)
