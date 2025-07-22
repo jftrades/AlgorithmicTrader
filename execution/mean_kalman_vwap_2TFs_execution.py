@@ -167,7 +167,7 @@ if sharpe_col in df.columns:
     if candidates:
         best_run_dir = results_dir / candidates[0]
         print(f"Starte Visualisierung für besten Run-Ordner: {best_run_dir} (Sharpe: {df.loc[best_idx, sharpe_col]})")
-        
+
         # Minimaler QuantStats-Report direkt aus Equity
         equity_path = best_run_dir / "indicators" / "equity.csv"
         if equity_path.exists():
@@ -179,8 +179,9 @@ if sharpe_col in df.columns:
             webbrowser.open_new_tab(str((best_run_dir / "quantstats_report.html").resolve()))
         else:
             print("FEHLER: equity.csv nicht gefunden! Export/Logging prüfen.")
-        
+
         visualize_existing_run(best_run_dir)
+        
     else:
         print(f"FEHLER: Kein passender Run-Ordner mit Prefix {run_prefix} gefunden!")
 else:

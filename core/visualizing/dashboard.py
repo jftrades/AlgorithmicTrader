@@ -1073,6 +1073,8 @@ class DashboardApp:
             # Gruppiere Indikatoren nach Plot-ID (außer 0)
             plot_groups = {}
             for name, indicator_df in self.indicators_df.items():
+                if name == "equity":
+                    continue  # Equity wird ignoriert
                 if not indicator_df.empty:
                     plot_id = indicator_df.iloc[0]['plot_id']
                     if plot_id > 0:  # Plot-ID 0 ist im Hauptchart

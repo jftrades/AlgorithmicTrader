@@ -5,6 +5,8 @@ import pandas as pd
 import re
 import numpy as np
 from pathlib import Path
+import matplotlib
+matplotlib.use('Agg')
 import quantstats as qs
 import webbrowser, os
 import glob
@@ -164,5 +166,5 @@ def show_quantstats_report_from_equity_csv(
     benchmark = None
     if benchmark_symbol:
         benchmark = qs.utils.download_returns(benchmark_symbol)
-
+    
     qs.reports.html(returns, benchmark=benchmark, output=str(output_path) if output_path else None)
