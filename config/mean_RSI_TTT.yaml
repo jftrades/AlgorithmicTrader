@@ -9,12 +9,12 @@ start_date: "2008-01-01T00:00:00Z"
 end_date: "2024-12-30T23:59:59Z"
 
 # Strategie-Parameter
-rsi_period: [10, 15, 20]
+rsi_period: [15]
 rsi_overbought: [0.75]
 rsi_oversold: [0.25]
-ttt_lookback: [10, 15]
-ttt_atr_mult: [1.25, 1.5]
-ttt_max_counter: [5, 10]
+ttt_lookback: [10]
+ttt_atr_mult: [1.5]
+ttt_max_counter: [10]
 
 # Risk-Parameter
 # trade_size_usd: 1000

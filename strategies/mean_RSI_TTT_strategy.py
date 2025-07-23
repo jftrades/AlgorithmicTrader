@@ -168,9 +168,10 @@ class MeanRSITTTStrategy(BaseStrategy, Strategy):
             unrealized_pnl = None
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
-        usd_balance = account.balances_total()
-
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usd_balance.as_double())
+        usd_balance = account.balance_total()
+        equity = usd_balance.as_double() + float(unrealized_pnl) if unrealized_pnl is not None else usd_balance.as_double()
+            
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="equity", value=equity)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
@@ -195,13 +196,13 @@ class MeanRSITTTStrategy(BaseStrategy, Strategy):
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         usd_balance = account.balance_total()
-
+        equity = usd_balance.as_double() + float(unrealized_pnl) if unrealized_pnl is not None else usd_balance.as_double()
+            
         rsi_value = float(self.rsi.value) if self.rsi.value is not None else None
 
-    
         self.collector.add_indicator(timestamp=bar.ts_event, name="RSI", value=rsi_value)
         self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
         self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl else None)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance.as_double())
+        self.collector.add_indicator(timestamp=bar.ts_event, name="equity", value=equity)
         self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)

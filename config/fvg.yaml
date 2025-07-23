@@ -18,7 +18,7 @@ close_positions_on_stop: [true]
 risk_percent: 0.01
 max_leverage: 2
 min_account_balance: 1000
-risk_reward_ratio: [0.5, 1, 1.5, 2, 2.5, 3, 3.5]
+risk_reward_ratio: [2, 3]
 
 # Account/Venue-Parameter
 starting_account_balance: "100000 USDT"

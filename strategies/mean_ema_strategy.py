@@ -84,7 +84,7 @@ class MeanemaStrategy(BaseStrategy, Strategy):
         self.collector.initialise_logging_indicator("position", 1)
         self.collector.initialise_logging_indicator("realized_pnl", 2)
         self.collector.initialise_logging_indicator("unrealized_pnl", 3)
-        self.collector.initialise_logging_indicator("balance", 4)
+        self.collector.initialise_logging_indicator("equity", 4)
 
     def get_position(self):
         return self.base_get_position()
@@ -195,8 +195,13 @@ class MeanemaStrategy(BaseStrategy, Strategy):
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         usd_balance = account.balances_total()
+        if isinstance(usd_balance, dict):
+            usd_balance_val = float(usd_balance.get("total", 0))
+        else:
+            usd_balance_val = usd_balance.as_double()
+        equity = usd_balance_val + float(unrealized_pnl) if unrealized_pnl is not None else usd_balance_val
 
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usd_balance)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="equity", value=equity)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
@@ -221,13 +226,18 @@ class MeanemaStrategy(BaseStrategy, Strategy):
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         usd_balance = account.balances_total()
-    
+        if isinstance(usd_balance, dict):
+            usd_balance_val = float(usd_balance.get("total", 0))
+        else:
+            usd_balance_val = usd_balance.as_double()
+        equity = usd_balance_val + float(unrealized_pnl) if unrealized_pnl is not None else usd_balance_val
+
         self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
         self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="fast_ema", value=float(self.fast_ema.value) if self.fast_ema.value is not None else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="slow_ema", value=float(self.slow_ema.value) if self.slow_ema.value is not None else None)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="equity", value=equity)
         self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
 
     def on_reset(self) -> None:

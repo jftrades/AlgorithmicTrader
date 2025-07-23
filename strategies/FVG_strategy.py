@@ -73,7 +73,7 @@ class FVGStrategy(BaseStrategy, Strategy):
         self.collector.initialise_logging_indicator("position", 1)
         self.collector.initialise_logging_indicator("realized_pnl", 2)
         self.collector.initialise_logging_indicator("unrealized_pnl", 3)
-        self.collector.initialise_logging_indicator("balance", 4)
+        self.collector.initialise_logging_indicator("equity", 4)
         
         self.risk_manager = RiskManager(
             self,

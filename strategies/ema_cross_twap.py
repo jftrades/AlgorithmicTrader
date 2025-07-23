@@ -115,7 +115,7 @@ class EMACrossTWAP(BaseStrategy, Strategy):
         self.collector.initialise_logging_indicator("position", 1)
         self.collector.initialise_logging_indicator("realized_pnl", 2)
         self.collector.initialise_logging_indicator("unrealized_pnl", 3)
-        self.collector.initialise_logging_indicator("balance", 4)
+        self.collector.initialise_logging_indicator("equity", 4)
 
         # Register the indicators for updating
         self.register_indicator_for_bars(self.config.bar_type, self.fast_ema)
@@ -167,20 +167,20 @@ class EMACrossTWAP(BaseStrategy, Strategy):
         # BUY LOGIC
         if self.fast_ema.value >= self.slow_ema.value:
             if self.portfolio.is_flat(self.config.instrument_id):
-                self.buy()
+                self.buy(bar)
                 signal = "BUY"
             elif self.portfolio.is_net_short(self.config.instrument_id):
                 self.close_position()
-                self.buy()
+                self.buy(bar)
                 signal = "BUY"
         # SELL LOGIC
         elif self.fast_ema.value < self.slow_ema.value:
             if self.portfolio.is_flat(self.config.instrument_id):
-                self.sell()
+                self.sell(bar)
                 signal = "SELL"
             elif self.portfolio.is_net_long(self.config.instrument_id):
                 self.close_position()
-                self.sell()
+                self.sell(bar)
                 signal = "SELL"
 
         # Log indicator values and signal for visualization
@@ -188,20 +188,23 @@ class EMACrossTWAP(BaseStrategy, Strategy):
         self.collector.add_indicator(timestamp=bar.ts_event, name="slow_ema", value=float(self.slow_ema.value) if self.slow_ema.value is not None else None)
         self.collector.add_bar(timestamp=bar.ts_event,open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
         venue = self.config.instrument_id.venue
+        unrealized_pnl = self.portfolio.unrealized_pnl(self.config.instrument_id)
         account = self.portfolio.account(venue)
         usd_balance = account.balances_total()
-        self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance)
+        if isinstance(usd_balance, dict):
+            usd_balance_val = float(usd_balance.get("total", 0))
+        else:
+            usd_balance_val = usd_balance.as_double()
+        equity = usd_balance_val + float(unrealized_pnl) if unrealized_pnl is not None else usd_balance_val
+
+        self.collector.add_indicator(timestamp=bar.ts_event, name="equity", value=equity)
         self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=self.portfolio.net_position(self.config.instrument_id) if self.portfolio.net_position(self.config.instrument_id) is not None else None)
-        try:
-            unrealized_pnl = self.portfolio.unrealized_pnl(self.config.instrument_id)
-        except Exception as e:
-            unrealized_pnl = None
         self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
 
 
     def on_order_filled(self, order_filled) -> None:
-        ret = self.collector.add_trade_details(order_filled)
+        ret = self.collector.add_trade_details(order_filled, parent_id=None)
     
     def buy(self, bar: Bar) -> None:
         trade_size_usdt = float(self.config.trade_size_usdt)
@@ -233,8 +236,13 @@ class EMACrossTWAP(BaseStrategy, Strategy):
         venue = self.config.instrument_id.venue
         account = self.portfolio.account(venue)
         usd_balance = account.balances_total()
+        if isinstance(usd_balance, dict):
+            usd_balance_val = float(usd_balance.get("total", 0))
+        else:
+            usd_balance_val = usd_balance.as_double()
+        equity = usd_balance_val + float(unrealized_pnl) if unrealized_pnl is not None else usd_balance_val
 
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usd_balance)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="equity", value=equity)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.config.instrument_id) if self.portfolio.net_position(self.config.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)

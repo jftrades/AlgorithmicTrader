@@ -90,7 +90,7 @@ class MeankalmanvwapStrategy(BaseStrategy, Strategy):
         self.collector.initialise_logging_indicator("position", 2)
         self.collector.initialise_logging_indicator("realized_pnl", 3)
         self.collector.initialise_logging_indicator("unrealized_pnl", 4)
-        self.collector.initialise_logging_indicator("balance", 5)
+        self.collector.initialise_logging_indicator("equity", 5)
 
     def get_position(self):
         return self.base_get_position()
@@ -169,20 +169,15 @@ class MeankalmanvwapStrategy(BaseStrategy, Strategy):
         venue = self.instrument_id.venue
         account = self.portfolio.account(venue)
         usd_balance = account.balance_total()
-        if hasattr(usd_balance, "as_double"):
-            usd_balance_val = usd_balance.as_double()
-        elif isinstance(usd_balance, dict):
-            usd_balance_val = usd_balance.get("value", 0)
-        else:
-            usd_balance_val = float(usd_balance) if usd_balance is not None else 0
+        equity = usd_balance.as_double() + float(unrealized_pnl) if unrealized_pnl is not None else usd_balance.as_double()
         vwap_value = self.vwap_zscore.current_vwap_value
         kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
 
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usd_balance_val)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_mean", value=kalman_mean)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="equity", value=equity)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap", value=vwap_value)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap_zscore", value=self.current_zscore)
 
@@ -206,12 +201,7 @@ class MeankalmanvwapStrategy(BaseStrategy, Strategy):
             venue = self.instrument_id.venue
             account = self.portfolio.account(venue)
             usd_balance = account.balance_total()
-            if hasattr(usd_balance, "as_double"):
-                usd_balance_val = usd_balance.as_double()
-            elif isinstance(usd_balance, dict):
-                usd_balance_val = usd_balance.get("value", 0)
-            else:
-                usd_balance_val = float(usd_balance) if usd_balance is not None else 0
+            equity = usd_balance.as_double() + float(unrealized_pnl) if unrealized_pnl is not None else usd_balance.as_double()
             
             kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
             vwap_value = self.vwap_zscore.current_vwap_value
@@ -222,6 +212,6 @@ class MeankalmanvwapStrategy(BaseStrategy, Strategy):
             self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
             self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
             self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl else None)
-            self.collector.add_indicator(timestamp=bar.ts_event, name="balance", value=usd_balance_val)
+            self.collector.add_indicator(timestamp=bar.ts_event, name="equity", value=equity)
             self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_zscore", value=self.current_zscore)
