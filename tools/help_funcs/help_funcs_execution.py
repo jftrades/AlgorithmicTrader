@@ -158,8 +158,8 @@ def show_quantstats_report_from_equity_csv(
     output_path=None
 ):
     # Equity-Kurve ladens
-    equity_df = pd.read_csv(equity_csv, usecols=["timestamp", "equity"])
-    equity = pd.Series(equity_df["equity"].values, index=pd.to_datetime(equity_df["timestamp"], unit="ns"))
+    equity_df = pd.read_csv(equity_csv, usecols=["timestamp", "value"])
+    equity = pd.Series(equity_df["value"].values, index=pd.to_datetime(equity_df["timestamp"], unit="ns"))
     returns = equity.pct_change().dropna()
 
     # Benchmark von Yahoo Finance laden

@@ -1,9 +1,3 @@
-# Roadmap:
-# 1. Kalman Mean 10d oder Residual-Based Mean (Regression SPY vs Sektoren) als MEAN
-# 2. 5d VWAP mit Z- Score aus nur RTH bars (diese auch gerade auf meinem rechner) -> da ETH sonst Ergebnis verfälscht (vllt auch feiner VWAP aus m bars)
-# 3. GARCH (generalized autoregressive conditional heteroscedasticity) um nicht das "fallende Messer" zu kaufen 
-# 4. wenn GARCH wieder stabil/ sich beruhigt + VWAP Z-Score passt -> Trade
-# 5. Long Exit z.B. bis mean halten & Short Exit z.B. an Z-Scores partially auflösen
 
 # Standard Library Importe
 from decimal import Decimal
@@ -38,6 +32,7 @@ from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
 class Meankalmanvwap2TFsStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: str 
+    bar_type_1h: str
     trade_size_usd: Decimal
     risk_percent: float
     max_leverage: float
@@ -60,7 +55,7 @@ class Meankalmanvwap2TFsStrategy(BaseStrategy, Strategy):
         self.venue = self.instrument_id.venue
         self.risk_manager = None
         self.bar_type = BarType.from_str(config.bar_type)
-        self.bar_type_1h = BarType.from_str("SPY.ARCA-1-HOUR-LAST-EXTERNAL")
+        self.bar_type_1h = BarType.from_str(config.bar_type_1h)
         self.zscore_neutral_counter = 3
         self.prev_zscore = None
         self.current_kalman_mean = None
