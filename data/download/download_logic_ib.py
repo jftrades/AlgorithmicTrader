@@ -19,16 +19,18 @@ async def download__ib_historical_data():
     await asyncio.sleep(2)  
 
     # Define contracts
-    contracts = [
-        IBContract(secType="IND", symbol="VIX", exchange="CBOE", primaryExchange="CBOE"),
-    ]
+    #contracts = [
+    #    IBContract(secType="IND", symbol="VIX", exchange="CBOE", primaryExchange="CBOE"),
+    #]
+    #contracts = [IBContract(secType="STK", symbol="SPY", exchange="SMART", primaryExchange="ARCA")] #spy
+    contracts = [IBContract(secType="STK", symbol="VOO", exchange="SMART", primaryExchange="ARCA")] #voo
 
     # Request instruments
     instruments = await client.request_instruments(contracts=contracts)
 
     # Request historical bars
     bars = await client.request_bars(
-        bar_specifications=["1-HOUR-LAST"],
+        bar_specifications=["1-DAY-LAST"], #or 1-DAY-LAST
         start_date_time=datetime.datetime(2008, 1, 1, 9, 30),
         end_date_time=datetime.datetime(2025, 1, 1, 16, 30),
         tz_name="America/New_York",
@@ -37,7 +39,7 @@ async def download__ib_historical_data():
     )
 
     # Save to catalog
-    catalog = ParquetDataCatalog("C:/Users/Ferdi/Desktop/projectx/AlgorithmicTrader/data/DATA_STORAGE/data_catalog_wrangled")
+    catalog = ParquetDataCatalog(Path(__file__).parent.parent / "DATA_STORAGE" / "data_catalog_wrangled")
     catalog.write_data(instruments)
     catalog.write_data(bars)
 

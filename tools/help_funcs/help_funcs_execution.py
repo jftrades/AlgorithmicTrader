@@ -11,10 +11,19 @@ import quantstats as qs
 import webbrowser, os
 import glob
 import json
+from tools.help_funcs.yaml_loader import load_params
 
 # Nautilus Kern Importe
 from nautilus_trader.backtest.node import BacktestNode
 from core.visualizing.dashboard import TradingDashboard
+
+# Hilfsfunktion zum Laden und Aufteilen der Parameter
+def load_and_split_params(yaml_path):
+    params = load_params(yaml_path)
+    param_grid = {k: v for k, v in params.items() if isinstance(v, list)}
+    keys, values = zip(*param_grid.items()) if param_grid else ([], [])
+    static_params = {k: v for k, v in params.items() if not isinstance(v, list)}
+    return params, param_grid, keys, values, static_params
 
 def run_backtest(run_config):
     node = BacktestNode([run_config])  # Übergib eine Liste!
@@ -157,14 +166,15 @@ def show_quantstats_report_from_equity_csv(
     benchmark_symbol=None,
     output_path=None
 ):
-    # Equity-Kurve ladens
+    # Equity-Kurve laden, Duplikate entfernen, Zeitstempel als Index
     equity_df = pd.read_csv(equity_csv, usecols=["timestamp", "value"])
     equity = pd.Series(equity_df["value"].values, index=pd.to_datetime(equity_df["timestamp"], unit="ns"))
-    returns = equity.pct_change().dropna()
+    equity = equity[~equity.index.duplicated(keep='first')]
+    returns = equity.pct_change(fill_method=None).dropna()
 
-    # Benchmark von Yahoo Finance laden
+    # Benchmark von Yahoo Finance laden und Duplikate entfernen
     benchmark = None
     if benchmark_symbol:
         benchmark = qs.utils.download_returns(benchmark_symbol)
-    
+
     qs.reports.html(returns, benchmark=benchmark, output=str(output_path) if output_path else None)

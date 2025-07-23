@@ -56,6 +56,7 @@ class MeankalmanvwapStrategy(BaseStrategy, Strategy):
         self.bar_type = BarType.from_str(config.bar_type)
         self.zscore_neutral_counter = 3
         self.prev_zscore = None
+        self.current_zscore = 0
         self.current_kalman_mean = None
         self.stopped = False
         self.realized_pnl = 0

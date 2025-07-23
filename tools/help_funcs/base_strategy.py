@@ -19,7 +19,7 @@ class BaseStrategy(Strategy):
             super().close_position(position)
         
     def base_on_stop(self) -> None:
-        position = self.get_position()
+        position = self.base_get_position()
         if self.close_positions_on_stop and position is not None and position.is_open:
             self.close_position()
         self.log.info("Strategy stopped!")
