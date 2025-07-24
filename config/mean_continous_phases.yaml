@@ -1,0 +1,69 @@
+# Instrument
+symbol: "SPY"
+venue: "ARCA"
+instrument_id: "SPY.ARCA"
+bar_type: "SPY.ARCA-1-DAY-LAST-EXTERNAL"
+bar_type_1h: "SPY.ARCA-1-HOUR-LAST-EXTERNAL"
+
+# Backtest-Zeitraum
+start_date: "2008-01-01T00:00:00Z"
+end_date: "2024-09-30T23:59:59Z"
+
+# Strategie-Parameter
+kalman_process_var: 0.00001
+kalman_measurement_var: 0.01
+kalman_window: 10
+
+vwap_lookback: [40]
+zscore_window: [40]
+
+kalman_slope_min: -0.3
+kalman_slope_max: 0.3
+kalman_mean_disable_slope: 0.15 # könnte man auch rolling machen,
+# dass er sich selber anpasst aber vielleicht overkill
+
+zscore_pre_entry_long_min: -2.6
+zscore_pre_entry_long_max: -1.6
+zscore_pre_entry_short_min: 2.0
+zscore_pre_entry_short_max: 2.8
+
+zscore_entry_long_min: -1.6
+zscore_entry_long_max: -1.0
+zscore_entry_short_min: 2.0
+zscore_entry_short_max: 2.8
+
+zscore_exit_long_min: 0.2
+zscore_exit_long_max: 0.4
+zscore_exit_short_min: 0.5
+zscore_exit_short_max: 0.9
+
+long_risk_factor_min: 1.0
+long_risk_factor_max: 1.5
+short_risk_factor_min: 0.7
+short_risk_factor_max: 1.3
+
+scaling_type_entry: "log"
+scaling_type_exit: "linear"
+scaling_type_risk: "exp"
+
+vix_fear_threshold: 45.0
+vix_chill_threshold: 18.0
+
+# garch_window: 750         
+# garch_p: 1                
+# garch_q: 1                
+# garch_vola_quantile: 0.8
+
+# Risk-Parameter
+trade_size_usd: 200000
+close_positions_on_stop: true
+risk_percent: 0.03
+max_leverage: 3
+min_account_balance: 1000
+
+ 
+# Account/Venue-Parameter
+starting_account_balance: "100000 USD"
+base_currency: "USD"
+account_type: "MARGIN"
+oms_type: "NETTING"
