@@ -60,7 +60,8 @@ class Meankalman2TFsvwapGARCHVIXStrategyConfig(StrategyConfig):
 
     start_date: str
     end_date: str
-  
+    
+    kalman_slope_sector_params: dict
     vix_fear_threshold: float = 25.0
     vix_chill_threshold: float = 15.0
     vwap_zscore_entry_long_regime1: float = 1.7
@@ -101,6 +102,7 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
             zscore_entry_short=config.vwap_zscore_entry_short_regime1,
             vwap_lookback=config.vwap_lookback)
         self.kalman = KalmanFilter1D(process_var=config.kalman_process_var, measurement_var=config.kalman_measurement_var, window=config.kalman_window)
+        self.current_kalman_slope = None
         # self.garch_window = config.garch_window
         # self.garch_p = config.garch_p
         # self.garch_q = config.garch_q
@@ -149,8 +151,14 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
         if bar.bar_type == self.bar_type:
             bar_date = datetime.datetime.utcfromtimestamp(bar.ts_event // 1_000_000_000).strftime("%Y-%m-%d")
             vix_value = self.vix.get_value_on_date(bar_date)
-            self.current_vix_value = vix_value
+
+            prev_mean = self.current_kalman_mean
             self.current_kalman_mean = self.kalman.update(float(bar.close))
+            if prev_mean is not None and self.current_kalman_mean is not None:
+                self.current_kalman_slope = self.current_kalman_mean - prev_mean
+            else:
+                self.current_kalman_slope = 0.0
+            self.current_vix_value = vix_value
 
         if bar.bar_type == self.bar_type_1h:
             bar_date = datetime.datetime.utcfromtimestamp(bar.ts_event // 1_000_000_000).strftime("%Y-%m-%d")
@@ -213,28 +221,60 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
             )
         else:
             return (None, None)
+        
+    def get_kalman_slope_sector(self):
+        slope = self.current_kalman_slope
+        if slope < -0.05:
+            return "strong_down"
+        elif slope < -0.01:
+            return "moderate_down"
+        elif slope <= 0.01:
+            return "sideways"
+        elif slope <= 0.05:
+            return "moderate_up"
+        else:
+            return "strong_up"
+        
+    def get_slope_sector_params(self, regime: int):
+        sector = self.get_kalman_slope_sector()
+        params = self.config.kalman_slope_sector_params.get(sector, {})
+        allow_trades = params.get("allow_trades", True)
+        long_risk_factor = params.get("long_risk_factor", 1.0)
+        short_risk_factor = params.get("short_risk_factor", 1.0)
+        regime_key = f"regime{regime}"
+        regime_params = params.get("regime_params", {}).get(regime_key, {})
+        zscore_entry_long = regime_params.get("zscore_entry_long", None)
+        zscore_entry_short = regime_params.get("zscore_entry_short", None)
+        zscore_pre_entry_long = regime_params.get("zscore_pre_entry_long", None)
+        zscore_pre_entry_short = regime_params.get("zscore_pre_entry_short", None)
+        return allow_trades, long_risk_factor, short_risk_factor, zscore_entry_long, zscore_entry_short, zscore_pre_entry_long, zscore_pre_entry_short
 
     def check_for_long_trades(self, bar: Bar, zscore: float):
-        trade_size_usd = self.config.trade_size_usd
-        qty = max(1, int(float(trade_size_usd) // float(bar.close)))
         regime = self.get_vix_regime(self.current_vix_value)
-        zscore_entry_long, _ = self.get_zscore_entry_thresholds(regime)
-        zscore_pre_entry_long, _ = self.get_zscore_pre_entry_thresholds(regime)
+        allow_trades, long_risk_factor, _, zscore_entry_long, _, zscore_pre_entry_long, _ = self.get_slope_sector_params(regime)
+        if not allow_trades:
+                return
+        
+        trade_size_usd = float(self.config.trade_size_usd) * long_risk_factor
+        qty = max(1, int(trade_size_usd // float(bar.close)))
+
         if (
             zscore_entry_long is not None and zscore_pre_entry_long is not None
             and self.prev_zscore is not None
             and self.prev_zscore < zscore_pre_entry_long
             and zscore < zscore_entry_long
-            and self.prev_zscore > zscore  # Z-Score bewegt sich Richtung Entry-Level
+            and self.prev_zscore > zscore
         ):
             self.order_types.submit_long_market_order(qty, price=bar.close)
 
     def check_for_short_trades(self, bar: Bar, zscore: float):
-        trade_size_usd = self.config.trade_size_usd
-        qty = max(1, int(float(trade_size_usd) // float(bar.close)))
         regime = self.get_vix_regime(self.current_vix_value)
-        _, zscore_entry_short = self.get_zscore_entry_thresholds(regime)
-        _, zscore_pre_entry_short = self.get_zscore_pre_entry_thresholds(regime)
+        allow_trades, _, short_risk_factor, _, zscore_entry_short, _, zscore_pre_entry_short = self.get_slope_sector_params(regime)
+        if not allow_trades:
+            return
+
+        trade_size_usd = float(self.config.trade_size_usd) * short_risk_factor
+        qty = max(1, int(trade_size_usd // float(bar.close)))
 
         if (
             zscore_entry_short is not None and zscore_pre_entry_short is not None
@@ -246,6 +286,15 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
             self.order_types.submit_short_market_order(qty, price=bar.close)
 
     def check_for_long_exit(self, bar):
+        if self.current_vix_value is None:
+            return
+        regime = self.get_vix_regime(self.current_vix_value)
+        params = self.get_slope_sector_params(regime)
+        allow_trades = params[0]
+        if not allow_trades:
+            self.order_types.close_position_by_market_order()
+            return
+
         prev_zscore = self.prev_zscore
         zscore = self.current_zscore
         net_pos = self.portfolio.net_position(self.instrument_id)
@@ -257,6 +306,16 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
             self.order_types.close_position_by_market_order()
 
     def check_for_short_exit(self, bar):
+        if self.current_vix_value is None:
+            return
+        regime = self.get_vix_regime(self.current_vix_value)
+        params = self.get_slope_sector_params(regime)
+        allow_trades = params[0]
+
+        if not allow_trades:
+            self.order_types.close_position_by_market_order()
+            return
+
         prev_zscore = self.prev_zscore
         zscore = self.current_zscore
         net_pos = self.portfolio.net_position(self.instrument_id)
