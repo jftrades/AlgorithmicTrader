@@ -67,10 +67,10 @@ class Meankalman2TFsvwapGARCHVIXStrategyConfig(StrategyConfig):
     vwap_zscore_entry_short_regime1: float = -1.5
     vwap_zscore_entry_long_regime2: float = 2.7
     vwap_zscore_entry_short_regime2: float = -2.5
-    # vwap_zscore_pre_entry_long_regime1: float = -2.5
-    # vwap_zscore_pre_entry_short_regime1: float = 2.5
-    # vwap_zscore_pre_entry_long_regime2: float = -3.0
-    # vwap_zscore_pre_entry_short_regime2: float = 3.0
+    vwap_zscore_pre_entry_long_regime1: float = -2.5
+    vwap_zscore_pre_entry_short_regime1: float = 2.5
+    vwap_zscore_pre_entry_long_regime2: float = -3.0
+    vwap_zscore_pre_entry_short_regime2: float = 3.0
     # garch_window: int = 500
     # garch_p: int = 1
     # garch_q: int = 1
@@ -199,13 +199,34 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
             )
         else:
             return (None, None)
+        
+    def get_zscore_pre_entry_thresholds(self, regime: int):
+        if regime == 1:
+            return (
+                float(self.config.vwap_zscore_pre_entry_long_regime1),
+                float(self.config.vwap_zscore_pre_entry_short_regime1),
+            )
+        elif regime == 2:
+            return (
+                float(self.config.vwap_zscore_pre_entry_long_regime2),
+                float(self.config.vwap_zscore_pre_entry_short_regime2),
+            )
+        else:
+            return (None, None)
 
     def check_for_long_trades(self, bar: Bar, zscore: float):
         trade_size_usd = self.config.trade_size_usd
         qty = max(1, int(float(trade_size_usd) // float(bar.close)))
         regime = self.get_vix_regime(self.current_vix_value)
         zscore_entry_long, _ = self.get_zscore_entry_thresholds(regime)
-        if zscore_entry_long is not None and self.prev_zscore is not None and self.prev_zscore > zscore_entry_long and zscore < zscore_entry_long:
+        zscore_pre_entry_long, _ = self.get_zscore_pre_entry_thresholds(regime)
+        if (
+            zscore_entry_long is not None and zscore_pre_entry_long is not None
+            and self.prev_zscore is not None
+            and self.prev_zscore < zscore_pre_entry_long
+            and zscore < zscore_entry_long
+            and self.prev_zscore > zscore  # Z-Score bewegt sich Richtung Entry-Level
+        ):
             self.order_types.submit_long_market_order(qty, price=bar.close)
 
     def check_for_short_trades(self, bar: Bar, zscore: float):
@@ -213,17 +234,25 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
         qty = max(1, int(float(trade_size_usd) // float(bar.close)))
         regime = self.get_vix_regime(self.current_vix_value)
         _, zscore_entry_short = self.get_zscore_entry_thresholds(regime)
-        if zscore_entry_short is not None and self.prev_zscore is not None and self.prev_zscore <= zscore_entry_short and zscore > zscore_entry_short:
+        _, zscore_pre_entry_short = self.get_zscore_pre_entry_thresholds(regime)
+
+        if (
+            zscore_entry_short is not None and zscore_pre_entry_short is not None
+            and self.prev_zscore is not None
+            and self.prev_zscore > zscore_pre_entry_short
+            and zscore > zscore_entry_short
+            and self.prev_zscore < zscore  # Z-Score bewegt sich Richtung Entry-Level
+        ):
             self.order_types.submit_short_market_order(qty, price=bar.close)
 
     def check_for_long_exit(self, bar):
-        prev_close = self.prev_close
-        kalman_mean = self.current_kalman_mean
+        prev_zscore = self.prev_zscore
+        zscore = self.current_zscore
         net_pos = self.portfolio.net_position(self.instrument_id)
         if (
             net_pos is not None and net_pos > 0
-            and prev_close is not None and kalman_mean is not None
-            and prev_close < kalman_mean and bar.close >= kalman_mean
+            and prev_zscore is not None and zscore is not None
+            and prev_zscore < 0 and zscore >= 0
         ):
             self.order_types.close_position_by_market_order()
 
@@ -234,7 +263,7 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
         if (
             net_pos is not None and net_pos < 0
             and prev_zscore is not None and zscore is not None
-            and prev_zscore > 0 and zscore <= 0
+            and prev_zscore > 0.5 and zscore <= 0.5
         ):
             self.order_types.close_position_by_market_order()
 
