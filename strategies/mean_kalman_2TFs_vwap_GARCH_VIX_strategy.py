@@ -1,3 +1,16 @@
+
+# 3er Regime System basierend auf VIX 
+# -> Regime 1 = ruhiger Markt               z.B. VIX < 15           VWAP Z-Score Entry z.B. 1.7 und -1.5 
+# -> Regime 2 = relativ volatiler Markt     z.B. 15 < VIX < 25      VWAP Z-Score Entry z.B. 2.7 und -2.5 
+# -> Regime 3 = zu unruhige Markt           z.B. VIX > 25           gar keine Entrys (Strat setzt aus)    
+
+# mögliche ADD-ONS neben den Basics:
+# 1. Z-Score muss erst zu einem gewissen Grad wieder normal werden z.B. 1 > ZScore > -1
+# 2. Sobald wird aus Regime 3 zu 2 wechseln trade auch öffnen unabhängig von ZScore
+# 3. falls ZScore nach 1.7 und -1.5 zb noch extrem weiterfällt - bei 2.7 und -2.5 z.B. nach stacken
+# 4. GARCH in Regime 2 als Notfall-Ausschalter der Strategie
+# 5. über GARCH Positionsizing
+
 # Standard Library Importe
 from decimal import Decimal
 from typing import Any
@@ -5,6 +18,7 @@ import sys
 from pathlib import Path
 import numpy as np
 import pandas as pd
+import datetime
 # Nautilus Kern offizielle Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
@@ -27,7 +41,8 @@ from nautilus_trader.common.enums import LogColor
 from collections import deque
 from tools.indicators.kalman_filter_1D import KalmanFilter1D
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
-from tools.indicators.GARCH import GARCH, update_garch_vola_window, get_garch_vola_threshold
+# from tools.indicators.GARCH import GARCH, update_garch_vola_window, get_garch_vola_threshold
+from tools.indicators.VIX import VIX
 
 class Meankalman2TFsvwapGARCHVIXStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
@@ -37,17 +52,29 @@ class Meankalman2TFsvwapGARCHVIXStrategyConfig(StrategyConfig):
     risk_percent: float
     max_leverage: float
     min_account_balance: float
-    vwap_zscore_entry_long: float
-    vwap_zscore_entry_short: float
     vwap_lookback: int
     zscore_window: int
     kalman_process_var: float
     kalman_measurement_var: float
     kalman_window: int
-    garch_window: int = 500
-    garch_p: int = 1
-    garch_q: int = 1
-    garch_vola_quantile: float = 0.8
+
+    start_date: str
+    end_date: str
+  
+    vix_fear_threshold: float = 25.0
+    vix_chill_threshold: float = 15.0
+    vwap_zscore_entry_long_regime1: float = 1.7
+    vwap_zscore_entry_short_regime1: float = -1.5
+    vwap_zscore_entry_long_regime2: float = 2.7
+    vwap_zscore_entry_short_regime2: float = -2.5
+    # vwap_zscore_pre_entry_long_regime1: float = -2.5
+    # vwap_zscore_pre_entry_short_regime1: float = 2.5
+    # vwap_zscore_pre_entry_long_regime2: float = -3.0
+    # vwap_zscore_pre_entry_short_regime2: float = 3.0
+    # garch_window: int = 500
+    # garch_p: int = 1
+    # garch_q: int = 1
+    # garch_vola_quantile: float = 0.8
     close_positions_on_stop: bool = True
 
 class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
@@ -67,21 +94,27 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
         self.realized_pnl = 0
         self.bar_counter = 0
         self.prev_close = None
+        self.collector = BacktestDataCollector()
         self.vwap_zscore = VWAPZScoreHTF(
             zscore_window=config.zscore_window,
-            zscore_entry_long = config.vwap_zscore_entry_long,
-            zscore_entry_short = config.vwap_zscore_entry_short,
-            vwap_lookback=config.vwap_lookback
-        )
+            zscore_entry_long=config.vwap_zscore_entry_long_regime1,
+            zscore_entry_short=config.vwap_zscore_entry_short_regime1,
+            vwap_lookback=config.vwap_lookback)
         self.kalman = KalmanFilter1D(process_var=config.kalman_process_var, measurement_var=config.kalman_measurement_var, window=config.kalman_window)
-        self.garch_window = config.garch_window
-        self.garch_p = config.garch_p
-        self.garch_q = config.garch_q
-        self.returns_window = deque(maxlen=self.garch_window)
-        self.garch = None
-        self.current_garch_vola = None
-        self.garch_vola_threshold = None
-        self.garch_vola_quantile = config.garch_vola_quantile
+        # self.garch_window = config.garch_window
+        # self.garch_p = config.garch_p
+        # self.garch_q = config.garch_q
+        # self.returns_window = deque(maxlen=self.garch_window)
+        # self.garch = None
+        # self.current_garch_vola = None
+        # self.garch_vola_threshold = None
+        # self.garch_vola_quantile = config.garch_vola_quantile
+        self.vix_start = str(config.start_date)[:10]
+        self.vix_end = str(config.end_date)[:10]
+        self.vix_fear = float(config.vix_fear_threshold)
+        self.vix_chill = float(config.vix_chill_threshold)
+        self.current_vix_value = None
+        self.vix = None
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
@@ -96,12 +129,12 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
             Decimal(str(self.config.min_account_balance)),
         )
         self.order_types = OrderTypes(self)
-        self.collector = BacktestDataCollector() 
+        self.vix = VIX(start=self.vix_start, end=self.vix_end, fear_threshold=self.vix_fear, chill_threshold=self.vix_chill)
 
         self.collector.initialise_logging_indicator("vwap", 0)
         self.collector.initialise_logging_indicator("kalman_mean", 0)
         self.collector.initialise_logging_indicator("vwap_zscore", 1)
-        self.collector.initialise_logging_indicator("garch_volatility", 2)
+        self.collector.initialise_logging_indicator("vix", 2)
         self.collector.initialise_logging_indicator("position", 3)
         self.collector.initialise_logging_indicator("realized_pnl", 4)
         self.collector.initialise_logging_indicator("unrealized_pnl", 5)
@@ -111,88 +144,86 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
         return self.base_get_position()
 
     def on_bar(self, bar: Bar) -> None:
+        zscore = None
+
         if bar.bar_type == self.bar_type:
-            if self.prev_close is not None:
-                ret = np.log(float(bar.close) / float(self.prev_close))
-                self.returns_window.append(ret)
-            returns_series = pd.Series(self.returns_window)
-            self.garch = GARCH(returns_series, window=self.garch_window)
-            self.garch.fit(p=self.garch_p, q=self.garch_q)
-            self.current_garch_vola = self.garch.result.conditional_volatility.iloc[-1] if self.garch.result is not None else None
-
-
+            bar_date = datetime.datetime.utcfromtimestamp(bar.ts_event // 1_000_000_000).strftime("%Y-%m-%d")
+            vix_value = self.vix.get_value_on_date(bar_date)
+            self.current_vix_value = vix_value
             self.current_kalman_mean = self.kalman.update(float(bar.close))
 
-            self.garch_vola_window = update_garch_vola_window(
-                getattr(self, "garch_vola_window", None),
-                self.current_garch_vola,
-                self.garch_window
-            )
-            self.garch_vola_threshold = get_garch_vola_threshold(
-                self.garch_vola_window,
-                quantile=self.garch_vola_quantile,
-                min_bars=200
-            )
-
         if bar.bar_type == self.bar_type_1h:
+            bar_date = datetime.datetime.utcfromtimestamp(bar.ts_event // 1_000_000_000).strftime("%Y-%m-%d")
+            vix_value = self.vix.get_value_on_date(bar_date)
             vwap_value, zscore = self.vwap_zscore.update(bar)
             self.current_zscore = zscore
 
-            self.log.info(f"GARCH-Vola={self.current_garch_vola}, Schwelle={self.garch_vola_threshold}, ZScore={zscore}")
+            if self.current_vix_value is not None:
+                regime = self.get_vix_regime(self.current_vix_value)
+                zscore_entry_long, zscore_entry_short = self.get_zscore_entry_thresholds(regime)
 
-            if (
-                self.current_garch_vola is not None
-                and self.garch_vola_threshold is not None
-                and self.current_garch_vola < self.garch_vola_threshold
-            ):
-
-                if self.current_garch_vola is not None and self.current_garch_vola < self.garch_vola_threshold:
-                    if self.current_kalman_mean is not None and zscore is not None:
-                        if bar.close < vwap_value and bar.close < self.current_kalman_mean:
-                            self.check_for_long_trades(bar, zscore)
-                        elif bar.close > vwap_value and bar.close > self.current_kalman_mean:
-                            self.check_for_short_trades(bar, zscore)
+                if regime == 3:
+                    self.log.info("Markt ist zu volatil - keine Trades")
+                    self.order_types.close_position_by_market_order()
                 else:
-                    if self.current_garch_vola is not None:
-                        self.log.info(f"GARCH-Volatilität {self.current_garch_vola:.2f} über Schwelle {self.garch_vola_threshold}, kein Trade.")
+                    if self.current_kalman_mean is not None and zscore is not None:
+                        if bar.close < vwap_value and bar.close < self.current_kalman_mean and zscore < zscore_entry_long:
+                            self.check_for_long_trades(bar, zscore)
+                        if bar.close > vwap_value and bar.close > self.current_kalman_mean and zscore > zscore_entry_short:
+                            self.check_for_short_trades(bar, zscore)
 
-            self.check_for_long_exit(bar)
-            self.check_for_short_exit(bar)
-            self.update_visualizer_data(bar)
+        self.check_for_long_exit(bar)
+        self.check_for_short_exit(bar)
+        self.update_visualizer_data(bar)
+        self.prev_close = bar.close
+        self.prev_zscore = zscore
 
-            self.prev_close = bar.close
-            self.prev_zscore = zscore
+    def get_vix_regime(self, vix_value: float) -> int:
+        if vix_value < self.vix_chill:
+            return 1  
+        elif self.vix_chill <= vix_value < self.vix_fear:
+            return 2  
+        else:
+            return 3
+        
+    def get_zscore_entry_thresholds(self, regime: int):
+        if regime == 1:
+            return (
+                float(self.config.vwap_zscore_entry_long_regime1),
+                float(self.config.vwap_zscore_entry_short_regime1),
+            )
+        elif regime == 2:
+            return (
+                float(self.config.vwap_zscore_entry_long_regime2),
+                float(self.config.vwap_zscore_entry_short_regime2),
+            )
+        else:
+            return (None, None)
 
     def check_for_long_trades(self, bar: Bar, zscore: float):
         trade_size_usd = self.config.trade_size_usd
         qty = max(1, int(float(trade_size_usd) // float(bar.close)))
-        zscore_entry_long = self.config.vwap_zscore_entry_long
-        if self.prev_zscore is not None and self.prev_zscore > zscore_entry_long and zscore < zscore_entry_long:
+        regime = self.get_vix_regime(self.current_vix_value)
+        zscore_entry_long, _ = self.get_zscore_entry_thresholds(regime)
+        if zscore_entry_long is not None and self.prev_zscore is not None and self.prev_zscore > zscore_entry_long and zscore < zscore_entry_long:
             self.order_types.submit_long_market_order(qty, price=bar.close)
 
     def check_for_short_trades(self, bar: Bar, zscore: float):
         trade_size_usd = self.config.trade_size_usd
         qty = max(1, int(float(trade_size_usd) // float(bar.close)))
-        zscore_entry_short = self.config.vwap_zscore_entry_short
-        if self.prev_zscore is not None and self.prev_zscore <= zscore_entry_short and zscore > zscore_entry_short:
+        regime = self.get_vix_regime(self.current_vix_value)
+        _, zscore_entry_short = self.get_zscore_entry_thresholds(regime)
+        if zscore_entry_short is not None and self.prev_zscore is not None and self.prev_zscore <= zscore_entry_short and zscore > zscore_entry_short:
             self.order_types.submit_short_market_order(qty, price=bar.close)
 
-        # müssen noch hinzufügen, dass nachdem GARCH / VIX sich beruhigt hat, wir nicht explizit auf einen cross warte,
-        # sondern einmal longen direkt und DANN wieder cross Bedingung
-        # + wir wollen, dass mindestens ZScore 1,2 oder so zurückkehrt nicht nur > Grenze
-        # und wir wollen 4 Z-Score Werte angeben - dass wir zum Beispiel bei -1,5 und dann nochmal bei -2,2 long gehen 
-        # noch bessere Idee: je nachdem wo VIX steht - spätere entrys ZScore zb mit späteren exits und dann 
-        # in langsamen Marktphasen (bemessen am VIX) nehmen wir Entrys am ZScore früher
-        # oder irgendwo mix aus sicher und adaptiv
-
     def check_for_long_exit(self, bar):
-        prev_zscore = self.prev_zscore
-        zscore = self.current_zscore
+        prev_close = self.prev_close
+        kalman_mean = self.current_kalman_mean
         net_pos = self.portfolio.net_position(self.instrument_id)
         if (
-            net_pos is not None and net_pos < 0
-            and prev_zscore is not None and zscore is not None
-            and prev_zscore < 0 and zscore >= 0
+            net_pos is not None and net_pos > 0
+            and prev_close is not None and kalman_mean is not None
+            and prev_close < kalman_mean and bar.close >= kalman_mean
         ):
             self.order_types.close_position_by_market_order()
 
@@ -230,7 +261,7 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
         vwap_value = self.vwap_zscore.current_vwap_value
         kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
 
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="garch_volatility", value=self.current_garch_vola)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vix", value=self.current_vix_value)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="equity", value=equity)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
@@ -266,8 +297,7 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
             kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
             vwap_value = self.vwap_zscore.current_vwap_value
 
-            self.collector.add_indicator(timestamp=bar.ts_event, name="garch_volatility", value=self.current_garch_vola)
-            self.log.info(f"VISUAL: ts={bar.ts_event}, close={bar.close}, vwap={vwap_value}, kalman={kalman_mean}")
+            self.collector.add_indicator(timestamp=bar.ts_event, name="vix", value=self.current_vix_value)
             self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_mean", value=kalman_mean)
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap", value=vwap_value)
             self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
