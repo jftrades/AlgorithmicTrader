@@ -169,16 +169,23 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
             if self.current_vix_value is not None:
                 regime = self.get_vix_regime(self.current_vix_value)
                 zscore_entry_long, zscore_entry_short = self.get_zscore_entry_thresholds(regime)
+                sector = self.get_kalman_slope_sector()
 
                 if regime == 3:
                     self.log.info("Markt ist zu volatil - keine Trades")
                     self.order_types.close_position_by_market_order()
                 else:
-                    if self.current_kalman_mean is not None and zscore is not None:
-                        if bar.close < vwap_value and bar.close < self.current_kalman_mean and zscore < zscore_entry_long:
+                    if sector == "strong_up":
+                        if zscore is not None and zscore < zscore_entry_long:
                             self.check_for_long_trades(bar, zscore)
-                        if bar.close > vwap_value and bar.close > self.current_kalman_mean and zscore > zscore_entry_short:
+                        if zscore is not None and zscore > zscore_entry_short:
                             self.check_for_short_trades(bar, zscore)
+                    else:
+                        if self.current_kalman_mean is not None and zscore is not None:
+                            if bar.close < vwap_value and bar.close < self.current_kalman_mean and zscore < zscore_entry_long:
+                                self.check_for_long_trades(bar, zscore)
+                            if bar.close > vwap_value and bar.close > self.current_kalman_mean and zscore > zscore_entry_short:
+                                self.check_for_short_trades(bar, zscore)
 
         self.check_for_long_exit(bar)
         self.check_for_short_exit(bar)
@@ -224,13 +231,13 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
         
     def get_kalman_slope_sector(self):
         slope = self.current_kalman_slope
-        if slope < -0.05:
+        if slope < -0.1:
             return "strong_down"
-        elif slope < -0.01:
+        elif slope < -0.03:
             return "moderate_down"
-        elif slope <= 0.01:
+        elif slope <= 0.03:
             return "sideways"
-        elif slope <= 0.05:
+        elif slope <= 0.1:
             return "moderate_up"
         else:
             return "strong_up"
@@ -247,11 +254,16 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
         zscore_entry_short = regime_params.get("zscore_entry_short", None)
         zscore_pre_entry_long = regime_params.get("zscore_pre_entry_long", None)
         zscore_pre_entry_short = regime_params.get("zscore_pre_entry_short", None)
-        return allow_trades, long_risk_factor, short_risk_factor, zscore_entry_long, zscore_entry_short, zscore_pre_entry_long, zscore_pre_entry_short
-
+        zscore_exit_long = regime_params.get("zscore_exit_long", None)
+        zscore_exit_short = regime_params.get("zscore_exit_short", None)
+        return (allow_trades, long_risk_factor, short_risk_factor,
+                zscore_entry_long, zscore_entry_short,
+                zscore_pre_entry_long, zscore_pre_entry_short,
+                zscore_exit_long, zscore_exit_short)
+    
     def check_for_long_trades(self, bar: Bar, zscore: float):
         regime = self.get_vix_regime(self.current_vix_value)
-        allow_trades, long_risk_factor, _, zscore_entry_long, _, zscore_pre_entry_long, _ = self.get_slope_sector_params(regime)
+        allow_trades, long_risk_factor, _, zscore_entry_long, _, zscore_pre_entry_long, _, _, _ = self.get_slope_sector_params(regime)
         if not allow_trades:
                 return
         
@@ -269,7 +281,7 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
 
     def check_for_short_trades(self, bar: Bar, zscore: float):
         regime = self.get_vix_regime(self.current_vix_value)
-        allow_trades, _, short_risk_factor, _, zscore_entry_short, _, zscore_pre_entry_short = self.get_slope_sector_params(regime)
+        allow_trades, _, short_risk_factor, _, zscore_entry_short, _, zscore_pre_entry_short, _, _ = self.get_slope_sector_params(regime)
         if not allow_trades:
             return
 
@@ -291,6 +303,7 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
         regime = self.get_vix_regime(self.current_vix_value)
         params = self.get_slope_sector_params(regime)
         allow_trades = params[0]
+        zscore_exit_long = params[7]
         if not allow_trades:
             self.order_types.close_position_by_market_order()
             return
@@ -301,9 +314,11 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
         if (
             net_pos is not None and net_pos > 0
             and prev_zscore is not None and zscore is not None
-            and prev_zscore < 0 and zscore >= 0
+            and zscore_exit_long is not None
+            and prev_zscore < zscore_exit_long and zscore >= zscore_exit_long
         ):
             self.order_types.close_position_by_market_order()
+
 
     def check_for_short_exit(self, bar):
         if self.current_vix_value is None:
@@ -311,7 +326,7 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
         regime = self.get_vix_regime(self.current_vix_value)
         params = self.get_slope_sector_params(regime)
         allow_trades = params[0]
-
+        zscore_exit_short = params[8]
         if not allow_trades:
             self.order_types.close_position_by_market_order()
             return
@@ -322,7 +337,8 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
         if (
             net_pos is not None and net_pos < 0
             and prev_zscore is not None and zscore is not None
-            and prev_zscore > 0.5 and zscore <= 0.5
+            and zscore_exit_short is not None
+            and prev_zscore > zscore_exit_short and zscore <= zscore_exit_short
         ):
             self.order_types.close_position_by_market_order()
 

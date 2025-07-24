@@ -28,11 +28,15 @@ kalman_slope_sector_params:
         zscore_entry_short: 1.8
         zscore_pre_entry_long: -2.0
         zscore_pre_entry_short: 2.2
+        zscore_exit_long: 0.0
+        zscore_exit_short: 0.5
       regime2:
         zscore_entry_long: -2.3
         zscore_entry_short: 2.4
         zscore_pre_entry_long: -2.6
         zscore_pre_entry_short: 2.8
+        zscore_exit_long: 0.0
+        zscore_exit_short: 0.5
   moderate_down:
     allow_trades: true
     long_risk_factor: 0.8
@@ -43,11 +47,15 @@ kalman_slope_sector_params:
         zscore_entry_short: 2.5
         zscore_pre_entry_long: -2.2
         zscore_pre_entry_short: 2.7
+        zscore_exit_long: 0.1
+        zscore_exit_short: 0.6
       regime2:
         zscore_entry_long: -2.0
         zscore_entry_short: 2.7
         zscore_pre_entry_long: -2.4
         zscore_pre_entry_short: 2.9
+        zscore_exit_long: 0.1
+        zscore_exit_short: 0.6
   sideways:
     allow_trades: true
     long_risk_factor: 1.0
@@ -58,11 +66,15 @@ kalman_slope_sector_params:
         zscore_entry_short: 2.2
         zscore_pre_entry_long: -1.8
         zscore_pre_entry_short: 2.4
+        zscore_exit_long: 0.2
+        zscore_exit_short: 0.7
       regime2:
         zscore_entry_long: -1.6
         zscore_entry_short: 2.4
         zscore_pre_entry_long: -2.0
         zscore_pre_entry_short: 2.7
+        zscore_exit_long: 0.2
+        zscore_exit_short: 0.7
   moderate_up:
     allow_trades: true
     long_risk_factor: 1.2
@@ -73,11 +85,15 @@ kalman_slope_sector_params:
         zscore_entry_short: 2.4
         zscore_pre_entry_long: -1.6
         zscore_pre_entry_short: 2.2
+        zscore_exit_long: 0.3
+        zscore_exit_short: 0.8
       regime2:
         zscore_entry_long: -1.4
         zscore_entry_short: 2.6
         zscore_pre_entry_long: -1.8
         zscore_pre_entry_short: 2.4
+        zscore_exit_long: 0.3
+        zscore_exit_short: 0.8
   strong_up:
     allow_trades: true
     long_risk_factor: 1.5
@@ -88,14 +104,18 @@ kalman_slope_sector_params:
         zscore_entry_short: 2.6
         zscore_pre_entry_long: -1.4
         zscore_pre_entry_short: 2.0
+        zscore_exit_long: 0.4
+        zscore_exit_short: 0.9
       regime2:
         zscore_entry_long: -1.2
         zscore_entry_short: 2.8
         zscore_pre_entry_long: -1.6
         zscore_pre_entry_short: 2.2
+        zscore_exit_long: 0.4
+        zscore_exit_short: 0.9
 
 vix_fear_threshold: 42.0
-vix_chill_threshold: 20.0
+vix_chill_threshold: 22.0
 
 # garch_window: 750         
 # garch_p: 1                
@@ -103,7 +123,7 @@ vix_chill_threshold: 20.0
 # garch_vola_quantile: 0.8
 
 # Risk-Parameter
-trade_size_usd: 150000
+trade_size_usd: 100000
 close_positions_on_stop: true
 risk_percent: 0.01
 max_leverage: 2
