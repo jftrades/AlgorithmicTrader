@@ -114,7 +114,7 @@ kalman_slope_sector_params:
         zscore_exit_long: 0.4
         zscore_exit_short: 0.9
 
-vix_fear_threshold: 42.0
+vix_fear_threshold: 35.0
 vix_chill_threshold: 22.0
 
 # garch_window: 750         
@@ -123,7 +123,7 @@ vix_chill_threshold: 22.0
 # garch_vola_quantile: 0.8
 
 # Risk-Parameter
-trade_size_usd: 100000
+invest_percent: 0.6
 close_positions_on_stop: true
 risk_percent: 0.01
 max_leverage: 2

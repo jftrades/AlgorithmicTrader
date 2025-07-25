@@ -35,7 +35,6 @@ class MeancontinousphasesStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: str 
     bar_type_1h: str
-    trade_size_usd: Decimal
     risk_percent: float
     max_leverage: float
     min_account_balance: float
@@ -47,7 +46,7 @@ class MeancontinousphasesStrategyConfig(StrategyConfig):
     start_date: str
     end_date: str
 
-
+    kalman_mean_disable_slope: float
     kalman_slope_min: float
     kalman_slope_max: float
     zscore_pre_entry_long_min: float
@@ -72,12 +71,13 @@ class MeancontinousphasesStrategyConfig(StrategyConfig):
     vix_fear_threshold: float = 42.0
     vix_chill_threshold: float = 22.0
     close_positions_on_stop: bool = True
+    invest_percent: float = 0.10
+
 
 class MeancontinousphasesStrategy(BaseStrategy, Strategy):
     def __init__(self, config:MeancontinousphasesStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
-        self.trade_size_usd = config.trade_size_usd
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
         self.risk_manager = None
@@ -155,6 +155,10 @@ class MeancontinousphasesStrategy(BaseStrategy, Strategy):
             else:
                 self.current_kalman_slope = 0.0
             self.current_vix_value = vix_value
+            mean_str = f"{self.current_kalman_mean:.2f}" if self.current_kalman_mean is not None else "None"
+            prev_mean_str = f"{prev_mean:.2f}" if prev_mean is not None else "None"
+            slope_str = f"{self.current_kalman_slope:.6f}" if self.current_kalman_slope is not None else "None"
+            self.log.info(f"Kalman Slope: {slope_str} | Kalman Mean: {mean_str} | Prev Mean: {prev_mean_str}")
 
         if bar.bar_type == self.bar_type_1h:
             bar_date = datetime.datetime.utcfromtimestamp(bar.ts_event // 1_000_000_000).strftime("%Y-%m-%d")
@@ -197,30 +201,63 @@ class MeancontinousphasesStrategy(BaseStrategy, Strategy):
             return x ** 2
         else:
             return x
+        
+    def compute_dynamic_z_entry(self, slope, side):
+        cfg = self.config
+        slope = max(min(slope, cfg.kalman_slope_max), cfg.kalman_slope_min)
+        x = self.interpolate(slope, cfg.kalman_slope_min, cfg.kalman_slope_max, cfg.scaling_type_entry)
+        if side == "long":
+            # Je stärker bullish, desto früher Entry (weniger negativer Z)
+            return cfg.zscore_entry_long_min + x * (cfg.zscore_entry_long_max - cfg.zscore_entry_long_min)
+        elif side == "short":
+            # Je stärker bullish, desto später Short Entry (mehr positiver Z)
+            return cfg.zscore_entry_short_max - x * (cfg.zscore_entry_short_max - cfg.zscore_entry_short_min)
+
+    def compute_dynamic_z_pre_entry(self, slope, side):
+        cfg = self.config
+        slope = max(min(slope, cfg.kalman_slope_max), cfg.kalman_slope_min)
+        x = self.interpolate(slope, cfg.kalman_slope_min, cfg.kalman_slope_max, getattr(cfg, "scaling_type_pre_entry", "linear"))
+        if side == "long":
+            # Je stärker bullish, desto früher Pre-Entry (weniger negativer Z)
+            return cfg.zscore_pre_entry_long_min + x * (cfg.zscore_pre_entry_long_max - cfg.zscore_pre_entry_long_min)
+        elif side == "short":
+            # Je stärker bullish, desto später Short Pre-Entry (mehr positiver Z)
+            return cfg.zscore_pre_entry_short_max - x * (cfg.zscore_pre_entry_short_max - cfg.zscore_pre_entry_short_min)
+
+    def compute_dynamic_z_exit(self, slope, side):
+        cfg = self.config
+        slope = max(min(slope, cfg.kalman_slope_max), cfg.kalman_slope_min)
+        x = self.interpolate(slope, cfg.kalman_slope_min, cfg.kalman_slope_max, cfg.scaling_type_exit)
+        if side == "long":
+            # bullish → Long Exit später → höhere Exit-Z
+            return cfg.zscore_exit_long_min + x * (cfg.zscore_exit_long_max - cfg.zscore_exit_long_min)
+        elif side == "short":
+            # bullish → Short Exit früher → niedrigere Exit-Z
+            return cfg.zscore_exit_short_max - x * (cfg.zscore_exit_short_max - cfg.zscore_exit_short_min)
+
+    def compute_risk_factor(self, slope, side):
+        cfg = self.config
+        slope = max(min(slope, cfg.kalman_slope_max), cfg.kalman_slope_min)
+        x = self.interpolate(slope, cfg.kalman_slope_min, cfg.kalman_slope_max, cfg.scaling_type_risk)
+        if side == "long":
+            return cfg.long_risk_factor_min + x * (cfg.long_risk_factor_max - cfg.long_risk_factor_min)
+        elif side == "short":
+            return cfg.short_risk_factor_max - x * (cfg.short_risk_factor_max - cfg.short_risk_factor_min)
 
     def get_adaptive_params(self):
         slope = self.current_kalman_slope
         cfg = self.config
-        
-        scaling_entry = getattr(cfg, "scaling_type_entry", "linear")
-        scaling_pre_entry = getattr(cfg, "scaling_type_pre_entry", "linear")
-        scaling_exit = getattr(cfg, "scaling_type_exit", "linear")
-        scaling_risk = getattr(cfg, "scaling_type_risk", "linear")
 
-        x_pre_entry = self.interpolate(slope, cfg.kalman_slope_min, cfg.kalman_slope_max, scaling_pre_entry)
-        x_entry = self.interpolate(slope, cfg.kalman_slope_min, cfg.kalman_slope_max, scaling_entry)
-        x_exit = self.interpolate(slope, cfg.kalman_slope_min, cfg.kalman_slope_max, scaling_exit)
-        x_risk = self.interpolate(slope, cfg.kalman_slope_min, cfg.kalman_slope_max, scaling_risk)
+        zscore_entry_long = self.compute_dynamic_z_entry(slope, "long")
+        zscore_entry_short = self.compute_dynamic_z_entry(slope, "short")
+        zscore_exit_long = self.compute_dynamic_z_exit(slope, "long")
+        zscore_exit_short = self.compute_dynamic_z_exit(slope, "short")
+        long_risk_factor = self.compute_risk_factor(slope, "long")
+        short_risk_factor = self.compute_risk_factor(slope, "short")
 
-        zscore_pre_entry_long = cfg.zscore_pre_entry_long_min + x_pre_entry * (cfg.zscore_pre_entry_long_max - cfg.zscore_pre_entry_long_min)
-        zscore_entry_long = cfg.zscore_entry_long_min + x_entry * (cfg.zscore_entry_long_max - cfg.zscore_entry_long_min)
-        zscore_exit_long = cfg.zscore_exit_long_min + x_exit * (cfg.zscore_exit_long_max - cfg.zscore_exit_long_min)
-        long_risk_factor = cfg.long_risk_factor_min + x_risk * (cfg.long_risk_factor_max - cfg.long_risk_factor_min)
-        
-        zscore_pre_entry_short = cfg.zscore_pre_entry_short_min + x_pre_entry * (cfg.zscore_pre_entry_short_max - cfg.zscore_pre_entry_short_min)
-        zscore_entry_short = cfg.zscore_entry_short_min + x_entry * (cfg.zscore_entry_short_max - cfg.zscore_entry_short_min)
-        zscore_exit_short = cfg.zscore_exit_short_min + x_exit * (cfg.zscore_exit_short_max - cfg.zscore_exit_short_min)
-        short_risk_factor = cfg.short_risk_factor_min + x_risk * (cfg.short_risk_factor_max - cfg.short_risk_factor_min)
+
+        zscore_pre_entry_long = self.compute_dynamic_z_pre_entry(slope, "long")
+        zscore_pre_entry_short = self.compute_dynamic_z_pre_entry(slope, "short")
 
         return (
             zscore_entry_long, zscore_entry_short,
@@ -228,6 +265,7 @@ class MeancontinousphasesStrategy(BaseStrategy, Strategy):
             zscore_exit_long, zscore_exit_short,
             long_risk_factor, short_risk_factor
         )
+        
     def get_vix_regime(self, vix_value: float) -> int:
         if vix_value < self.vix_chill:
             return 1  
@@ -244,9 +282,12 @@ class MeancontinousphasesStrategy(BaseStrategy, Strategy):
         if regime == 3:
             return
 
-        zscore_entry_long, zscore_entry_short, zscore_pre_entry_long, zscore_pre_entry_short, _, _, long_risk_factor, _ = self.get_adaptive_params()
-        trade_size_usd = float(self.config.trade_size_usd) * long_risk_factor
-        qty = max(1, int(trade_size_usd // float(bar.close)))
+        zscore_entry_long, _, zscore_pre_entry_long, _, _, _, long_risk_factor, _ = self.get_adaptive_params()
+        invest_percent = Decimal(str(self.config.invest_percent)) * Decimal(str(long_risk_factor))
+        entry_price = Decimal(str(bar.close))
+        qty, valid_position = self.risk_manager.calculate_investment_size(invest_percent, entry_price)
+        if not valid_position or qty <= 0:
+            return
         net_pos = self.portfolio.net_position(self.instrument_id)
 
         if self.prev_zscore is not None and self.prev_zscore >= zscore_pre_entry_long:
@@ -271,8 +312,11 @@ class MeancontinousphasesStrategy(BaseStrategy, Strategy):
             return
 
         _, zscore_entry_short, _, zscore_pre_entry_short, _, _, _, short_risk_factor = self.get_adaptive_params()
-        trade_size_usd = float(self.config.trade_size_usd) * short_risk_factor
-        qty = max(1, int(trade_size_usd // float(bar.close)))
+        invest_percent = Decimal(str(self.config.invest_percent)) * Decimal(str(short_risk_factor))
+        entry_price = Decimal(str(bar.close))
+        qty, valid_position = self.risk_manager.calculate_investment_size(invest_percent, entry_price)
+        if not valid_position or qty <= 0:
+            return
         net_pos = self.portfolio.net_position(self.instrument_id)
 
         if self.prev_zscore is not None and self.prev_zscore <= zscore_pre_entry_short:

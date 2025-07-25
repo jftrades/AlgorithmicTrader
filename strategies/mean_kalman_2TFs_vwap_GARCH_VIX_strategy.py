@@ -48,7 +48,6 @@ class Meankalman2TFsvwapGARCHVIXStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
     bar_type: str 
     bar_type_1h: str
-    trade_size_usd: Decimal
     risk_percent: float
     max_leverage: float
     min_account_balance: float
@@ -77,12 +76,12 @@ class Meankalman2TFsvwapGARCHVIXStrategyConfig(StrategyConfig):
     # garch_q: int = 1
     # garch_vola_quantile: float = 0.8
     close_positions_on_stop: bool = True
+    invest_percent: float = 0.10
 
 class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
     def __init__(self, config:Meankalman2TFsvwapGARCHVIXStrategyConfig):
         super().__init__(config)
         self.instrument_id = config.instrument_id
-        self.trade_size_usd = config.trade_size_usd
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
         self.risk_manager = None
@@ -265,10 +264,13 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
         regime = self.get_vix_regime(self.current_vix_value)
         allow_trades, long_risk_factor, _, zscore_entry_long, _, zscore_pre_entry_long, _, _, _ = self.get_slope_sector_params(regime)
         if not allow_trades:
-                return
-        
-        trade_size_usd = float(self.config.trade_size_usd) * long_risk_factor
-        qty = max(1, int(trade_size_usd // float(bar.close)))
+            return
+
+        invest_percent = Decimal(str(self.config.invest_percent)) * Decimal(str(long_risk_factor))
+        entry_price = Decimal(str(bar.close))
+        qty, valid_position = self.risk_manager.calculate_investment_size(invest_percent, entry_price)
+        if not valid_position or qty <= 0:
+            return
 
         if (
             zscore_entry_long is not None and zscore_pre_entry_long is not None
@@ -285,15 +287,18 @@ class Meankalman2TFsvwapGARCHVIXStrategy(BaseStrategy, Strategy):
         if not allow_trades:
             return
 
-        trade_size_usd = float(self.config.trade_size_usd) * short_risk_factor
-        qty = max(1, int(trade_size_usd // float(bar.close)))
+        invest_percent = Decimal(str(self.config.invest_percent)) * Decimal(str(short_risk_factor))
+        entry_price = Decimal(str(bar.close))
+        qty, valid_position = self.risk_manager.calculate_investment_size(invest_percent, entry_price)
+        if not valid_position or qty <= 0:
+            return
 
         if (
             zscore_entry_short is not None and zscore_pre_entry_short is not None
             and self.prev_zscore is not None
             and self.prev_zscore > zscore_pre_entry_short
             and zscore > zscore_entry_short
-            and self.prev_zscore < zscore  # Z-Score bewegt sich Richtung Entry-Level
+            and self.prev_zscore < zscore
         ):
             self.order_types.submit_short_market_order(qty, price=bar.close)
 
