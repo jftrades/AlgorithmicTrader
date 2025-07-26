@@ -3,8 +3,7 @@ from collections import deque
 
 class VWAPZScoreHTF:
     """
-    VWAP + Z-Score für Higher Timeframe (z.B. Daily) Bars.
-    Kein Nautilus-Intraday-VWAP, sondern eigene Rolling-Berechnung!
+    Kein Basic Nautilus-Intraday-VWAP, sondern eigene Rolling-Berechnung!
     """
     def __init__(self, zscore_window: int = 60, zscore_entry_long: float = 1.0, zscore_entry_short: float = 1.0, vwap_lookback: int = 20):
         self.zscore_window = zscore_window
