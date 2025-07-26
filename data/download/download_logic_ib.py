@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 
-async def download__ib_historical_data():
+async def download__ib_historical_data(delete_temp_files=False):
     client = HistoricInteractiveBrokersClient(
         host="127.0.0.1",
         port=4002,
@@ -37,8 +37,8 @@ async def download__ib_historical_data():
     if not existing_instruments:
         catalog.write_data(instruments)
 
-    start_date = datetime.datetime(2024, 7, 1, 9, 30)
-    end_date = datetime.datetime(2025, 1, 1, 16, 30)
+    start_date = datetime.datetime(2021, 1, 1, 9, 30)
+    end_date = datetime.datetime(2024, 9, 1, 16, 30)
     bar_spec = "5-MINUTE-LAST"
     tz_name = "America/New_York"
     batch_months = 3
@@ -112,3 +112,16 @@ async def download__ib_historical_data():
     file_path = target_dir / file_name
     merged_df.to_parquet(file_path)
     print(f"Gemergte Datei gespeichert: {file_path} mit {len(merged_df)} Bars.")
+
+    # Optional: Lösche temporäre Dateien nach Mergen
+    if delete_temp_files:
+        for f in monthly_files:
+            try:
+                f.unlink()
+            except Exception as e:
+                print(f"Fehler beim Löschen von {f}: {e}")
+        try:
+            temp_dir.rmdir()
+        except Exception:
+            pass
+        print("Temporäre Dateien wurden gelöscht.")
