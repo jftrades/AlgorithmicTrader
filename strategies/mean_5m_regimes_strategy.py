@@ -75,6 +75,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.realized_pnl = 0
         self.bar_counter = 0
         self.prev_close = None
+        self.current_zscore = None
         self.collector = BacktestDataCollector()
         self.vwap_zscore = VWAPZScoreHTF(
             zscore_window=config.zscore_window,
