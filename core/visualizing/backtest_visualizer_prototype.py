@@ -120,7 +120,7 @@ class BacktestDataCollector:
         # open_price_actual = position_closed.avg_px_open
 
         for trade in self.trades:
-            if trade.id == id or trade.parent_id == id:
+            if trade.id == id or (trade.parent_id is not None and trade.parent_id == id):
                 trade.closed_timestamp = closed_timestamp
                 trade.realized_pnl = realized_pnl
                 trade.close_price_actual = close_price_actual

@@ -110,7 +110,10 @@ class BarDownloader:
         self.end_date = end_date
         self.base_data_dir = base_data_dir
         self.temp_raw_download_dir = Path(base_data_dir) / "temp_raw_downloads"
-        self.processed_dir = Path(base_data_dir) / f"processed_bar_data_{self.start_date}_to_{self.end_date}" / "csv"
+        # Zeitformat für Ordnernamen: YYYY-MM-DD_HHMMSS
+        start_str = self.start_date.strftime("%Y-%m-%d_%H%M%S") if hasattr(self.start_date, "strftime") else str(self.start_date).replace(":", "").replace(" ", "_")
+        end_str = self.end_date.strftime("%Y-%m-%d_%H%M%S") if hasattr(self.end_date, "strftime") else str(self.end_date).replace(":", "").replace(" ", "_")
+        self.processed_dir = Path(base_data_dir) / f"processed_bar_data_{start_str}_to_{end_str}" / "csv"
 
     def run(self):
         self.temp_raw_download_dir.mkdir(parents=True, exist_ok=True)
@@ -121,10 +124,13 @@ class BarDownloader:
             data_type="klines",
             data_frequency=self.interval,
         )
+        # Konvertiere zu datetime.date falls nötig
+        date_start = self.start_date.date() if hasattr(self.start_date, "date") else self.start_date
+        date_end = self.end_date.date() if hasattr(self.end_date, "date") else self.end_date
         dumper.dump_data(
             tickers=[self.symbol],
-            date_start=self.start_date,
-            date_end=self.end_date,
+            date_start=date_start,
+            date_end=date_end,
             is_to_update_existing=False
         )
         # Suche alle CSVs im temp_raw_download_dir
@@ -187,8 +193,9 @@ class BarDownloader:
         # Korrekte Output-Path-Berechnung
         interval_num = int(self.interval.lower().replace("m", ""))
         interval_str = f"{interval_num}MINUTE"
-        start_str = self.start_date.strftime("%Y-%m-%d") if hasattr(self.start_date, "strftime") else str(self.start_date)
-        end_str = self.end_date.strftime("%Y-%m-%d") if hasattr(self.end_date, "strftime") else str(self.end_date)
+        # Zeitformat für Dateinamen: YYYY-MM-DD_HHMMSS
+        start_str = self.start_date.strftime("%Y-%m-%d_%H%M%S") if hasattr(self.start_date, "strftime") else str(self.start_date).replace(":", "").replace(" ", "_")
+        end_str = self.end_date.strftime("%Y-%m-%d_%H%M%S") if hasattr(self.end_date, "strftime") else str(self.end_date).replace(":", "").replace(" ", "_")
         processed_dir = Path(self.base_data_dir) / f"processed_bar_data_{start_str}_to_{end_str}" / "csv"
         processed_dir.mkdir(parents=True, exist_ok=True)
         output_path = processed_dir / f"{self.symbol}_{interval_str}_{start_str}_to_{end_str}.csv"
@@ -306,11 +313,56 @@ def find_csv_file(symbol, processed_dir):
     return csv_files[0]
 
 def get_instrument(symbol: str, is_perp: bool):
+    from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
+    from nautilus_trader.test_kit.providers import TestInstrumentProvider
+    from nautilus_trader.model.objects import Price, Quantity
+
     if is_perp:
-        # Futures (PERP)
-        return TestInstrumentProvider.btcusdt_perp_binance() if symbol.upper() == "BTCUSDT" else \
-            InstrumentId(Symbol(f"{symbol}-PERP"), Venue("BINANCE"))
+        if symbol.upper() == "BTCUSDT":
+            return TestInstrumentProvider.btcusdt_perp_binance()
+        else:
+            # Erzeuge ein neues Instrument-Objekt auf Basis von BTCUSDT, aber mit angepasstem Symbol/ID
+            template = TestInstrumentProvider.btcusdt_perp_binance()
+            instrument_id = InstrumentId(Symbol(f"{symbol}-PERP"), Venue("BINANCE"))
+            return template.__class__(
+                instrument_id=instrument_id,
+                raw_symbol=Symbol(symbol),
+                base_currency=template.base_currency,
+                quote_currency=template.quote_currency,
+                settlement_currency=template.settlement_currency,
+                is_inverse=template.is_inverse,
+                price_precision=8,
+                size_precision=8,
+                price_increment=Price.from_str("0.00000001"),
+                size_increment=Quantity.from_str("0.00000001"),
+                margin_init=template.margin_init,
+                margin_maint=template.margin_maint,
+                maker_fee=template.maker_fee,
+                taker_fee=template.taker_fee,
+                ts_event=template.ts_event,
+                ts_init=template.ts_init,
+            )
     else:
-        # Spot
-        return TestInstrumentProvider.btcusdt_binance() if symbol.upper() == "BTCUSDT" else \
-            InstrumentId(Symbol(symbol), Venue("BINANCE"))
+        if symbol.upper() == "BTCUSDT":
+            return TestInstrumentProvider.btcusdt_binance()
+        else:
+            template = TestInstrumentProvider.btcusdt_binance()
+            instrument_id = InstrumentId(Symbol(symbol), Venue("BINANCE"))
+            return template.__class__(
+                instrument_id=instrument_id,
+                raw_symbol=Symbol(symbol),
+                base_currency=template.base_currency,
+                quote_currency=template.quote_currency,
+                settlement_currency=template.settlement_currency,
+                is_inverse=template.is_inverse,
+                price_precision=template.price_precision,
+                size_precision=template.size_precision,
+                price_increment=template.price_increment,
+                size_increment=template.size_increment,
+                margin_init=template.margin_init,
+                margin_maint=template.margin_maint,
+                maker_fee=template.maker_fee,
+                taker_fee=template.taker_fee,
+                ts_event=template.ts_event,
+                ts_init=template.ts_init,
+            )
