@@ -25,7 +25,7 @@ from tools.help_funcs.help_funcs_strategy import create_tags
 from tools.help_funcs.base_strategy import BaseStrategy
 from nautilus_trader.common.enums import LogColor
 from collections import deque
-from tools.indicators.kalman_filter_1D import KalmanFilter1D
+from tools.indicators.kalman_filter_2D import KalmanFilterRegression
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
 from tools.indicators.VIX import VIX
 
@@ -82,7 +82,13 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             zscore_entry_long=config.vwap_zscore_entry_long_regime1,
             zscore_entry_short=config.vwap_zscore_entry_short_regime1,
             vwap_lookback=config.vwap_lookback)
-        self.kalman = KalmanFilter1D(process_var=config.kalman_process_var, measurement_var=config.kalman_measurement_var, window=config.kalman_window)
+        self.kalman = KalmanFilterRegression(
+            process_var=config.kalman_process_var,
+            measurement_var=config.kalman_measurement_var,
+            window=config.kalman_window
+        )
+        self.current_kalman_mean = None
+        self.current_kalman_slope = None
         self.current_kalman_slope = None
         self.vix_start = str(config.start_date)[:10]
         self.vix_end = str(config.end_date)[:10]
@@ -128,12 +134,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
             vix_value = self.vix.get_value_on_date(bar_date)
 
-            prev_mean = self.current_kalman_mean
-            self.current_kalman_mean = self.kalman.update(float(bar.close))
-            if prev_mean is not None and self.current_kalman_mean is not None:
-                self.current_kalman_slope = self.current_kalman_mean - prev_mean
-            else:
-                self.current_kalman_slope = 0.0
+            self.current_kalman_mean, self.current_kalman_slope = self.kalman.update(float(bar.close))
+
             self.current_vix_value = vix_value
 
         if bar.bar_type == self.bar_type_5m:

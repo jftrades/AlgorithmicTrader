@@ -26,7 +26,7 @@ from tools.help_funcs.help_funcs_strategy import create_tags
 from tools.help_funcs.base_strategy import BaseStrategy
 from nautilus_trader.common.enums import LogColor
 from collections import deque
-from tools.indicators.kalman_filter_1D import KalmanFilter1D
+from tools.indicators.kalman_filter_2D import KalmanFilter1D
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
 # from tools.indicators.GARCH import GARCH, update_garch_vola_window, get_garch_vola_threshold
 from tools.indicators.VIX import VIX

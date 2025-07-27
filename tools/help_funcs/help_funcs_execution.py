@@ -156,7 +156,9 @@ def export_equity_curve(run_dir):
         unrealized_df = pd.read_csv(run_dir / "indicators" / "unrealized_pnl.csv", usecols=["timestamp", "value"])
         merged = pd.merge(balance_df, unrealized_df, on="timestamp", suffixes=("_balance", "_unrealized"), how="outer").fillna(0)
         merged["equity"] = merged["value_balance"].astype(float) + merged["value_unrealized"].astype(float)
-        merged[["timestamp", "equity"]].to_csv(equity_path, index=False)
+        # Fix: Spalte für QuantStats heißt "value"
+        merged_out = merged[["timestamp", "equity"]].rename(columns={"equity": "value"})
+        merged_out.to_csv(equity_path, index=False)
         print(f"Echte Equity-Kurve exportiert: {equity_path}")
     except Exception as e:
         print(f"Equity-Export fehlgeschlagen: {e}")
@@ -170,11 +172,15 @@ def show_quantstats_report_from_equity_csv(
     equity_df = pd.read_csv(equity_csv, usecols=["timestamp", "value"])
     equity = pd.Series(equity_df["value"].values, index=pd.to_datetime(equity_df["timestamp"], unit="ns"))
     equity = equity[~equity.index.duplicated(keep='first')]
-    returns = equity.pct_change(fill_method=None).dropna()
+    # Fix: Resample auf Tagesbasis, damit QuantStats mit Yahoo-Finance-Benchmark funktioniert
+    equity_daily = equity.resample("1D").last().dropna()
+    returns = equity_daily.pct_change(fill_method=None).dropna()
 
     # Benchmark von Yahoo Finance laden und Duplikate entfernen
     benchmark = None
     if benchmark_symbol:
         benchmark = qs.utils.download_returns(benchmark_symbol)
+        # Benchmark ebenfalls auf die gleichen Tage beschränken
+        benchmark = benchmark[equity_daily.index.min():equity_daily.index.max()]
 
     qs.reports.html(returns, benchmark=benchmark, output=str(output_path) if output_path else None)
