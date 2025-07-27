@@ -661,7 +661,7 @@ class DashboardApp:
                     bars = self.bars_df
                     fig.add_trace(
                         go.Candlestick(
-                            x=pd.to_datetime(bars['timestamp']),
+                            x=bars['bar_index'],  # Statt Zeitstempel!
                             open=bars['open'],
                             high=bars['high'], 
                             low=bars['low'],
@@ -677,21 +677,21 @@ class DashboardApp:
                 except Exception as e:
                     print(f"Fehler bei OHLC-Chart: {e}")
 
-            # 2. Indikatoren mit Plot-ID 0 hinzufügen (gleicher Plot wie Bars)
+            # 2. EXPLIZITE Trennung: Nur Indikatoren mit plot_id == 0 im Hauptchart anzeigen
             try:
                 indicator_colors = ['#000000', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.5)', 'rgba(64,64,64,0.8)']
                 color_idx = 0
                 for name, indicator_df in self.indicators_df.items():
                     try:
-                        if not indicator_df.empty and indicator_df.iloc[0]['plot_id'] == 0:
-                            # ACCOUNT_BALANCE nicht im Preis-Chart plotten
+                        # plot_id robust als int vergleichen
+                        plot_id_val = int(indicator_df.iloc[0]['plot_id']) if not indicator_df.empty else None
+                        if not indicator_df.empty and plot_id_val == 0:
                             if name.upper() == "ACCOUNT_BALANCE":
-                                # print(f"ACCOUNT_BALANCE wird nicht im Preis-Chart angezeigt.")
-                                continue  # Überspringe ACCOUNT_BALANCE
+                                continue
                             line_color = indicator_colors[color_idx % len(indicator_colors)]
                             fig.add_trace(
                                 go.Scatter(
-                                    x=pd.to_datetime(indicator_df['timestamp']),
+                                    x=indicator_df['bar_index'],
                                     y=indicator_df['value'],
                                     mode='lines',
                                     name=f"{name.upper()}",
@@ -716,7 +716,7 @@ class DashboardApp:
                         if not normal_buy_trades.empty:
                             fig.add_trace(
                                 go.Scatter(
-                                    x=pd.to_datetime(normal_buy_trades['timestamp']),
+                                    x=normal_buy_trades['bar_index'],  # <-- bar_index statt Zeit!
                                     y=normal_buy_trades.get('open_price_actual', normal_buy_trades.get('price_actual', 0)),
                                     mode='markers',
                                     name='BUY Signal',
@@ -738,7 +738,7 @@ class DashboardApp:
                             selected_trade = buy_trades.loc[[self.selected_trade_index]]
                             fig.add_trace(
                                 go.Scatter(
-                                    x=pd.to_datetime(selected_trade['timestamp']),
+                                    x=selected_trade['bar_index'],  # <-- bar_index statt Zeit!
                                     y=selected_trade.get('open_price_actual', selected_trade.get('price_actual', 0)),
                                     mode='markers',
                                     name='Selected BUY',
@@ -762,7 +762,7 @@ class DashboardApp:
                         if not normal_sell_trades.empty:
                             fig.add_trace(
                                 go.Scatter(
-                                    x=pd.to_datetime(normal_sell_trades['timestamp']),
+                                    x=normal_sell_trades['bar_index'],  # <-- bar_index statt Zeit!
                                     y=normal_sell_trades.get('open_price_actual', normal_sell_trades.get('price_actual', 0)),
                                     mode='markers',
                                     name='SELL Signal',
@@ -784,7 +784,7 @@ class DashboardApp:
                             selected_trade = sell_trades.loc[[self.selected_trade_index]]
                             fig.add_trace(
                                 go.Scatter(
-                                    x=pd.to_datetime(selected_trade['timestamp']),
+                                    x=selected_trade['bar_index'],  # <-- bar_index statt Zeit!
                                     y=selected_trade.get('open_price_actual', selected_trade.get('price_actual', 0)),
                                     mode='markers',
                                     name='Selected SELL',
@@ -811,7 +811,7 @@ class DashboardApp:
             # Layout-Update mit einfacheren Einstellungen
             fig.update_layout(
                 title="",
-                xaxis_title="Time",
+                xaxis_title="Bar Index",
                 yaxis_title="Price (USDT)",
                 template="plotly_white",
                 showlegend=True,
@@ -886,21 +886,17 @@ class DashboardApp:
             print(f"Fehler bei Trade-Visualisierung: {e}")
     
     def _add_price_line_full_chart(self, fig, price, name, color, dash="solid"):
-        """Fügt eine horizontale Preis-Linie über den ganzen Chart hinzu."""
+        """Fügt eine horizontale Preis-Linie über den ganzen Chart hinzu (Bar-Index)."""
         try:
-            # Bestimme den vollen Zeitbereich des Charts
             if self.bars_df is not None and not self.bars_df.empty:
-                min_time = pd.to_datetime(self.bars_df['timestamp'].min())
-                max_time = pd.to_datetime(self.bars_df['timestamp'].max())
+                min_bar_index = self.bars_df['bar_index'].min()
+                max_bar_index = self.bars_df['bar_index'].max()
             else:
-                # Fallback: 24 Stunden Bereich
-                now = pd.Timestamp.now()
-                min_time = now - pd.Timedelta(hours=12)
-                max_time = now + pd.Timedelta(hours=12)
-            
+                min_bar_index = 0
+                max_bar_index = 1
             fig.add_trace(
                 go.Scatter(
-                    x=[min_time, max_time],
+                    x=[min_bar_index, max_bar_index],
                     y=[price, price],
                     mode='lines',
                     name=f"{name} Line",
@@ -913,64 +909,84 @@ class DashboardApp:
             print(f"Fehler bei Vollchart-Preis-Linie: {e}")
 
     def _add_price_line(self, fig, time, price, name, color, dash="solid"):
-        """Fügt eine horizontale Preis-Linie hinzu."""
+        """Fügt eine horizontale Preis-Linie hinzu (Bar-Index)."""
         try:
-            # Bestimme Zeitbereich für die Linie (erweitert um 10% der sichtbaren Zeit)
             if self.bars_df is not None and not self.bars_df.empty:
-                min_time = pd.to_datetime(self.bars_df['timestamp'].min())
-                max_time = pd.to_datetime(self.bars_df['timestamp'].max())
-                time_range = max_time - min_time
-                extension = time_range * 0.1
-                
-                start_time = max(min_time, time - extension)
-                end_time = min(max_time, time + extension)
-            else:
-                # Fallback: 1 Stunde vor und nach dem Trade
-                start_time = time - pd.Timedelta(hours=1)
-                end_time = time + pd.Timedelta(hours=1)
-            
-            fig.add_trace(
-                go.Scatter(
-                    x=[start_time, end_time],
-                    y=[price, price],
-                    mode='lines',
-                    name=f"{name} Line",
-                    line=dict(color=color, width=2, dash=dash),
-                    showlegend=False,
-                    hovertemplate=f'<b>{name} Price</b><br>Price: {price:.2f} USDT<extra></extra>'
+                # Ermittle den nächsten Bar-Index zu time
+                bar_indices = self.bars_df['bar_index']
+                timestamps = pd.to_datetime(self.bars_df['timestamp'])
+                # Finde den Bar-Index, der time am nächsten ist
+                idx = (abs(timestamps - time)).idxmin()
+                center_bar_index = self.bars_df.loc[idx, 'bar_index']
+                min_bar_index = bar_indices.min()
+                max_bar_index = bar_indices.max()
+                # Linie über den ganzen Chart
+                fig.add_trace(
+                    go.Scatter(
+                        x=[min_bar_index, max_bar_index],
+                        y=[price, price],
+                        mode='lines',
+                        name=f"{name} Line",
+                        line=dict(color=color, width=2, dash=dash),
+                        showlegend=False,
+                        hovertemplate=f'<b>{name} Price</b><br>Price: {price:.2f} USDT<extra></extra>'
+                    )
                 )
-            )
+            else:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[0, 1],
+                        y=[price, price],
+                        mode='lines',
+                        name=f"{name} Line",
+                        line=dict(color=color, width=2, dash=dash),
+                        showlegend=False,
+                        hovertemplate=f'<b>{name} Price</b><br>Price: {price:.2f} USDT<extra></extra>'
+                    )
+                )
         except Exception as e:
             print(f"Fehler bei Preis-Linie: {e}")
     
     def _add_exit_marker_small(self, fig, exit_time, exit_price):
-        """Fügt einen kleinen schwarzen X-Marker am Exit-Punkt hinzu."""
+        """Fügt einen kleinen schwarzen X-Marker am Exit-Punkt hinzu (Bar-Index)."""
         try:
+            if self.bars_df is not None and not self.bars_df.empty:
+                timestamps = pd.to_datetime(self.bars_df['timestamp'])
+                idx = (abs(timestamps - exit_time)).idxmin()
+                exit_bar_index = self.bars_df.loc[idx, 'bar_index']
+            else:
+                exit_bar_index = 0
             fig.add_trace(
                 go.Scatter(
-                    x=[exit_time],
+                    x=[exit_bar_index],
                     y=[exit_price],
                     mode='markers',
                     name='Trade Exit',
                     marker=dict(
                         symbol='x',
-                        size=10,  # Kleiner als vorher
+                        size=10,
                         color='#000000',
                         line=dict(color='#ffffff', width=1)
                     ),
                     showlegend=False,
-                    hovertemplate='<b>Trade Exit</b><br>Time: %{x}<br>Price: %{y:.4f} USDT<extra></extra>'
+                    hovertemplate='<b>Trade Exit</b><br>Bar Index: %{x}<br>Price: %{y:.4f} USDT<extra></extra>'
                 )
             )
         except Exception as e:
             print(f"Fehler bei kleinem Exit-Marker: {e}")
 
     def _add_exit_marker(self, fig, exit_time, exit_price):
-        """Fügt einen schwarzen X-Marker am Exit-Punkt hinzu."""
+        """Fügt einen schwarzen X-Marker am Exit-Punkt hinzu (Bar-Index)."""
         try:
+            if self.bars_df is not None and not self.bars_df.empty:
+                timestamps = pd.to_datetime(self.bars_df['timestamp'])
+                idx = (abs(timestamps - exit_time)).idxmin()
+                exit_bar_index = self.bars_df.loc[idx, 'bar_index']
+            else:
+                exit_bar_index = 0
             fig.add_trace(
                 go.Scatter(
-                    x=[exit_time],
+                    x=[exit_bar_index],
                     y=[exit_price],
                     mode='markers',
                     name='Trade Exit',
@@ -981,7 +997,7 @@ class DashboardApp:
                         line=dict(color='#ffffff', width=2)
                     ),
                     showlegend=False,
-                    hovertemplate='<b>Trade Exit</b><br>Time: %{x}<br>Price: %{y:.2f} USDT<extra></extra>'
+                    hovertemplate='<b>Trade Exit</b><br>Bar Index: %{x}<br>Price: %{y:.2f} USDT<extra></extra>'
                 )
             )
         except Exception as e:
@@ -1032,12 +1048,20 @@ class DashboardApp:
             print(f"Fehler bei TP/SL Boxen: {e}")
     
     def _add_box(self, fig, start_time, end_time, y_bottom, y_top, fill_color, line_color, label):
-        """Fügt eine rechteckige Box hinzu."""
+        """Fügt eine rechteckige Box hinzu (Bar-Index)."""
         try:
-            # Box als gefüllte Fläche
+            if self.bars_df is not None and not self.bars_df.empty:
+                timestamps = pd.to_datetime(self.bars_df['timestamp'])
+                idx_start = (abs(timestamps - start_time)).idxmin()
+                idx_end = (abs(timestamps - end_time)).idxmin()
+                start_bar_index = self.bars_df.loc[idx_start, 'bar_index']
+                end_bar_index = self.bars_df.loc[idx_end, 'bar_index']
+            else:
+                start_bar_index = 0
+                end_bar_index = 1
             fig.add_trace(
                 go.Scatter(
-                    x=[start_time, end_time, end_time, start_time, start_time],
+                    x=[start_bar_index, end_bar_index, end_bar_index, start_bar_index, start_bar_index],
                     y=[y_bottom, y_bottom, y_top, y_top, y_bottom],
                     fill="toself",
                     fillcolor=fill_color,
@@ -1048,13 +1072,11 @@ class DashboardApp:
                     hovertemplate=f'<b>{label} Zone</b><br>Range: {y_bottom:.2f} - {y_top:.2f} USDT<extra></extra>'
                 )
             )
-            
             # Label für die Box
-            mid_time = start_time + (end_time - start_time) / 2
+            mid_bar_index = int((start_bar_index + end_bar_index) / 2)
             mid_price = (y_bottom + y_top) / 2
-            
             fig.add_annotation(
-                x=mid_time,
+                x=mid_bar_index,
                 y=mid_price,
                 text=label,
                 showarrow=False,
@@ -1063,69 +1085,55 @@ class DashboardApp:
                 bordercolor=line_color,
                 borderwidth=1
             )
-            
         except Exception as e:
             print(f"Fehler bei Box-Erstellung: {e}")
 
     def create_indicator_subplots(self):
         """Erstellt dynamische Subplots basierend auf Plot-IDs."""
         try:
-            # Gruppiere Indikatoren nach Plot-ID (außer 0)
+            # EXPLIZITE Trennung: Nur Indikatoren mit plot_id > 0 in Subplots
             plot_groups = {}
             for name, indicator_df in self.indicators_df.items():
                 if not indicator_df.empty:
-                    plot_id = indicator_df.iloc[0]['plot_id']
-                    if plot_id > 0:  # Plot-ID 0 ist im Hauptchart
-                        if plot_id not in plot_groups:
-                            plot_groups[plot_id] = []
-                        plot_groups[plot_id].append((name, indicator_df))
-            
-            # Wenn keine Indikatoren > Plot-ID 0, return leer
+                    plot_id_val = int(indicator_df.iloc[0]['plot_id'])
+                    if plot_id_val > 0:
+                        if plot_id_val not in plot_groups:
+                            plot_groups[plot_id_val] = []
+                        plot_groups[plot_id_val].append((name, indicator_df))
+
             if not plot_groups:
                 return []
-            
-            # Erstelle Subplot-Components - alle in einem großen Container
-            if plot_groups:
-                # Großer Container für alle Indikatoren
-                indicator_names_all = []
-                all_graphs = []
-                
-                for plot_id in sorted(plot_groups.keys()):
-                    indicators_in_plot = plot_groups[plot_id]
-                    plot_id_str = str(int(plot_id)) if isinstance(plot_id, float) else str(plot_id)
-                    indicator_names = [name for name, _ in indicators_in_plot]
-                    indicator_names_all.extend(indicator_names)
-                    
-                    all_graphs.append(
-                        dcc.Graph(
-                            id=f'indicators-plot-{plot_id_str}',
-                            figure=self.create_subplot_figure(indicators_in_plot),
-                            style={'height': '300px', 'marginBottom': '10px'}
-                        )
-                    )
-                
-                subplot_components = [
+
+            subplot_components = []
+            for plot_id in sorted(plot_groups.keys()):
+                indicators_in_plot = plot_groups[plot_id]
+                plot_id_str = str(plot_id)
+                indicator_names = [name for name, _ in indicators_in_plot]
+                subplot_components.append(
                     html.Div([
-                        html.H4(f"Technical Indicators: {', '.join(indicator_names_all)}", style={
-                            'color': '#2c3e50', 
+                        html.H4(f"Indicators (Plot {plot_id_str}): {', '.join(indicator_names)}", style={
+                            'color': '#2c3e50',
                             'marginBottom': '15px',
                             'fontFamily': 'Inter, system-ui, sans-serif',
                             'fontWeight': '600',
                             'fontSize': '18px',
                             'letterSpacing': '-0.01em'
                         }),
-                        *all_graphs
+                        dcc.Graph(
+                            id=f'indicators-plot-{plot_id_str}',
+                            figure=self.create_subplot_figure(indicators_in_plot),
+                            style={'height': '300px', 'marginBottom': '10px'}
+                        )
                     ], style={
                         'background': '#ffffff',
                         'borderRadius': '16px',
                         'padding': '25px',
                         'boxShadow': '0 4px 20px rgba(0,0,0,0.08)',
-                        'border': '1px solid rgba(222, 226, 230, 0.6)'
+                        'border': '1px solid rgba(222, 226, 230, 0.6)',
+                        'marginBottom': '20px'
                     })
-                ]
-            else:
-                subplot_components = []
-            
+                )
+
             return subplot_components
         except Exception as e:
             print(f"Fehler bei Indikator-Subplots: {e}")
@@ -1139,7 +1147,7 @@ class DashboardApp:
         for i, (name, indicator_df) in enumerate(indicators_list):
             fig.add_trace(
                 go.Scatter(
-                    x=pd.to_datetime(indicator_df['timestamp']),
+                    x=indicator_df['bar_index'],
                     y=indicator_df['value'],
                     mode='lines',  # Keine Marker!
                     name=name,

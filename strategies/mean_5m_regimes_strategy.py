@@ -90,6 +90,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.vix_chill = float(config.vix_chill_threshold)
         self.current_vix_value = None
         self.vix = None
+        self.ready_for_long_entry = False
+        self.ready_for_short_entry = False 
+
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
@@ -248,14 +251,19 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not valid_position or qty <= 0:
             return
 
+        if self.prev_zscore is not None and self.prev_zscore >= zscore_pre_entry_long:
+            self.ready_for_long_entry = True
+
         if (
             zscore_entry_long is not None and zscore_pre_entry_long is not None
             and self.prev_zscore is not None
             and self.prev_zscore < zscore_pre_entry_long
             and zscore < zscore_entry_long
             and self.prev_zscore > zscore
+            and self.ready_for_long_entry
         ):
             self.order_types.submit_long_market_order(qty, price=bar.close)
+            self.ready_for_long_entry = False
 
     def check_for_short_trades(self, bar: Bar, zscore: float):
         regime = self.get_vix_regime(self.current_vix_value)
@@ -269,14 +277,19 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not valid_position or qty <= 0:
             return
 
+        if self.prev_zscore is not None and self.prev_zscore <= zscore_pre_entry_short:
+            self.ready_for_short_entry = True
+
         if (
             zscore_entry_short is not None and zscore_pre_entry_short is not None
             and self.prev_zscore is not None
             and self.prev_zscore > zscore_pre_entry_short
             and zscore > zscore_entry_short
             and self.prev_zscore < zscore
+            and self.ready_for_short_entry
         ):
             self.order_types.submit_short_market_order(qty, price=bar.close)
+            self.ready_for_short_entry = False
 
     def check_for_long_exit(self, bar):
         if self.current_vix_value is None:

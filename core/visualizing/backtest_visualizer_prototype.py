@@ -3,7 +3,7 @@ import os
 from nautilus_trader.model.enums import OrderSide
 
 class TradeInstance:
-    def __init__(self, order):
+    def __init__(self, order, bar_index=None):
         # SL/TP, type, action aus Tags extrahieren
         sl = None
         tp = None
@@ -48,6 +48,7 @@ class TradeInstance:
 
         self.price_desired = None
         self.fee = None
+        self.bar_index = bar_index  # NEU: Bar-Index für Visualisierung
 
 class IndicatorInstance:
     def __init__(self, name, plot_number=0):
@@ -78,20 +79,28 @@ class BacktestDataCollector:
         self.indicator_plot_number[name] = plot_number
 
     def add_bar(self, timestamp, open_, high, low, close):
+        bar_index = len(self.bars)  # Bar-Nummer als Index
         self.bars.append({
             'timestamp': timestamp,
             'open': open_,
             'high': high,
             'low': low,
-            'close': close
+            'close': close,
+            'bar_index': bar_index  # NEU
+
         })
 
     def add_indicator(self, name, timestamp, value):
+        bar_index = len(self.bars) - 1 if self.bars else 0
+        plot_number = self.indicator_plot_number.get(name, 0)
         if name not in self.indicators:
             self.indicators[name] = []
         self.indicators[name].append({
             'timestamp': timestamp,
-            'value': value
+            'value': value,
+            'bar_index': bar_index,
+            'plot_number': plot_number,
+            'plot_id': plot_number  # Alias für Dashboard-Kompatibilität
         })
 
     def add_trade_details(self, order_filled, parent_id):
@@ -129,8 +138,16 @@ class BacktestDataCollector:
         
     # In BacktestDataCollector:
     def add_trade(self, new_order):
-        # ... Werte extrahieren ...
-        trade = TradeInstance(new_order)
+        # Ermittle passenden Bar-Index zum Trade-Timestamp
+        if self.bars:
+            import pandas as pd
+            timestamps = pd.to_datetime([bar['timestamp'] for bar in self.bars])
+            trade_time = pd.to_datetime(new_order.ts_last)
+            idx = (abs(timestamps - trade_time)).argmin()
+            bar_index = self.bars[idx]['bar_index']
+        else:
+            bar_index = 0
+        trade = TradeInstance(new_order, bar_index=bar_index)
         self.trades.append(trade)
 
         # order.id                -> OrderId-Objekt (eindeutige Order-ID)
@@ -157,7 +174,16 @@ class BacktestDataCollector:
         for name, data in self.indicators.items():
             plot_number = self.indicator_plot_number.get(name, 0)
             df = pd.DataFrame(data)
+            # Ensure plot_id is present and cast to int
+            if "plot_id" not in df.columns:
+                df["plot_id"] = plot_number
+            df["plot_id"] = df["plot_id"].astype(int)
             df["plot_number"] = plot_number
+            # Debug logging for plot_id export
+            print(f"Exporting indicator '{name}' with plot_id: {plot_number} (unique plot_ids in df: {df['plot_id'].unique()})")
+            # Save CSV
+            df.to_csv(self.path / "indicators" / f"{name}.csv", index=False)
+            df["plot_id"] = plot_number  # Alias für Dashboard-Kompatibilität
             df.to_csv(self.path / "indicators" / f"{name}.csv", index=False)
 
     def trades_to_csv(self):
