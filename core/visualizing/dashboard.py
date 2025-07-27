@@ -45,22 +45,19 @@ class TradingDashboard:
                 self.trades_df = pd.read_csv(trades_path)
                 print(f"Trades geladen: {len(self.trades_df)} Einträge")
             
-            # Indikatoren laden (mit Plot-ID aus dritter Spalte)
+            # Indikatoren laden (plot_id robust aus Spalte laden und casten)
             indicators_path = self.data_path / "indicators"
             if indicators_path.exists():
                 for csv_file in indicators_path.glob("*.csv"):
                     indicator_name = csv_file.stem
                     indicator_df = pd.read_csv(csv_file)
-                    
-                    # Prüfe ob dritte Spalte (plot_id) vorhanden ist
-                    if len(indicator_df.columns) >= 3:
-                        plot_id = indicator_df.iloc[0, 2] if len(indicator_df) > 0 else 1  # Default zu Plot 1
-                        indicator_df['plot_id'] = plot_id  # Plot-ID als Spalte hinzufügen
-                        print(f"Indikator {indicator_name} geladen: {len(indicator_df)} Einträge, Plot-ID: {plot_id}")
+                    # plot_id robust laden und casten
+                    if "plot_id" in indicator_df.columns:
+                        indicator_df["plot_id"] = indicator_df["plot_id"].astype(int)
+                        print(f"Indikator {indicator_name} geladen: {len(indicator_df)} Einträge, plot_id unique: {indicator_df['plot_id'].unique()} (dtype: {indicator_df['plot_id'].dtype})")
                     else:
-                        indicator_df['plot_id'] = 1  # Default zu Plot 1 falls keine Plot-ID
-                        print(f"Indikator {indicator_name} geladen: {len(indicator_df)} Einträge, Plot-ID: 1 (default)")
-                    
+                        indicator_df["plot_id"] = 0
+                        print(f"Indikator {indicator_name} geladen: {len(indicator_df)} Einträge, plot_id: 0 (default)")
                     self.indicators_df[indicator_name] = indicator_df
             all_results_path = self.data_path.parent / "all_backtest_results.csv"
             if all_results_path.exists():
@@ -1089,20 +1086,25 @@ class DashboardApp:
             print(f"Fehler bei Box-Erstellung: {e}")
 
     def create_indicator_subplots(self):
-        """Erstellt dynamische Subplots basierend auf Plot-IDs."""
+        """Erstellt Subplots für alle Indikatoren mit plot_id > 0 (nie im Hauptchart!)."""
         try:
-            # EXPLIZITE Trennung: Nur Indikatoren mit plot_id > 0 in Subplots
             plot_groups = {}
             for name, indicator_df in self.indicators_df.items():
-                if not indicator_df.empty:
-                    plot_id_val = int(indicator_df.iloc[0]['plot_id'])
+                if indicator_df is not None and not indicator_df.empty:
+                    # Robust: plot_id aus DataFrame, fallback auf plot_number
+                    if 'plot_id' in indicator_df.columns:
+                        plot_id_val = int(indicator_df.iloc[0]['plot_id'])
+                    elif 'plot_number' in indicator_df.columns:
+                        plot_id_val = int(indicator_df.iloc[0]['plot_number'])
+                    else:
+                        plot_id_val = 0
                     if plot_id_val > 0:
                         if plot_id_val not in plot_groups:
                             plot_groups[plot_id_val] = []
                         plot_groups[plot_id_val].append((name, indicator_df))
 
             if not plot_groups:
-                return []
+                return html.Div("Keine Subplot-Indikatoren gefunden.")
 
             subplot_components = []
             for plot_id in sorted(plot_groups.keys()):
@@ -1134,10 +1136,10 @@ class DashboardApp:
                     })
                 )
 
-            return subplot_components
+            return html.Div(subplot_components)
         except Exception as e:
             print(f"Fehler bei Indikator-Subplots: {e}")
-            return []
+            return html.Div(f"Fehler bei Indikator-Subplots: {e}")
 
     def create_subplot_figure(self, indicators_list):
         """Erstellt Figure für einen Indikator-Subplot."""
