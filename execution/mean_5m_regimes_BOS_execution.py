@@ -1,0 +1,4 @@
+# hier rein kommt ähnlich wie strategie in mean_5m_regimes abgesehen vonnn:
+# wir ändern die entry Logik sodass wir kein prev Zscore oder so haben,
+# sondern einfach sagen wir möchten dann ab dieser Schwelle einen ChoCh z.B. haben
+# auch BOS - Break of strucutre genannt

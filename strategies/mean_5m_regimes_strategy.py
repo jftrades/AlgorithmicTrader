@@ -41,6 +41,9 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     kalman_process_var: float
     kalman_measurement_var: float
     kalman_window: int
+    kalman_slope_thresholds: dict
+    kalman_disable_price_condition_slope_long: float
+    kalman_disable_price_condition_slope_short: float
 
     start_date: str
     end_date: str
@@ -162,9 +165,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                                 self.check_for_short_trades(bar, zscore)
                         else:
                             if self.current_kalman_mean is not None and zscore is not None:
-                                if bar.close < vwap_value and bar.close < self.current_kalman_mean and zscore < zscore_entry_long:
+                                if bar.close < vwap_value and zscore < zscore_entry_long:
                                     self.check_for_long_trades(bar, zscore)
-                                if bar.close > vwap_value and bar.close > self.current_kalman_mean and zscore > zscore_entry_short:
+                                if bar.close > vwap_value and zscore > zscore_entry_short:
                                     self.check_for_short_trades(bar, zscore)
 
         self.check_for_long_exit(bar)
@@ -172,6 +175,15 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.update_visualizer_data(bar)
         self.prev_close = bar.close
         self.prev_zscore = zscore
+    
+    def should_apply_price_condition(self, direction: str) -> bool:
+        if direction == "long":
+            threshold = abs(self.config.kalman_disable_price_condition_slope_long)
+            return abs(self.current_kalman_slope) < threshold
+        elif direction == "short":
+            threshold = abs(self.config.kalman_disable_price_condition_slope_short)
+            return abs(self.current_kalman_slope) < threshold
+        return True
 
     def get_vix_regime(self, vix_value: float) -> int:
         if vix_value < self.vix_chill:
@@ -211,13 +223,14 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         
     def get_kalman_slope_sector(self):
         slope = self.current_kalman_slope
-        if slope < -0.1:
+        thresholds = self.config.kalman_slope_thresholds
+        if slope < thresholds["strong_down"]:
             return "strong_down"
-        elif slope < -0.03:
+        elif slope < thresholds["moderate_down"]:
             return "moderate_down"
-        elif slope <= 0.03:
+        elif slope <= thresholds["sideways"]:
             return "sideways"
-        elif slope <= 0.1:
+        elif slope <= thresholds["moderate_up"]:
             return "moderate_up"
         else:
             return "strong_up"
@@ -242,6 +255,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                 zscore_exit_long, zscore_exit_short)
     
     def check_for_long_trades(self, bar: Bar, zscore: float):
+        if self.should_apply_price_condition("long"):
+            if bar.close >= self.current_kalman_mean:
+                return
         regime = self.get_vix_regime(self.current_vix_value)
         allow_trades, long_risk_factor, _, zscore_entry_long, _, zscore_pre_entry_long, _, _, _ = self.get_slope_sector_params(regime)
         if not allow_trades:
@@ -268,6 +284,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.ready_for_long_entry = False
 
     def check_for_short_trades(self, bar: Bar, zscore: float):
+        if self.should_apply_price_condition("short"):
+            if bar.close <= self.current_kalman_mean:
+                return
         regime = self.get_vix_regime(self.current_vix_value)
         allow_trades, _, short_risk_factor, _, zscore_entry_short, _, zscore_pre_entry_short, _, _ = self.get_slope_sector_params(regime)
         if not allow_trades:

@@ -6,13 +6,20 @@ bar_type_1h: "SPY.ARCA-1-HOUR-LAST-EXTERNAL"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
 
 # Backtest-Zeitraum
-start_date: "2021-01-01T00:00:00Z"
-end_date: "2024-08-01T23:59:59Z"
+start_date: "2010-01-01T00:00:00Z"
+end_date: "2020-10-01T23:59:59Z"
 
 # Strategie-Parameter
-kalman_process_var: [0.00005]
+kalman_process_var: [0.000001]
 kalman_measurement_var: [0.01]
-kalman_window: 5
+kalman_window: 10
+kalman_disable_price_condition_slope_long: 0.04
+kalman_disable_price_condition_slope_short: 0.04
+kalman_slope_thresholds:
+  strong_down: -0.1
+  moderate_down: -0.03
+  sideways: 0.03
+  moderate_up: 0.1
 
 vwap_lookback: [156]
 zscore_window: [234]
@@ -20,7 +27,7 @@ zscore_window: [234]
 kalman_slope_sector_params:
   strong_down:
     allow_trades: true
-    long_risk_factor: 0.35 # 0.5
+    long_risk_factor: 0.6 # 0.5
     short_risk_factor: 1.8 # 1.8
     regime_params:
       regime1:
@@ -101,7 +108,7 @@ kalman_slope_sector_params:
   strong_up:
     allow_trades: true
     long_risk_factor: 1.8
-    short_risk_factor: 0.35
+    short_risk_factor: 0.6
     regime_params:
       regime1:
         zscore_entry_long: -1.2 # -1.0
@@ -122,7 +129,7 @@ vix_fear_threshold: [40]
 vix_chill_threshold: [22]
 
 # Risk-Parameter
-invest_percent: 1.0
+invest_percent: 1.2
 close_positions_on_stop: true
 risk_percent: 0.01
 max_leverage: 2
