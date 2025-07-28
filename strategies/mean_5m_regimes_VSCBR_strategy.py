@@ -33,6 +33,7 @@ from collections import deque
 from tools.indicators.kalman_filter_2D import KalmanFilterRegression
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
 from tools.indicators.VIX import VIX
+from tools.structure.VSCBR import VSCBRReversal
 
 class Mean5mregimesStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
@@ -49,6 +50,11 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     kalman_slope_thresholds: dict
     kalman_disable_price_condition_slope_long: float
     kalman_disable_price_condition_slope_short: float
+    VSCBR_truerange_factor: float
+    VSCBR_volume_factor: float
+    VSCBR_zscore_threshold: float
+    VSCBR_atr_window: int
+    VSCBR_volume_window: int
 
     start_date: str
     end_date: str
@@ -91,6 +97,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             measurement_var=config.kalman_measurement_var,
             window=config.kalman_window
         )
+        self.vscbr = VSCBRReversal(config)
         self.current_kalman_mean = None
         self.current_kalman_slope = None
         self.current_kalman_slope = None
@@ -137,9 +144,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if bar.bar_type == self.bar_type_1h:
             bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
             vix_value = self.vix.get_value_on_date(bar_date)
-
             self.current_kalman_mean, self.current_kalman_slope = self.kalman.update(float(bar.close))
-
             self.current_vix_value = vix_value
 
         if bar.bar_type == self.bar_type_5m:
@@ -149,27 +154,37 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                 vix_value = self.vix.get_value_on_date(bar_date)
                 vwap_value, zscore = self.vwap_zscore.update(bar)
                 self.current_zscore = zscore
+                self.vscbr.update(bar)
 
                 if self.current_vix_value is not None:
                     regime = self.get_vix_regime(self.current_vix_value)
                     zscore_condition_long, zscore_condition_short = self.get_zscore_condition_thresholds(regime)
-                    sector = self.get_kalman_slope_sector()
+                    self.zscore_long_active = zscore is not None and zscore_condition_long is not None and zscore < zscore_condition_long
+                    self.zscore_short_active = (zscore is not None and zscore_condition_short is not None and zscore > zscore_condition_short)
 
                     if regime == 3:
                         self.log.info("Markt ist zu volatil - keine Trades")
                         self.order_types.close_position_by_market_order()
                     else:
-                        if sector == "strong_up":
-                            if zscore is not None and zscore < zscore_condition_long:
-                                self.check_for_long_trades(bar, zscore)
-                            if zscore is not None and zscore > zscore_condition_short:
-                                self.check_for_short_trades(bar, zscore)
-                        else:
-                            if self.current_kalman_mean is not None and zscore is not None:
-                                if bar.close < vwap_value and zscore < zscore_condition_long:
-                                    self.check_for_long_trades(bar, zscore)
-                                if bar.close > vwap_value and zscore > zscore_condition_short:
-                                    self.check_for_short_trades(bar, zscore)
+                        if (
+                            vwap_value is not None and
+                            bar.close is not None and
+                            zscore is not None and
+                            zscore_condition_long is not None and
+                            bar.close < vwap_value and
+                            zscore < zscore_condition_long
+                        ):
+                            self.check_for_long_trades(bar, zscore)
+                        
+                        if (
+                            vwap_value is not None and
+                            bar.close is not None and
+                            zscore is not None and
+                            zscore_condition_short is not None and
+                            bar.close > vwap_value and
+                            zscore > zscore_condition_short
+                        ):
+                            self.check_for_short_trades(bar, zscore)
 
         self.check_for_long_exit(bar)
         self.check_for_short_exit(bar)
@@ -187,6 +202,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         return True
 
     def get_vix_regime(self, vix_value: float) -> int:
+        if vix_value is None:
+            # Default-Regime 3 (kein Trading)
+            return 3
         if vix_value < self.vix_chill:
             return 1  
         elif self.vix_chill <= vix_value < self.vix_fear:
@@ -239,30 +257,62 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                 zscore_exit_long, zscore_exit_short)
     
     def check_for_long_trades(self, bar: Bar, zscore: float):
+        net_pos = self.portfolio.net_position(self.instrument_id)
+        if net_pos is None:
+            net_pos = 0
+        
+        # Stacking erlauben ->
+        if not self.zscore_long_active and net_pos <= 0:
+            return
+        
         if self.should_apply_price_condition("long"):
             if bar.close >= self.current_kalman_mean:
                 return
+
         regime = self.get_vix_regime(self.current_vix_value)
-        allow_trades, long_risk_factor, _, zscore_condition_long, _, _, _, _ = self.get_slope_sector_params(regime)
+        allow_trades, long_risk_factor, _, zscore_condition_long, _, _, _ = self.get_slope_sector_params(regime)
         if not allow_trades:
             return
-
+        
+        if zscore_condition_long is None or zscore is None or zscore >= zscore_condition_long:
+            return
+        
+        long_signal, _ = self.vscbr.is_signal(bar, zscore)
+        if not long_signal:
+            return
+                
         invest_percent = Decimal(str(self.config.invest_percent)) * Decimal(str(long_risk_factor))
         entry_price = Decimal(str(bar.close))
         qty, valid_position = self.risk_manager.calculate_investment_size(invest_percent, entry_price)
         if not valid_position or qty <= 0:
             return
-
-        if zscore_condition_long is not None and zscore < zscore_condition_long:
-            self.order_types.submit_long_market_order(qty, price=bar.close)
+        
+        self.order_types.submit_long_market_order(qty, price=bar.close)
+            
 
     def check_for_short_trades(self, bar: Bar, zscore: float):
+        net_pos = self.portfolio.net_position(self.instrument_id)
+        if net_pos is None:
+            net_pos = 0
+
+        # stacking auf den falls setup oft
+        if not self.zscore_short_active and net_pos >= 0:
+            return
+
         if self.should_apply_price_condition("short"):
             if bar.close <= self.current_kalman_mean:
                 return
+
         regime = self.get_vix_regime(self.current_vix_value)
-        allow_trades, _, short_risk_factor, _, zscore_condition_short, _, _, _ = self.get_slope_sector_params(regime)
+        allow_trades, _, short_risk_factor, _, zscore_condition_short, _, _ = self.get_slope_sector_params(regime)
         if not allow_trades:
+            return
+
+        if net_pos >= 0 and (zscore_condition_short is None or zscore is None or zscore <= zscore_condition_short):
+            return
+
+        _, short_signal = self.vscbr.is_signal(bar, zscore)
+        if not short_signal:
             return
 
         invest_percent = Decimal(str(self.config.invest_percent)) * Decimal(str(short_risk_factor))
@@ -271,8 +321,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not valid_position or qty <= 0:
             return
 
-        if zscore_condition_short is not None and zscore > zscore_condition_short:
-            self.order_types.submit_short_market_order(qty, price=bar.close)
+        self.order_types.submit_short_market_order(qty, price=bar.close)
 
     def check_for_long_exit(self, bar):
         if self.current_vix_value is None:
@@ -280,7 +329,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         regime = self.get_vix_regime(self.current_vix_value)
         params = self.get_slope_sector_params(regime)
         allow_trades = params[0]
-        zscore_exit_long = params[7]
+        zscore_exit_long = params[5]
         if not allow_trades:
             self.order_types.close_position_by_market_order()
             return
@@ -303,7 +352,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         regime = self.get_vix_regime(self.current_vix_value)
         params = self.get_slope_sector_params(regime)
         allow_trades = params[0]
-        zscore_exit_short = params[8]
+        zscore_exit_short = params[6]
         if not allow_trades:
             self.order_types.close_position_by_market_order()
             return

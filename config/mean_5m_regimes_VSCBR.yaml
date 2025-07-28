@@ -1,7 +1,3 @@
-# hier rein kommt ähnlich wie strategie in mean_5m_regimes abgesehen vonnn:
-# wir ändern die entry Logik sodass wir kein prev Zscore oder so haben,
-# sondern einfach sagen wir möchten dann ab dieser Schwelle einen ChoCh z.B. haben
-# auch BOS - Break of strucutre genannt
 
 # Instrument
 symbol: "SPY"
@@ -11,8 +7,8 @@ bar_type_1h: "SPY.ARCA-1-HOUR-LAST-EXTERNAL"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
 
 # Backtest-Zeitraum
-start_date: "2010-01-01T00:00:00Z"
-end_date: "2020-10-01T23:59:59Z"
+start_date: "2020-01-01T00:00:00Z"
+end_date: "2024-9-01T23:59:59Z"
 
 # Strategie-Parameter
 kalman_process_var: [0.000001]
@@ -26,8 +22,17 @@ kalman_slope_thresholds:
   sideways: 0.03
   moderate_up: 0.1
 
+vix_fear_threshold: [40]
+vix_chill_threshold: [22]
+
 vwap_lookback: [156]
 zscore_window: [234]
+
+VSCBR_truerange_factor: 1.5
+VSCBR_volume_factor: 1.5
+VSCBR_zscore_threshold: 1.8
+VSCBR_atr_window: 14
+VSCBR_volume_window: 20
 
 kalman_slope_sector_params:
   strong_down:
@@ -109,9 +114,6 @@ kalman_slope_sector_params:
         zscore_condition_short: 2.8 
         zscore_exit_long: 0.3
         zscore_exit_short: 0.9
-
-vix_fear_threshold: [40]
-vix_chill_threshold: [22]
 
 # Risk-Parameter
 invest_percent: 1.2
