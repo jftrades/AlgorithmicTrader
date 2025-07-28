@@ -25,8 +25,8 @@ async def download__ib_historical_data():
     if not existing_instruments:
         catalog.write_data(instruments)
 
-    start_date = datetime.datetime(2020, 6, 1, 9, 30)
-    end_date = datetime.datetime(2021, 1, 1, 16, 30)
+    start_date = datetime.datetime(2010, 1, 1, 9, 30)
+    end_date = datetime.datetime(2025, 7, 1, 16, 30)
     bar_spec = "5-MINUTE-LAST"
     tz_name = "America/New_York"
     current = start_date

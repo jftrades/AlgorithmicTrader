@@ -5,10 +5,12 @@ class VWAPZScoreHTF:
     """
     Kein Basic Nautilus-Intraday-VWAP, sondern eigene Rolling-Berechnung!
     """
-    def __init__(self, zscore_window: int = 60, zscore_entry_long: float = 1.0, zscore_entry_short: float = 1.0, vwap_lookback: int = 20):
+    def __init__(self, zscore_window: int = 60, zscore_entry_long: float = 1.0, zscore_entry_short: float = 1.0, zscore_condition_long: float = 1.0, zscore_condition_short: float = 1.0, vwap_lookback: int = 20):
         self.zscore_window = zscore_window
         self.zscore_entry_long = zscore_entry_long
         self.zscore_entry_long = zscore_entry_short
+        self.zscore_condition_long = zscore_condition_long
+        self.zscore_condition_long = zscore_condition_short
         self.vwap_lookback = vwap_lookback
         self.price_volume_window = deque(maxlen=vwap_lookback)
         self.volume_window = deque(maxlen=vwap_lookback)
