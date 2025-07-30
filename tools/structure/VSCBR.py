@@ -16,6 +16,8 @@ class VSCBRReversal:
         self.zscore_threshold = config.VSCBR_zscore_threshold
         self.atr_window = config.VSCBR_atr_window
         self.volume_window = config.VSCBR_volume_window
+        self.long_rel_close_threshold = getattr(config, "VSCBR_long_rel_close_threshold", 0.75)
+        self.short_rel_close_threshold = getattr(config, "VSCBR_short_rel_close_threshold", 0.25)
         self.tr_history = []
         self.volume_history = []
         self.prev_close = None
@@ -43,7 +45,6 @@ class VSCBRReversal:
 
         avg_tr = sum(self.tr_history) / len(self.tr_history)
         avg_vol = sum(self.volume_history) / len(self.volume_history)
-        # Berechne TR für aktuelle Bar (mit prev_close)
         tr = max(
             bar.high - bar.low,
             abs(bar.high - self.prev_close),
@@ -52,15 +53,16 @@ class VSCBRReversal:
 
         rel_close = (bar.close - bar.low) / (bar.high - bar.low) if (bar.high - bar.low) > 0 else 0.5
 
-
         tr_ok = float(tr) > float(self.tr_factor) * float(avg_tr)
         vol_ok = float(bar.volume) > float(self.vol_factor) * float(avg_vol)
-        rel_close_ok = rel_close >= 0.5
+
+        long_rel_close_ok = rel_close >= self.long_rel_close_threshold
+        short_rel_close_ok = rel_close <= self.short_rel_close_threshold
 
         long_ok = zscore < -self.zscore_threshold
         short_ok = zscore > self.zscore_threshold
 
-        long_signal = tr_ok and vol_ok and rel_close_ok and long_ok
-        short_signal = tr_ok and vol_ok and rel_close_ok and short_ok
+        long_signal = tr_ok and vol_ok and long_rel_close_ok and long_ok
+        short_signal = tr_ok and vol_ok and short_rel_close_ok and short_ok
 
         return long_signal, short_signal
