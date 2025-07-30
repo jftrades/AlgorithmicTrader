@@ -153,10 +153,16 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             if bar_time >= datetime.time(15, 40) and bar_time <= datetime.time(21, 50):
                 bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
                 
-                is_first_rth_bar = (bar_time == datetime.time(15, 40))
-                if is_first_rth_bar:
-                    self.vwap_zscore.skip_next_gap_for_zscore()
+                gap_value = bar.open - self.prev_close
 
+                self.vwap_zscore.adjust_diff_window_for_gap(gap_value)
+
+                gap = abs(bar.open - self.prev_close) / self.prev_close if self.prev_close else 0
+                if gap > self.vwap_zscore.gap_interp_threshold:
+                    gap_value = bar.open - self.prev_close
+                    self.vwap_zscore.reset_vwap_to_gap(open_price=bar.open, volume=1.0)
+                    self.vwap_zscore.adjust_diff_window_for_gap(gap_value)
+                                    
                 vix_value = self.vix.get_value_on_date(bar_date)
                 vwap_value, zscore = self.vwap_zscore.update(bar)
                 self.current_zscore = zscore
