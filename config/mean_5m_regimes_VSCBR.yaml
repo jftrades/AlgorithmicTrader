@@ -25,16 +25,16 @@ kalman_slope_thresholds:
 vix_fear_threshold: [40]
 vix_chill_threshold: [22]
 
-vwap_lookback: [700]
+vwap_lookback: [156]
 zscore_window: [156]
 
-VSCBR_truerange_factor: 1.8
+VSCBR_truerange_factor: 1.5
 VSCBR_volume_factor: 1.2
-VSCBR_zscore_threshold: 1.6
+VSCBR_zscore_threshold: 1.2
 VSCBR_atr_window: 14
 VSCBR_volume_window: 20
-VSCBR_long_rel_close_threshold: 0.75
-VSCBR_short_rel_close_threshold: 0.25
+VSCBR_long_rel_close_threshold: 0.6
+VSCBR_short_rel_close_threshold: 0.4
 
 kalman_slope_sector_params:
   strong_down:
@@ -43,13 +43,13 @@ kalman_slope_sector_params:
     short_risk_factor: 1.4 
     regime_params:
       regime1:
-        zscore_condition_long: -2.6 
-        zscore_condition_short: 2.0 
+        zscore_condition_long: -1.6 
+        zscore_condition_short: 1.0 
         zscore_exit_long: 0.0 
         zscore_exit_short: 0.0
       regime2:
-        zscore_condition_long: -2.9
-        zscore_condition_short: 2.3
+        zscore_condition_long: -1.9
+        zscore_condition_short: 1.3
         zscore_exit_long: 0.0 
         zscore_exit_short: 0.0 
 
@@ -59,13 +59,13 @@ kalman_slope_sector_params:
     short_risk_factor: 1.2 
     regime_params:
       regime1:
-        zscore_condition_long: -2.4 
-        zscore_condition_short: 2.2
+        zscore_condition_long: -1.4 
+        zscore_condition_short: 1.2
         zscore_exit_long: 0.0 
         zscore_exit_short: 0.0 
       regime2:
-        zscore_condition_long: -2.7
-        zscore_condition_short: 2.5 
+        zscore_condition_long: -1.7
+        zscore_condition_short: 1.5 
         zscore_exit_long: 0.0 
         zscore_exit_short: 0.0 
 
@@ -75,13 +75,13 @@ kalman_slope_sector_params:
     short_risk_factor: 1.0
     regime_params:
       regime1:
-        zscore_condition_long: -2.3 
-        zscore_condition_short: 2.3 
+        zscore_condition_long: -1.3 
+        zscore_condition_short: 1.3 
         zscore_exit_long: 0.0 
         zscore_exit_short: 0.0 
       regime2:
-        zscore_condition_long: -2.6
-        zscore_condition_short: 2.6 
+        zscore_condition_long: -1.6
+        zscore_condition_short: 1.6 
         zscore_exit_long: 0.0 
         zscore_exit_short: 0.0 
 
@@ -91,13 +91,13 @@ kalman_slope_sector_params:
     short_risk_factor: 0.8
     regime_params:
       regime1:
-        zscore_condition_long: -2.2 
-        zscore_condition_short: 2.4 
+        zscore_condition_long: -1.2 
+        zscore_condition_short: 1.4 
         zscore_exit_long: 0.0 
         zscore_exit_short: 0.0 
       regime2:
-        zscore_condition_long: -2.5 
-        zscore_condition_short: 2.7 
+        zscore_condition_long: -1.5 
+        zscore_condition_short: 1.7 
         zscore_exit_long: 0.0 
         zscore_exit_short: 0.0  
 
@@ -107,13 +107,13 @@ kalman_slope_sector_params:
     short_risk_factor: 0.6
     regime_params:
       regime1:
-        zscore_condition_long: -2.0 
-        zscore_condition_short: 2.6 
+        zscore_condition_long: -1.0 
+        zscore_condition_short: 1.6 
         zscore_exit_long: 0.0
         zscore_exit_short: 0.0
       regime2:
-        zscore_condition_long: -2.3 
-        zscore_condition_short: 2.9 
+        zscore_condition_long: -1.3 
+        zscore_condition_short: 1.9 
         zscore_exit_long: 0.0
         zscore_exit_short: 0.0
 

@@ -25,6 +25,8 @@ class VWAPZScoreHTF:
         self.volume_window = deque(maxlen=vwap_lookback)
         self.diff_window = deque(maxlen=zscore_window)
         self.current_vwap_value = None
+        self.skip_next_diff = False
+
 
     def update(self, bar):
         price = float(bar.close)
@@ -34,7 +36,6 @@ class VWAPZScoreHTF:
         self.price_volume_window.append(price_volume)
         self.volume_window.append(volume)
 
-        # Rolling VWAP über Lookback
         if len(self.price_volume_window) < self.vwap_lookback or sum(self.volume_window) == 0:
             self.current_vwap_value = None
             return None, None
@@ -43,9 +44,13 @@ class VWAPZScoreHTF:
         self.current_vwap_value = vwap_value
 
         diff = price - vwap_value
-        self.diff_window.append(diff)
 
-        # Z-Score auf (Preis - VWAP)
+        # Nur wenn kein Gap-Flag gesetzt ist, diff aufnehmen
+        if not self.skip_next_diff:
+            self.diff_window.append(diff)
+        else:
+            self.skip_next_diff = False  # Nur einmal skippen
+
         if len(self.diff_window) < self.zscore_window:
             return vwap_value, None
 
@@ -54,6 +59,9 @@ class VWAPZScoreHTF:
         zscore = (diff - mean) / std if std > 0 else 0.0
 
         return vwap_value, zscore
+    
+    def skip_next_gap_for_zscore(self):
+        self.skip_next_diff = True
 
     def reset(self):
         self.price_volume_window.clear()
@@ -64,4 +72,5 @@ class VWAPZScoreHTF:
     def set_zscore_window(self, window: int):
         self.zscore_window = window
         self.diff_window = deque(maxlen=window)
+
 

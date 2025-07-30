@@ -92,6 +92,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             zscore_condition_long=config.vwap_zscore_condition_long_regime1,
             zscore_condition_short=config.vwap_zscore_condition_short_regime1,
             vwap_lookback=config.vwap_lookback)
+        self.last_rth_close = None  # Für Gap-Glättung
         self.kalman = KalmanFilterRegression(
             process_var=config.kalman_process_var,
             measurement_var=config.kalman_measurement_var,
@@ -151,6 +152,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
             if bar_time >= datetime.time(15, 40) and bar_time <= datetime.time(21, 50):
                 bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
+                
+                is_first_rth_bar = (bar_time == datetime.time(15, 40))
+                if is_first_rth_bar:
+                    self.vwap_zscore.skip_next_gap_for_zscore()
+
                 vix_value = self.vix.get_value_on_date(bar_date)
                 vwap_value, zscore = self.vwap_zscore.update(bar)
                 self.current_zscore = zscore
@@ -417,6 +423,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
     
     def update_visualizer_data(self, bar: Bar) -> None:
         if bar.bar_type == self.bar_type_5m:
+            bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
+            if not (datetime.time(15, 40) <= bar_time <= datetime.time(21, 50)):
+                return
+
             net_position = self.portfolio.net_position(self.instrument_id)
             unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
             venue = self.instrument_id.venue
