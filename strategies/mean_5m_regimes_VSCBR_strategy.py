@@ -55,11 +55,9 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     VSCBR_zscore_threshold: float
     VSCBR_atr_window: int
     VSCBR_volume_window: int
-
     start_date: str
     end_date: str
-    
-    kalman_slope_sector_params: dict
+    kalman_slope_sector_params: dict 
     vix_fear_threshold: float = 25.0
     vix_chill_threshold: float = 15.0
     vwap_zscore_condition_long_regime1: float = 1.7
@@ -89,9 +87,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.collector = BacktestDataCollector()
         self.vwap_zscore = VWAPZScoreHTF(
             zscore_window=config.zscore_window,
-            zscore_condition_long=config.vwap_zscore_condition_long_regime1,
-            zscore_condition_short=config.vwap_zscore_condition_short_regime1,
-            vwap_lookback=config.vwap_lookback)
+            vwap_lookback=config.vwap_lookback
+        )
         self.last_rth_close = None  # Für Gap-Glättung
         self.kalman = KalmanFilterRegression(
             process_var=config.kalman_process_var,
@@ -153,16 +150,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             if bar_time >= datetime.time(15, 40) and bar_time <= datetime.time(21, 50):
                 bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
                 
-                gap_value = bar.open - self.prev_close
-
-                self.vwap_zscore.adjust_diff_window_for_gap(gap_value)
-
-                gap = abs(bar.open - self.prev_close) / self.prev_close if self.prev_close else 0
-                if gap > self.vwap_zscore.gap_interp_threshold:
-                    gap_value = bar.open - self.prev_close
-                    self.vwap_zscore.reset_vwap_to_gap(open_price=bar.open, volume=1.0)
-                    self.vwap_zscore.adjust_diff_window_for_gap(gap_value)
-                                    
                 vix_value = self.vix.get_value_on_date(bar_date)
                 vwap_value, zscore = self.vwap_zscore.update(bar)
                 self.current_zscore = zscore
