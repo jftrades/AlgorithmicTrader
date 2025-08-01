@@ -175,6 +175,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.update_visualizer_data(bar)
         self.prev_close = bar.close
         self.prev_zscore = zscore
+
+    def count_open_position(self) -> int:
+        pos = self.portfolio.net_position(self.instrument_id)
+        return abs(int(pos)) if pos is not None else 0
     
     def should_apply_price_condition(self, direction: str) -> bool:
         if direction == "long":
@@ -262,6 +266,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         allow_trades, long_risk_factor, _, zscore_entry_long, _, zscore_pre_entry_long, _, _, _ = self.get_slope_sector_params(regime)
         if not allow_trades:
             return
+        
+        if self.count_open_position() >= 3:
+            return
 
         invest_percent = Decimal(str(self.config.invest_percent)) * Decimal(str(long_risk_factor))
         entry_price = Decimal(str(bar.close))
@@ -269,7 +276,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not valid_position or qty <= 0:
             return
 
-        if self.prev_zscore is not None and self.prev_zscore >= zscore_pre_entry_long:
+        if (
+            zscore_entry_long is not None and zscore_pre_entry_long is not None
+            and self.prev_zscore is not None
+            and self.prev_zscore >= zscore_pre_entry_long
+        ):
             self.ready_for_long_entry = True
 
         if (
@@ -282,7 +293,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         ):
             self.order_types.submit_long_market_order(qty, price=bar.close)
             self.ready_for_long_entry = False
-
+            
     def check_for_short_trades(self, bar: Bar, zscore: float):
         if self.should_apply_price_condition("short"):
             if bar.close <= self.current_kalman_mean:
@@ -297,8 +308,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         qty, valid_position = self.risk_manager.calculate_investment_size(invest_percent, entry_price)
         if not valid_position or qty <= 0:
             return
-
-        if self.prev_zscore is not None and self.prev_zscore <= zscore_pre_entry_short:
+        if (
+            zscore_entry_short is not None and zscore_pre_entry_short is not None
+            and self.prev_zscore is not None
+            and self.prev_zscore <= zscore_pre_entry_short
+        ):
             self.ready_for_short_entry = True
 
         if (
@@ -321,6 +335,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         zscore_exit_long = params[7]
         if not allow_trades:
             self.order_types.close_position_by_market_order()
+            return
+        
+        if self.count_open_position() >= 2:
             return
 
         prev_zscore = self.prev_zscore
@@ -406,6 +423,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
     
     def update_visualizer_data(self, bar: Bar) -> None:
         if bar.bar_type == self.bar_type_5m:
+            bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
+            if not (datetime.time(15, 40) <= bar_time <= datetime.time(21, 50)):
+                return
             net_position = self.portfolio.net_position(self.instrument_id)
             unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
             venue = self.instrument_id.venue

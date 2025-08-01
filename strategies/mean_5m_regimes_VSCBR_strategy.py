@@ -55,8 +55,10 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     VSCBR_zscore_threshold: float
     VSCBR_atr_window: int
     VSCBR_volume_window: int
+
     start_date: str
     end_date: str
+    
     kalman_slope_sector_params: dict 
     vix_fear_threshold: float = 25.0
     vix_chill_threshold: float = 15.0

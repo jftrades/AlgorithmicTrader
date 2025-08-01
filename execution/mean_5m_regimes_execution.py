@@ -15,7 +15,7 @@ from glob import glob
 import os
 import webbrowser
 import quantstats as qs
-
+ 
 # Parameter laden
 yaml_path = str(Path(__file__).resolve().parents[1] / "config" / "mean_5m_regimes.yaml")
 params = load_params(yaml_path)
