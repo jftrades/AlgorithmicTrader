@@ -6,23 +6,23 @@ bar_type_1h: "SPY.ARCA-1-HOUR-LAST-EXTERNAL"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
 
 # Backtest-Zeitraum
-start_date: "2020-01-01T00:00:00Z"
-end_date: "2024-09-01T23:59:59Z"
+start_date: "2022-01-01T00:00:00Z"
+end_date: "2023-09-01T23:59:59Z"
  
 # Strategie-Parameter
-kalman_process_var: [0.000008]
+kalman_process_var: [0.000001]
 kalman_measurement_var: [0.01]
 kalman_window: 10
-kalman_disable_price_condition_slope_long: 0.05
-kalman_disable_price_condition_slope_short: 0.05
+kalman_disable_price_condition_slope_long: 0.04
+kalman_disable_price_condition_slope_short: 0.04
 kalman_slope_thresholds:
   strong_down: -0.1
   moderate_down: -0.03
   sideways: 0.03
   moderate_up: 0.1
 
-vwap_lookback: [156]
-zscore_window: [234]
+vwap_lookback: [512]
+zscore_window: [512]
 gap_threshold_pct: 0.1
 
 kalman_slope_sector_params:
@@ -32,17 +32,17 @@ kalman_slope_sector_params:
     short_risk_factor: 1.5 
     regime_params:
       regime1:
-        zscore_entry_long: -2.4
-        zscore_entry_short: 1.6 
-        zscore_pre_entry_long: -2.9
-        zscore_pre_entry_short: 2.1 
+        zscore_entry_long: -1.9
+        zscore_entry_short: 1.1
+        zscore_pre_entry_long: -2.4
+        zscore_pre_entry_short: 1.6 
         zscore_exit_long: 0.0 
         zscore_exit_short: 0.0
       regime2:
-        zscore_entry_long: -2.8 
-        zscore_entry_short: 2.0 
-        zscore_pre_entry_long: -3.3 
-        zscore_pre_entry_short: 2.5 
+        zscore_entry_long: -2.3 
+        zscore_entry_short: 1.5 
+        zscore_pre_entry_long: -2.8 
+        zscore_pre_entry_short: 2.0 
         zscore_exit_long: 0.0
         zscore_exit_short: 0.0
 
@@ -52,17 +52,17 @@ kalman_slope_sector_params:
     short_risk_factor: 1.2
     regime_params:
       regime1:
-        zscore_entry_long: -2.2 
-        zscore_entry_short: 1.8 
-        zscore_pre_entry_long: -2.7 
-        zscore_pre_entry_short: 2.3
+        zscore_entry_long: -1.7 
+        zscore_entry_short: 1.3 
+        zscore_pre_entry_long: -2.2 
+        zscore_pre_entry_short: 1.8
         zscore_exit_long: 0.0
         zscore_exit_short: 0.0 
       regime2:
-        zscore_entry_long: -2.8 
-        zscore_entry_short: 2.2 
-        zscore_pre_entry_long: -3.1 
-        zscore_pre_entry_short: 2.7 
+        zscore_entry_long: -2.3 
+        zscore_entry_short: 1.7 
+        zscore_pre_entry_long: -2.6 
+        zscore_pre_entry_short: 2.2 
         zscore_exit_long: 0.0 
         zscore_exit_short: 0.0 
 
@@ -72,17 +72,17 @@ kalman_slope_sector_params:
     short_risk_factor: 1.0
     regime_params:
       regime1:
-        zscore_entry_long: -2.0
-        zscore_entry_short: 2.0
-        zscore_pre_entry_long: -2.6
-        zscore_pre_entry_short: 2.6
+        zscore_entry_long: -1.5
+        zscore_entry_short: 1.5
+        zscore_pre_entry_long: -2.1
+        zscore_pre_entry_short: 2.1
         zscore_exit_long: 0.0
         zscore_exit_short: 0.0
       regime2:
-        zscore_entry_long: -2.4
-        zscore_entry_short: 2.4
-        zscore_pre_entry_long: -2.9
-        zcore_pre_entry_short: 2.9
+        zscore_entry_long: -1.9
+        zscore_entry_short: 1.9
+        zscore_pre_entry_long: -2.4
+        zscore_pre_entry_short: 2.4
         zscore_exit_long: 0.0
         zscore_exit_short: 0.0
 
@@ -92,17 +92,17 @@ kalman_slope_sector_params:
       short_risk_factor: 0.8
       regime_params:
         regime1:
-          zscore_entry_long: -1.8
-          zscore_entry_short: 2.2
-          zscore_pre_entry_long: -2.3
-          zscore_pre_entry_short: 2.7
+          zscore_entry_long: -1.3
+          zscore_entry_short: 1.7
+          zscore_pre_entry_long: -1.7
+          zscore_pre_entry_short: 2.2
           zscore_exit_long: 0.0
           zscore_exit_short: 0.0
         regime2:
-          zscore_entry_long: -2.2
-          zscore_entry_short: 2.6
-          zscore_pre_entry_long: -2.7
-          zscore_pre_entry_short: 3.1
+          zscore_entry_long: -1.7
+          zscore_entry_short: 2.1
+          zscore_pre_entry_long: -2.2
+          zscore_pre_entry_short: 2.6
           zscore_exit_long: 0.0
           zscore_exit_short: 0.0
 
@@ -112,21 +112,21 @@ kalman_slope_sector_params:
       short_risk_factor: 0.5
       regime_params:
         regime1:
-          zscore_entry_long: -1.6
-          zscore_entry_short: 2.4
-          zscore_pre_entry_long: -2.1
-          zscore_pre_entry_short: 2.9
+          zscore_entry_long: -1.1
+          zscore_entry_short: 1.9
+          zscore_pre_entry_long: -1.6
+          zscore_pre_entry_short: 2.4
           zscore_exit_long: 0.0
           zscore_exit_short: 0.0
         regime2:
-          zscore_entry_long: -2.0
-          zscore_entry_short: 2.8
-          zscore_pre_entry_long: -2.3
-          zscore_pre_entry_short: 3.3
+          zscore_entry_long: -1.5
+          zscore_entry_short: 2.3
+          zscore_pre_entry_long: -2.0
+          zscore_pre_entry_short: 2.8
           zscore_exit_long: 0.0
           zscore_exit_short: 0.0
 
-vix_fear_threshold: [40]
+vix_fear_threshold: [38]
 vix_chill_threshold: [22]
 
 # Risk-Parameter

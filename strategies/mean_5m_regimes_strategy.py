@@ -52,10 +52,10 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     vix_fear_threshold: float = 25.0
     vix_chill_threshold: float = 15.0
     gap_threshold_pct: float = 0.1
-    vwap_zscore_entry_long_regime1: float = 1.7
-    vwap_zscore_entry_short_regime1: float = -1.5
-    vwap_zscore_entry_long_regime2: float = 2.7
-    vwap_zscore_entry_short_regime2: float = -2.5
+    vwap_zscore_entry_long_regime1: float = -1.7
+    vwap_zscore_entry_short_regime1: float = 1.5
+    vwap_zscore_entry_long_regime2: float = -2.7
+    vwap_zscore_entry_short_regime2: float = 2.5
     vwap_zscore_pre_entry_long_regime1: float = -2.5
     vwap_zscore_pre_entry_short_regime1: float = 2.5
     vwap_zscore_pre_entry_long_regime2: float = -3.0
@@ -102,7 +102,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.current_vix_value = None
         self.vix = None
         self.ready_for_long_entry = False
-        self.ready_for_short_entry = False 
+        self.ready_for_short_entry = False
 
 
     def on_start(self) -> None:
@@ -138,39 +138,29 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if bar.bar_type == self.bar_type_1h:
             bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
             vix_value = self.vix.get_value_on_date(bar_date)
-
             self.current_kalman_mean, self.current_kalman_slope = self.kalman.update(float(bar.close))
-
             self.current_vix_value = vix_value
 
         if bar.bar_type == self.bar_type_5m:
+            bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
+            vix_value = self.vix.get_value_on_date(bar_date)
+            vwap_value, zscore = self.vwap_zscore.update(bar)
+            self.current_zscore = zscore
+
             bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
             if bar_time >= datetime.time(15, 40) and bar_time <= datetime.time(21, 50):
-                bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
-                vix_value = self.vix.get_value_on_date(bar_date)
-                vwap_value, zscore = self.vwap_zscore.update(bar)
-                self.current_zscore = zscore
-
                 if self.current_vix_value is not None:
                     regime = self.get_vix_regime(self.current_vix_value)
-                    zscore_entry_long, zscore_entry_short = self.get_zscore_entry_thresholds(regime)
-                    sector = self.get_kalman_slope_sector()
 
                     if regime == 3:
                         self.log.info("Markt ist zu volatil - keine Trades")
                         self.order_types.close_position_by_market_order()
                     else:
-                        if sector == "strong_up":
-                            if zscore is not None and zscore < zscore_entry_long:
+                        if self.current_kalman_mean is not None and zscore is not None:
+                            if zscore < 0:
                                 self.check_for_long_trades(bar, zscore)
-                            if zscore is not None and zscore > zscore_entry_short:
+                            elif zscore > 0:
                                 self.check_for_short_trades(bar, zscore)
-                        else:
-                            if self.current_kalman_mean is not None and zscore is not None:
-                                if bar.close < vwap_value and zscore < zscore_entry_long:
-                                    self.check_for_long_trades(bar, zscore)
-                                if bar.close > vwap_value and zscore > zscore_entry_short:
-                                    self.check_for_short_trades(bar, zscore)
 
         self.check_for_long_exit(bar)
         self.check_for_short_exit(bar)
@@ -269,7 +259,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not allow_trades:
             return
         
-        if self.count_open_position() >= 3:
+        if self.count_open_position() >= 2:
             return
 
         invest_percent = Decimal(str(self.config.invest_percent)) * Decimal(str(long_risk_factor))
@@ -278,24 +268,16 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not valid_position or qty <= 0:
             return
 
-        if (
-            zscore_entry_long is not None and zscore_pre_entry_long is not None
-            and self.prev_zscore is not None
-            and self.prev_zscore >= zscore_pre_entry_long
-        ):
+        if zscore_pre_entry_long is not None and zscore is not None and zscore <= zscore_pre_entry_long:
             self.ready_for_long_entry = True
 
-        if (
-            zscore_entry_long is not None and zscore_pre_entry_long is not None
-            and self.prev_zscore is not None
-            and self.prev_zscore < zscore_pre_entry_long
-            and zscore < zscore_entry_long
-            and self.prev_zscore > zscore
-            and self.ready_for_long_entry
-        ):
+        if zscore_entry_long is not None and zscore is not None and zscore > zscore_entry_long and self.ready_for_long_entry:
             self.order_types.submit_long_market_order(qty, price=bar.close)
             self.ready_for_long_entry = False
             
+        if zscore_pre_entry_long is not None and zscore is not None and zscore > zscore_pre_entry_long:
+            self.ready_for_long_entry = False
+
     def check_for_short_trades(self, bar: Bar, zscore: float):
         if self.should_apply_price_condition("short"):
             if bar.close <= self.current_kalman_mean:
@@ -304,28 +286,24 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         allow_trades, _, short_risk_factor, _, zscore_entry_short, _, zscore_pre_entry_short, _, _ = self.get_slope_sector_params(regime)
         if not allow_trades:
             return
+        
+        if self.count_open_position() >= 2:
+            return
 
         invest_percent = Decimal(str(self.config.invest_percent)) * Decimal(str(short_risk_factor))
         entry_price = Decimal(str(bar.close))
         qty, valid_position = self.risk_manager.calculate_investment_size(invest_percent, entry_price)
         if not valid_position or qty <= 0:
             return
-        if (
-            zscore_entry_short is not None and zscore_pre_entry_short is not None
-            and self.prev_zscore is not None
-            and self.prev_zscore <= zscore_pre_entry_short
-        ):
+
+        if zscore_pre_entry_short is not None and zscore is not None and zscore >= zscore_pre_entry_short:
             self.ready_for_short_entry = True
 
-        if (
-            zscore_entry_short is not None and zscore_pre_entry_short is not None
-            and self.prev_zscore is not None
-            and self.prev_zscore > zscore_pre_entry_short
-            and zscore > zscore_entry_short
-            and self.prev_zscore < zscore
-            and self.ready_for_short_entry
-        ):
+        if zscore_entry_short is not None and zscore is not None and zscore < zscore_entry_short and self.ready_for_short_entry:
             self.order_types.submit_short_market_order(qty, price=bar.close)
+            self.ready_for_short_entry = False
+
+        if zscore_pre_entry_short is not None and zscore is not None and zscore < zscore_pre_entry_short:
             self.ready_for_short_entry = False
 
     def check_for_long_exit(self, bar):
@@ -337,9 +315,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         zscore_exit_long = params[7]
         if not allow_trades:
             self.order_types.close_position_by_market_order()
-            return
-        
-        if self.count_open_position() >= 2:
             return
 
         prev_zscore = self.prev_zscore
@@ -425,9 +400,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
     
     def update_visualizer_data(self, bar: Bar) -> None:
         if bar.bar_type == self.bar_type_5m:
-            bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
-            if not (datetime.time(15, 40) <= bar_time <= datetime.time(21, 50)):
-                return
             net_position = self.portfolio.net_position(self.instrument_id)
             unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
             venue = self.instrument_id.venue
