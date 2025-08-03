@@ -26,6 +26,7 @@ from tools.help_funcs.base_strategy import BaseStrategy
 from nautilus_trader.common.enums import LogColor
 from collections import deque
 from tools.indicators.kalman_filter_2D import KalmanFilterRegression
+from tools.indicators.kalman_filter_2D_own_ZScore import KalmanFilterRegressionWithZScore
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
 from tools.indicators.VIX import VIX
 
@@ -49,6 +50,11 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     end_date: str
     
     kalman_slope_sector_params: dict
+    kalman_exit_process_var: float
+    kalman_exit_measurement_var: float
+    kalman_exit_window: int
+    kalman_exit_zscore_window: int
+    
     vix_fear_threshold: float = 25.0
     vix_chill_threshold: float = 15.0
     gap_threshold_pct: float = 0.1
@@ -87,6 +93,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             zscore_entry_short=config.vwap_zscore_entry_short_regime1,
             vwap_lookback=config.vwap_lookback,
             gap_threshold_pct=config.gap_threshold_pct)
+        
+        # Bestehender Kalman für Regime/Slope
         self.kalman = KalmanFilterRegression(
             process_var=config.kalman_process_var,
             measurement_var=config.kalman_measurement_var,
@@ -95,6 +103,18 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.current_kalman_mean = None
         self.current_kalman_slope = None
         self.current_kalman_slope = None
+
+        # Neuer Kalman für Exit-Z-Score
+        self.kalman_exit = KalmanFilterRegressionWithZScore(
+            process_var=config.kalman_exit_process_var,
+            measurement_var=config.kalman_exit_measurement_var,
+            window=config.kalman_exit_window,
+            zscore_window=config.kalman_exit_zscore_window
+        )
+        self.current_kalman_exit_mean = None
+        self.current_kalman_exit_slope = None
+        self.current_kalman_exit_zscore = None
+
         self.vix_start = str(config.start_date)[:10]
         self.vix_end = str(config.end_date)[:10]
         self.vix_fear = float(config.vix_fear_threshold)
@@ -121,13 +141,16 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.vix = VIX(start=self.vix_start, end=self.vix_end, fear_threshold=self.vix_fear, chill_threshold=self.vix_chill)
 
         self.collector.initialise_logging_indicator("vwap", 0)
+        self.collector.initialise_logging_indicator("kalman_exit_mean", 0)
         self.collector.initialise_logging_indicator("kalman_mean", 0)
         self.collector.initialise_logging_indicator("vwap_zscore", 1)
-        self.collector.initialise_logging_indicator("vix", 2)
-        self.collector.initialise_logging_indicator("position", 3)
-        self.collector.initialise_logging_indicator("realized_pnl", 4)
-        self.collector.initialise_logging_indicator("unrealized_pnl", 5)
-        self.collector.initialise_logging_indicator("equity", 6)
+        self.collector.initialise_logging_indicator("kalman_exit_zscore", 2)
+        self.collector.initialise_logging_indicator("vix", 3)
+        self.collector.initialise_logging_indicator("position", 4)
+        self.collector.initialise_logging_indicator("realized_pnl", 5)
+        self.collector.initialise_logging_indicator("unrealized_pnl", 6)
+        self.collector.initialise_logging_indicator("equity", 7)
+
 
     def get_position(self):
         return self.base_get_position()
@@ -146,6 +169,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             vix_value = self.vix.get_value_on_date(bar_date)
             vwap_value, zscore = self.vwap_zscore.update(bar)
             self.current_zscore = zscore
+
+            # Kalman für Exits mit Z-Score
+            self.current_kalman_exit_mean, self.current_kalman_exit_slope, self.current_kalman_exit_zscore = self.kalman_exit.update(float(bar.close))
+
 
             bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
             if bar_time >= datetime.time(15, 40) and bar_time <= datetime.time(21, 50):
@@ -243,12 +270,13 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         zscore_entry_short = regime_params.get("zscore_entry_short", None)
         zscore_pre_entry_long = regime_params.get("zscore_pre_entry_long", None)
         zscore_pre_entry_short = regime_params.get("zscore_pre_entry_short", None)
-        zscore_exit_long = regime_params.get("zscore_exit_long", None)
-        zscore_exit_short = regime_params.get("zscore_exit_short", None)
+        kalman_zscore_exit_long = regime_params.get("kalman_zscore_exit_long", None)
+        kalman_zscore_exit_short = regime_params.get("kalman_zscore_exit_short", None)
+        
         return (allow_trades, long_risk_factor, short_risk_factor,
                 zscore_entry_long, zscore_entry_short,
                 zscore_pre_entry_long, zscore_pre_entry_short,
-                zscore_exit_long, zscore_exit_short)
+                kalman_zscore_exit_long, kalman_zscore_exit_short)
     
     def check_for_long_trades(self, bar: Bar, zscore: float):
         if self.should_apply_price_condition("long"):
@@ -312,22 +340,19 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         regime = self.get_vix_regime(self.current_vix_value)
         params = self.get_slope_sector_params(regime)
         allow_trades = params[0]
-        zscore_exit_long = params[7]
+        kalman_zscore_exit_long = params[7] 
         if not allow_trades:
             self.order_types.close_position_by_market_order()
             return
 
-        prev_zscore = self.prev_zscore
-        zscore = self.current_zscore
         net_pos = self.portfolio.net_position(self.instrument_id)
         if (
-            net_pos is not None and net_pos > 0
-            and prev_zscore is not None and zscore is not None
-            and zscore_exit_long is not None
-            and prev_zscore < zscore_exit_long and zscore >= zscore_exit_long
-        ):
-            self.order_types.close_position_by_market_order()
-
+                net_pos is not None and net_pos > 0
+                and self.current_kalman_exit_zscore is not None
+                and kalman_zscore_exit_long is not None
+                and self.current_kalman_exit_zscore >= kalman_zscore_exit_long
+            ):
+                self.order_types.close_position_by_market_order()
 
     def check_for_short_exit(self, bar):
         if self.current_vix_value is None:
@@ -335,19 +360,17 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         regime = self.get_vix_regime(self.current_vix_value)
         params = self.get_slope_sector_params(regime)
         allow_trades = params[0]
-        zscore_exit_short = params[8]
+        kalman_zscore_exit_short = params[8]
         if not allow_trades:
             self.order_types.close_position_by_market_order()
             return
-
-        prev_zscore = self.prev_zscore
-        zscore = self.current_zscore
+        
         net_pos = self.portfolio.net_position(self.instrument_id)
         if (
             net_pos is not None and net_pos < 0
-            and prev_zscore is not None and zscore is not None
-            and zscore_exit_short is not None
-            and prev_zscore > zscore_exit_short and zscore <= zscore_exit_short
+            and self.current_kalman_exit_zscore is not None
+            and kalman_zscore_exit_short is not None
+            and self.current_kalman_exit_zscore <= kalman_zscore_exit_short
         ):
             self.order_types.close_position_by_market_order()
 
@@ -373,6 +396,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         equity = usd_balance.as_double() + float(unrealized_pnl) if unrealized_pnl is not None else usd_balance.as_double()
         vwap_value = self.vwap_zscore.current_vwap_value
         kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
+        kalman_exit_mean = self.current_kalman_exit_mean if self.kalman_exit.initialized else None
+
 
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vix", value=self.current_vix_value)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="equity", value=equity)
@@ -382,6 +407,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_mean", value=kalman_mean)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap", value=vwap_value)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap_zscore", value=self.current_zscore)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_exit_mean", value=kalman_exit_mean)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_exit_zscore", value=self.current_kalman_exit_zscore)
 
 
         logging_message = self.collector.save_data()
@@ -409,6 +436,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             
             kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
             vwap_value = self.vwap_zscore.current_vwap_value
+            kalman_exit_mean = self.current_kalman_exit_mean if self.kalman_exit.initialized else None
+
 
             self.collector.add_indicator(timestamp=bar.ts_event, name="vix", value=self.current_vix_value)
             self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_mean", value=kalman_mean)
@@ -419,6 +448,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.collector.add_indicator(timestamp=bar.ts_event, name="equity", value=equity)
             self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_zscore", value=self.current_zscore)
+            self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_exit_mean", value=kalman_exit_mean)
+            self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_exit_zscore", value=self.current_kalman_exit_zscore)
         
         elif bar.bar_type == self.bar_type_1h:
 
