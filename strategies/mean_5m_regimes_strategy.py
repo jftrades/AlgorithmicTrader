@@ -51,6 +51,7 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     kalman_slope_sector_params: dict
     vix_fear_threshold: float = 25.0
     vix_chill_threshold: float = 15.0
+    gap_threshold_pct: float = 0.1
     vwap_zscore_entry_long_regime1: float = 1.7
     vwap_zscore_entry_short_regime1: float = -1.5
     vwap_zscore_entry_long_regime2: float = 2.7
@@ -84,7 +85,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             zscore_window=config.zscore_window,
             zscore_entry_long=config.vwap_zscore_entry_long_regime1,
             zscore_entry_short=config.vwap_zscore_entry_short_regime1,
-            vwap_lookback=config.vwap_lookback)
+            vwap_lookback=config.vwap_lookback,
+            gap_threshold_pct=config.gap_threshold_pct)
         self.kalman = KalmanFilterRegression(
             process_var=config.kalman_process_var,
             measurement_var=config.kalman_measurement_var,

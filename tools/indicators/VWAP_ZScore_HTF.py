@@ -6,9 +6,7 @@ class VWAPZScoreHTF:
         self,
         zscore_window: int = 60,
         vwap_lookback: int = 20,
-        gap_base_blend_bars: int = 20,   # Basiswert, kann fix bleiben -> könnte man in die yaml packen aber so auch recht robust
-        max_blend_bars: int = 80,        # Obergrenze für Blend-Bars -> könnte man in die yaml packen aber so auch recht robust
-        min_blend_bars: int = 6,         # Untergrenze für Blend-Bars -> könnte man in die yaml packen aber so auch recht robust
+        gap_threshold_pct: float = 0.1,  # ab wie viel Prozent ein Gap als signifikant gilt
         **kwargs
     ):
         self.zscore_window = zscore_window
@@ -18,58 +16,59 @@ class VWAPZScoreHTF:
         self.diff_window = deque(maxlen=zscore_window)
         self.current_vwap_value = None
         self.last_close = None
-        self.gap_active = False
-        self.gap_value = 0.0
-        self.gap_counter = 0
-        self.gap_blend_bars = gap_base_blend_bars
-        self.max_blend_bars = max_blend_bars
-        self.min_blend_bars = min_blend_bars
+        self.gap_offsets = []  # List of (bar_index, cumulative_gap)
+        self.cumulative_gap = 0.0
+        self.bar_index = 0
+        self.gap_threshold_pct = gap_threshold_pct
+
+    def update_gap_list(self, bar, prev_close):
+        raw_gap = float(bar.open) - float(prev_close)
+        gap_pct = abs(raw_gap) / float(prev_close) * 100 if prev_close else 0.0
+        if gap_pct > self.gap_threshold_pct:
+            self.cumulative_gap += raw_gap
+            self.gap_offsets.append((self.bar_index, self.cumulative_gap))
+
+    def cumulative_gap_at(self, bar_index):
+        # Returns the latest cumulative gap up to this bar_index
+        if not self.gap_offsets:
+            return 0.0
+        # Find the last gap offset <= bar_index
+        for idx, gap in reversed(self.gap_offsets):
+            if idx <= bar_index:
+                return gap
+        return 0.0
 
     def update(self, bar):
         price = float(bar.close)
         volume = float(bar.volume)
 
-        # 1. Gap-Erkennung & adaptive Blend-Bars
+        # Gap-Erkennung (nutze open/close, nicht close/close!)
         if self.last_close is not None:
-            gap = price - self.last_close
-            gap_pct = abs(gap) / self.last_close * 100
-            # Dynamische Blend-Bars: z.B. 1 Bar pro 0.2% Gap, min/max clampen
-            if gap_pct > 0.1:
-                blend_bars = int(min(max(gap_pct / 0.2, self.min_blend_bars), self.max_blend_bars))
-                self.gap_active = True
-                self.gap_value = gap
-                self.gap_counter = 0
-                self.gap_blend_bars = blend_bars
+            self.update_gap_list(bar, self.last_close)
 
-        # 2. Gap sanft ausblenden (Blend-Phase, adaptive Länge & Gewichtung)
-        if self.gap_active and self.gap_counter < self.gap_blend_bars:
-            w = 1.0 - self.gap_counter / self.gap_blend_bars
-            # Erste Bar nach Gap: Gewicht noch stärker reduzieren
-            if self.gap_counter == 0:
-                w *= 0.15 if self.gap_blend_bars > 20 else 0.5  # noch schwächer bei großen Gaps
-            adj_price = price - self.gap_value * w
-            self.gap_counter += 1
-        else:
-            adj_price = price
-            self.gap_active = False
+        # Kumulierten Gap-Offset für diese Bar berechnen
+        offset = self.cumulative_gap_at(self.bar_index)
+        adjusted_close = price - offset
 
-        price_volume = adj_price * volume
+        price_volume = adjusted_close * volume
         self.price_volume_window.append(price_volume)
         self.volume_window.append(volume)
 
         if len(self.price_volume_window) < self.vwap_lookback or sum(self.volume_window) == 0:
             self.current_vwap_value = None
             self.last_close = price
+            self.bar_index += 1
             return None, None
 
         vwap_value = sum(self.price_volume_window) / sum(self.volume_window)
         self.current_vwap_value = vwap_value
 
-        diff = price - vwap_value
+        diff = adjusted_close - vwap_value
         self.diff_window.append(diff)
 
         if len(self.diff_window) < self.zscore_window:
             self.last_close = price
+            self.bar_index += 1
             return vwap_value, None
 
         mean = np.mean(self.diff_window)
@@ -77,22 +76,5 @@ class VWAPZScoreHTF:
         zscore = (diff - mean) / std if std > 0 else 0.0
 
         self.last_close = price
+        self.bar_index += 1
         return vwap_value, zscore
-    
-    def reset(self):
-        self.price_volume_window.clear()
-        self.volume_window.clear()
-        self.diff_window.clear()
-        self.current_vwap_value = None
-
-    def reset_vwap_to_gap(self, open_price: float, volume: float = 1.0):
-        self.price_volume_window.clear()
-        self.volume_window.clear()
-        for _ in range(self.vwap_lookback):
-            self.price_volume_window.append(open_price * volume)
-            self.volume_window.append(volume)
-        self.current_vwap_value = open_price
-
-    def set_zscore_window(self, window: int):
-        self.zscore_window = window
-        self.diff_window = deque(maxlen=window)
