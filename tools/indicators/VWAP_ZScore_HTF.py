@@ -26,7 +26,6 @@ class VWAPZScoreHTF:
         self.rth_start = rth_start
         self.rth_end = rth_end
 
-        # Für RTH-Session-Volumen
         self.rth_session_volumes = deque(maxlen=3)
         self.current_rth_volume = 0.0
         self.last_bar_was_rth = False

@@ -28,6 +28,7 @@ from collections import deque
 from tools.indicators.kalman_filter_2D import KalmanFilterRegression
 from tools.indicators.kalman_filter_2D_own_ZScore import KalmanFilterRegressionWithZScore
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
+from tools.structure.elastic_reversion_zscore_entry import ElasticReversionZScoreEntry
 from tools.indicators.VIX import VIX
 
 class Mean5mregimesStrategyConfig(StrategyConfig):
@@ -54,18 +55,12 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     kalman_exit_measurement_var: float
     kalman_exit_window: int
     kalman_exit_zscore_window: int
-    
+
+    elastic_reversion_entry: dict
+
     vix_fear_threshold: float = 25.0
     vix_chill_threshold: float = 15.0
     gap_threshold_pct: float = 0.1
-    vwap_zscore_entry_long_regime1: float = -1.7
-    vwap_zscore_entry_short_regime1: float = 1.5
-    vwap_zscore_entry_long_regime2: float = -2.7
-    vwap_zscore_entry_short_regime2: float = 2.5
-    vwap_zscore_pre_entry_long_regime1: float = -2.5
-    vwap_zscore_pre_entry_short_regime1: float = 2.5
-    vwap_zscore_pre_entry_long_regime2: float = -3.0
-    vwap_zscore_pre_entry_short_regime2: float = 3.0
     close_positions_on_stop: bool = True
     invest_percent: float = 0.10
 
@@ -89,10 +84,12 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.collector = BacktestDataCollector()
         self.vwap_zscore = VWAPZScoreHTF(
             zscore_window=config.zscore_window,
-            zscore_entry_long=config.vwap_zscore_entry_long_regime1,
-            zscore_entry_short=config.vwap_zscore_entry_short_regime1,
             vwap_lookback=config.vwap_lookback,
-            gap_threshold_pct=config.gap_threshold_pct)
+            gap_threshold_pct=config.gap_threshold_pct
+        )
+        
+        self.current_vix_value = None
+        self.current_kalman_slope = None
         
         # Bestehender Kalman für Regime/Slope
         self.kalman = KalmanFilterRegression(
@@ -101,7 +98,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             window=config.kalman_window
         )
         self.current_kalman_mean = None
-        self.current_kalman_slope = None
         self.current_kalman_slope = None
 
         # Neuer Kalman für Exit-Z-Score
@@ -115,15 +111,22 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.current_kalman_exit_slope = None
         self.current_kalman_exit_zscore = None
 
-        self.vix_start = str(config.start_date)[:10]
-        self.vix_end = str(config.end_date)[:10]
-        self.vix_fear = float(config.vix_fear_threshold)
-        self.vix_chill = float(config.vix_chill_threshold)
-        self.current_vix_value = None
-        self.vix = None
-        self.ready_for_long_entry = False
-        self.ready_for_short_entry = False
+        entry_config = config.elastic_reversion_entry
+        self.elastic_entry = ElasticReversionZScoreEntry(
+            vwap_zscore_indicator=self.vwap_zscore,
+            lookback_window=entry_config.get('lookback_window', 20),
+            z_min_threshold=entry_config.get('z_min_threshold', -2.0),
+            z_max_threshold=entry_config.get('z_max_threshold', 2.0),
+            recovery_delta=entry_config.get('recovery_delta', 0.4),
+            reset_neutral_zone_long=entry_config.get('reset_neutral_zone_long', 0.3),
+            reset_neutral_zone_short=entry_config.get('reset_neutral_zone_short', -0.3)
+        )
 
+        self.vix_start = config.start_date
+        self.vix_end = config.end_date  
+        self.vix_fear = config.vix_fear_threshold
+        self.vix_chill = config.vix_chill_threshold
+        self.vix = VIX(start=self.vix_start, end=self.vix_end, fear_threshold=self.vix_fear, chill_threshold=self.vix_chill)
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
@@ -138,7 +141,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             Decimal(str(self.config.min_account_balance)),
         )
         self.order_types = OrderTypes(self)
-        self.vix = VIX(start=self.vix_start, end=self.vix_end, fear_threshold=self.vix_fear, chill_threshold=self.vix_chill)
 
         self.collector.initialise_logging_indicator("vwap", 0)
         self.collector.initialise_logging_indicator("kalman_exit_mean", 0)
@@ -173,6 +175,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             # Kalman für Exits mit Z-Score
             self.current_kalman_exit_mean, self.current_kalman_exit_slope, self.current_kalman_exit_zscore = self.kalman_exit.update(float(bar.close))
 
+            if zscore is not None:
+                self.elastic_entry.update_state(zscore)
+
 
             bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
             if bar_time >= datetime.time(15, 40) and bar_time <= datetime.time(21, 50):
@@ -183,10 +188,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                         self.log.info("Markt ist zu volatil - keine Trades")
                         self.order_types.close_position_by_market_order()
                     else:
-                        if self.current_kalman_mean is not None and zscore is not None:
-                            if zscore < 0:
+                        if self.current_kalman_exit_mean is not None and self.current_kalman_mean is not None and zscore is not None:
+                            if bar.close < self.current_kalman_exit_mean:
                                 self.check_for_long_trades(bar, zscore)
-                            elif zscore > 0:
+                            elif bar.close > self.current_kalman_exit_mean:
                                 self.check_for_short_trades(bar, zscore)
 
         self.check_for_long_exit(bar)
@@ -216,33 +221,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         else:
             return 3
         
-    def get_zscore_entry_thresholds(self, regime: int):
-        if regime == 1:
-            return (
-                float(self.config.vwap_zscore_entry_long_regime1),
-                float(self.config.vwap_zscore_entry_short_regime1),
-            )
-        elif regime == 2:
-            return (
-                float(self.config.vwap_zscore_entry_long_regime2),
-                float(self.config.vwap_zscore_entry_short_regime2),
-            )
-        else:
-            return (None, None)
-        
-    def get_zscore_pre_entry_thresholds(self, regime: int):
-        if regime == 1:
-            return (
-                float(self.config.vwap_zscore_pre_entry_long_regime1),
-                float(self.config.vwap_zscore_pre_entry_short_regime1),
-            )
-        elif regime == 2:
-            return (
-                float(self.config.vwap_zscore_pre_entry_long_regime2),
-                float(self.config.vwap_zscore_pre_entry_short_regime2),
-            )
-        else:
-            return (None, None)
         
     def get_kalman_slope_sector(self):
         slope = self.current_kalman_slope
@@ -259,6 +237,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             return "strong_up"
         
     def get_slope_sector_params(self, regime: int):
+        """Vereinfachte Parameter-Funktion für Elastic Entry"""
         sector = self.get_kalman_slope_sector()
         params = self.config.kalman_slope_sector_params.get(sector, {})
         allow_trades = params.get("allow_trades", True)
@@ -266,24 +245,25 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         short_risk_factor = params.get("short_risk_factor", 1.0)
         regime_key = f"regime{regime}"
         regime_params = params.get("regime_params", {}).get(regime_key, {})
-        zscore_entry_long = regime_params.get("zscore_entry_long", None)
-        zscore_entry_short = regime_params.get("zscore_entry_short", None)
-        zscore_pre_entry_long = regime_params.get("zscore_pre_entry_long", None)
-        zscore_pre_entry_short = regime_params.get("zscore_pre_entry_short", None)
         kalman_zscore_exit_long = regime_params.get("kalman_zscore_exit_long", None)
         kalman_zscore_exit_short = regime_params.get("kalman_zscore_exit_short", None)
         
         return (allow_trades, long_risk_factor, short_risk_factor,
-                zscore_entry_long, zscore_entry_short,
-                zscore_pre_entry_long, zscore_pre_entry_short,
                 kalman_zscore_exit_long, kalman_zscore_exit_short)
     
     def check_for_long_trades(self, bar: Bar, zscore: float):
         if self.should_apply_price_condition("long"):
             if bar.close >= self.current_kalman_mean:
                 return
+            
+        if self.current_kalman_exit_mean is not None and bar.close >= self.current_kalman_exit_mean:
+            return
+
         regime = self.get_vix_regime(self.current_vix_value)
-        allow_trades, long_risk_factor, _, zscore_entry_long, _, zscore_pre_entry_long, _, _, _ = self.get_slope_sector_params(regime)
+        params = self.get_slope_sector_params(regime)
+        allow_trades = params[0]
+        long_risk_factor = params[1]
+        
         if not allow_trades:
             return
         
@@ -296,22 +276,27 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not valid_position or qty <= 0:
             return
 
-        if zscore_pre_entry_long is not None and zscore is not None and zscore <= zscore_pre_entry_long:
-            self.ready_for_long_entry = True
-
-        if zscore_entry_long is not None and zscore is not None and zscore > zscore_entry_long and self.ready_for_long_entry:
+        # NEU: Elastic Entry Signal abrufen (ersetzt alte Z-Score-Logik)
+        long_signal, _, debug_info = self.elastic_entry.check_entry_signals(zscore)
+        
+        if long_signal:
             self.order_types.submit_long_market_order(qty, price=bar.close)
-            self.ready_for_long_entry = False
-            
-        if zscore_pre_entry_long is not None and zscore is not None and zscore > zscore_pre_entry_long:
-            self.ready_for_long_entry = False
+            self.log.info(f"Elastic Long Entry: {debug_info.get('long_entry_reason', 'Recovery signal')}", 
+                        color=LogColor.GREEN)
 
     def check_for_short_trades(self, bar: Bar, zscore: float):
         if self.should_apply_price_condition("short"):
             if bar.close <= self.current_kalman_mean:
                 return
+            
+        if self.current_kalman_exit_mean is not None and bar.close <= self.current_kalman_exit_mean:
+            return
+    
         regime = self.get_vix_regime(self.current_vix_value)
-        allow_trades, _, short_risk_factor, _, zscore_entry_short, _, zscore_pre_entry_short, _, _ = self.get_slope_sector_params(regime)
+        params = self.get_slope_sector_params(regime)
+        allow_trades = params[0]
+        short_risk_factor = params[2]
+        
         if not allow_trades:
             return
         
@@ -324,23 +309,20 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not valid_position or qty <= 0:
             return
 
-        if zscore_pre_entry_short is not None and zscore is not None and zscore >= zscore_pre_entry_short:
-            self.ready_for_short_entry = True
-
-        if zscore_entry_short is not None and zscore is not None and zscore < zscore_entry_short and self.ready_for_short_entry:
+        # NEUuu: Elastic Entry Signal abrufen (ersetzt alte Z-Score-Logik)
+        _, short_signal, debug_info = self.elastic_entry.check_entry_signals(zscore)
+        
+        if short_signal:
             self.order_types.submit_short_market_order(qty, price=bar.close)
-            self.ready_for_short_entry = False
-
-        if zscore_pre_entry_short is not None and zscore is not None and zscore < zscore_pre_entry_short:
-            self.ready_for_short_entry = False
-
+            self.log.info(f"Elastic Short Entry: {debug_info.get('short_entry_reason', 'Recovery signal')}", 
+                        color=LogColor.MAGENTA)
     def check_for_long_exit(self, bar):
         if self.current_vix_value is None:
             return
         regime = self.get_vix_regime(self.current_vix_value)
         params = self.get_slope_sector_params(regime)
         allow_trades = params[0]
-        kalman_zscore_exit_long = params[7] 
+        kalman_zscore_exit_long = params[3] 
         if not allow_trades:
             self.order_types.close_position_by_market_order()
             return
@@ -360,7 +342,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         regime = self.get_vix_regime(self.current_vix_value)
         params = self.get_slope_sector_params(regime)
         allow_trades = params[0]
-        kalman_zscore_exit_short = params[8]
+        kalman_zscore_exit_short = params[4]
         if not allow_trades:
             self.order_types.close_position_by_market_order()
             return
@@ -454,3 +436,5 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         elif bar.bar_type == self.bar_type_1h:
 
             pass
+
+
