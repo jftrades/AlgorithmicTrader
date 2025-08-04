@@ -119,7 +119,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             z_max_threshold=entry_config.get('z_max_threshold', 2.0),
             recovery_delta=entry_config.get('recovery_delta', 0.4),
             reset_neutral_zone_long=entry_config.get('reset_neutral_zone_long', 0.3),
-            reset_neutral_zone_short=entry_config.get('reset_neutral_zone_short', -0.3)
+            reset_neutral_zone_short=entry_config.get('reset_neutral_zone_short', -0.3),
+            allow_multiple_recoveries=entry_config.get('allow_multiple_recoveries', True),
+            recovery_cooldown_bars=entry_config.get('recovery_cooldown_bars', 5)
         )
 
         self.vix_start = config.start_date
