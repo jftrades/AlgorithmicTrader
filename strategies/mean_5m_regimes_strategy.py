@@ -220,13 +220,21 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         return abs(int(pos)) if pos is not None else 0
     
     def should_apply_price_condition(self, direction: str) -> bool:
+
+        if self.current_kalman_slope is None:
+            return False
+
+        slope_abs = abs(self.current_kalman_slope)
+
         if direction == "long":
-            threshold = abs(self.config.kalman_disable_price_condition_slope_long)
-            return abs(self.current_kalman_slope) < threshold
+            threshold = abs(self.config.kalman_disable_price_condition_slope_long)  # 0.025
+            return slope_abs <= threshold
+            
         elif direction == "short":
-            threshold = abs(self.config.kalman_disable_price_condition_slope_short)
-            return abs(self.current_kalman_slope) < threshold
-        return True
+            threshold = abs(self.config.kalman_disable_price_condition_slope_short)  # 0.025
+            return slope_abs <= threshold
+            
+        return False
 
     def get_vix_regime(self, vix_value: float) -> int:
         if vix_value < self.vix_chill:
@@ -383,7 +391,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
     def on_stop(self) -> None:
         if self.slope_monitor:
             self.slope_monitor.print_distribution()
-            
+
         self.base_on_stop()
         try:
             unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)

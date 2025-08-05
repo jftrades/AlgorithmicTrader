@@ -6,7 +6,7 @@ bar_type_1h: "SPY.ARCA-1-HOUR-LAST-EXTERNAL"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
 
 # Backtest-Zeitraum
-start_date: "2010-01-01T00:00:00Z"
+start_date: "2020-01-01T00:00:00Z"
 end_date: "2024-09-01T23:59:59Z"
 
 # Neue Kalman-Parameter für Exit-Z-Score
@@ -19,15 +19,15 @@ kalman_exit_zscore_window: [30]
 kalman_process_var: [0.0000005]
 kalman_measurement_var: [0.01]
 kalman_window: 10
-kalman_disable_price_condition_slope_long: 0.04
-kalman_disable_price_condition_slope_short: 0.04
+kalman_disable_price_condition_slope_long: 0.025
+kalman_disable_price_condition_slope_short: 0.025
 kalman_slope_thresholds:
-  strong_down: -0.1
-  moderate_down: -0.03
-  sideways: 0.03
-  moderate_up: 0.1
+  strong_down: -0.04
+  moderate_down: -0.01
+  sideways: 0.01
+  moderate_up: 0.04
 
-test_which_slope_params: true
+test_which_slope_params: False
 
 # je höher die VWAP Werte, desto weniger Trades aber auch besser die Performance stand jetzt, 
 # wenn wir ja noch nichts an slopes etc angepasst haben
