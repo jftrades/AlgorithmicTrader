@@ -116,12 +116,12 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         entry_config = config.elastic_reversion_entry
         self.elastic_entry = ElasticReversionZScoreEntry(
             vwap_zscore_indicator=self.vwap_zscore,
-            lookback_window=entry_config.get('lookback_window', 20),
-            z_min_threshold=entry_config.get('z_min_threshold', -2.0),
-            z_max_threshold=entry_config.get('z_max_threshold', 2.0),
-            recovery_delta=entry_config.get('recovery_delta', 0.4),
-            reset_neutral_zone_long=entry_config.get('reset_neutral_zone_long', 0.3),
-            reset_neutral_zone_short=entry_config.get('reset_neutral_zone_short', -0.3),
+            lookback_window=entry_config.get('lookback_window', 15),
+            z_min_threshold=-2.0,
+            z_max_threshold=2.0,
+            recovery_delta=0.6,
+            reset_neutral_zone_long=1.0,
+            reset_neutral_zone_short=-1.0,
             allow_multiple_recoveries=entry_config.get('allow_multiple_recoveries', True),
             recovery_cooldown_bars=entry_config.get('recovery_cooldown_bars', 5)
         )
@@ -260,7 +260,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             return "strong_up"
         
     def get_slope_sector_params(self, regime: int):
-        """Vereinfachte Parameter-Funktion für Elastic Entry"""
         sector = self.get_kalman_slope_sector()
         params = self.config.kalman_slope_sector_params.get(sector, {})
         allow_trades = params.get("allow_trades", True)
@@ -292,6 +291,13 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         
         if self.count_open_position() >= 2:
             return
+        
+        sector = self.get_kalman_slope_sector()
+        self.elastic_entry.apply_sector_regime_params(
+            config_params=self.config.kalman_slope_sector_params,
+            sector=sector,
+            regime=regime
+        )
 
         invest_percent = Decimal(str(self.config.invest_percent)) * Decimal(str(long_risk_factor))
         entry_price = Decimal(str(bar.close))
@@ -303,9 +309,16 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         long_signal, _, debug_info = self.elastic_entry.check_entry_signals(zscore)
         
         if long_signal:
+            entry_reason = debug_info.get('long_entry_reason', 'Recovery signal')
+            current_params = debug_info.get('current_parameters', {})
+            
             self.order_types.submit_long_market_order(qty, price=bar.close)
-            self.log.info(f"Elastic Long Entry: {debug_info.get('long_entry_reason', 'Recovery signal')}", 
-                        color=LogColor.GREEN)
+            self.log.info(
+                f"Long Entry [{sector}/regime{regime}]: {entry_reason} | "
+                f"Params: z_min={current_params.get('z_min_threshold', 'N/A'):.2f}, "
+                f"recovery_delta={current_params.get('recovery_delta', 'N/A'):.2f}", 
+                color=LogColor.GREEN
+            )
 
     def check_for_short_trades(self, bar: Bar, zscore: float):
         if self.should_apply_price_condition("short"):
@@ -326,6 +339,13 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if self.count_open_position() >= 2:
             return
 
+        sector = self.get_kalman_slope_sector()
+        self.elastic_entry.apply_sector_regime_params(
+            config_params=self.config.kalman_slope_sector_params,
+            sector=sector,
+            regime=regime
+        )
+
         invest_percent = Decimal(str(self.config.invest_percent)) * Decimal(str(short_risk_factor))
         entry_price = Decimal(str(bar.close))
         qty, valid_position = self.risk_manager.calculate_investment_size(invest_percent, entry_price)
@@ -336,9 +356,18 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         _, short_signal, debug_info = self.elastic_entry.check_entry_signals(zscore)
         
         if short_signal:
+            # Erweiterte Logging-Info mit Sector/Regime und aktuellen Parametern
+            entry_reason = debug_info.get('short_entry_reason', 'Recovery signal')
+            current_params = debug_info.get('current_parameters', {})
+            
             self.order_types.submit_short_market_order(qty, price=bar.close)
-            self.log.info(f"Elastic Short Entry: {debug_info.get('short_entry_reason', 'Recovery signal')}", 
-                        color=LogColor.MAGENTA)
+            self.log.info(
+                f"Short Entry [{sector}/regime{regime}]: {entry_reason} | "
+                f"Params: z_max={current_params.get('z_max_threshold', 'N/A'):.2f}, "
+                f"recovery_delta={current_params.get('recovery_delta', 'N/A'):.2f}", 
+                color=LogColor.MAGENTA
+            )
+
     def check_for_long_exit(self, bar):
         if self.current_vix_value is None:
             return

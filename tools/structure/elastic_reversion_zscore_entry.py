@@ -1,6 +1,6 @@
 from collections import deque
 import numpy as np
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict, Any
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
 
 class ElasticReversionZScoreEntry:
@@ -8,9 +8,9 @@ class ElasticReversionZScoreEntry:
         self,
         vwap_zscore_indicator: VWAPZScoreHTF,
         lookback_window: int = 20,
-        z_min_threshold: float = -2.0,      # Mindest-Extrem für Long-Entries
-        z_max_threshold: float = 2.0,       # Mindest-Extrem für Short-Entries  
-        recovery_delta: float = 0.4,        # Recovery-Abstand vom Extrem
+        z_min_threshold: float = -2.0,      
+        z_max_threshold: float = 2.0,       
+        recovery_delta: float = 0.4,        
         reset_neutral_zone_long: float = 0.3, 
         reset_neutral_zone_short: float = -0.3,
         allow_multiple_recoveries: bool = True,
@@ -25,8 +25,8 @@ class ElasticReversionZScoreEntry:
         self.reset_neutral_zone_short = reset_neutral_zone_short
         
         self.zscore_history = deque(maxlen=lookback_window)
-        self.z_extreme_long = None      # Tiefstes Z-Score-Extrem
-        self.z_extreme_short = None     # Höchstes Z-Score-Extrem
+        self.z_extreme_long = None      
+        self.z_extreme_short = None     
         self.bars_since_long_extreme = 0
         self.bars_since_short_extreme = 0
         self.long_recovery_triggered = False
@@ -49,7 +49,34 @@ class ElasticReversionZScoreEntry:
             self.reset_neutral_zone_long = reset_neutral_zone_long
         if reset_neutral_zone_short is not None:
             self.reset_neutral_zone_short = reset_neutral_zone_short
-            
+
+    def get_sector_regime_params(self, config_params: Dict[str, Any], sector: str, regime: int) -> Dict[str, float]:
+        sector_params = config_params.get(sector, {})
+        
+        regime_key = f"regime{regime}"
+        regime_params = sector_params.get("regime_params", {}).get(regime_key, {})
+        
+        elastic_params = regime_params.get("elastic_entry", {})
+        
+        return {
+            'z_min_threshold': elastic_params.get('z_min_threshold', self.z_min_threshold),
+            'z_max_threshold': elastic_params.get('z_max_threshold', self.z_max_threshold),
+            'recovery_delta': elastic_params.get('recovery_delta', self.recovery_delta),
+            'reset_neutral_zone_long': elastic_params.get('reset_neutral_zone_long', self.reset_neutral_zone_long),
+            'reset_neutral_zone_short': elastic_params.get('reset_neutral_zone_short', self.reset_neutral_zone_short)
+        }
+
+    def apply_sector_regime_params(self, config_params: Dict[str, Any], sector: str, regime: int):
+        params = self.get_sector_regime_params(config_params, sector, regime)
+        
+        self.update_parameters(
+            z_min_threshold=params['z_min_threshold'],
+            z_max_threshold=params['z_max_threshold'],
+            recovery_delta=params['recovery_delta'],
+            reset_neutral_zone_long=params['reset_neutral_zone_long'],
+            reset_neutral_zone_short=params['reset_neutral_zone_short']
+        )
+
     def update_state(self, zscore: float) -> None:
         if zscore is None:
             return
@@ -106,7 +133,14 @@ class ElasticReversionZScoreEntry:
             'bars_since_long_extreme': self.bars_since_long_extreme,
             'bars_since_short_extreme': self.bars_since_short_extreme,
             'bars_since_last_long_signal': self.bars_since_last_long_signal,
-            'bars_since_last_short_signal': self.bars_since_last_short_signal
+            'bars_since_last_short_signal': self.bars_since_last_short_signal,
+            'current_parameters': {
+                'z_min_threshold': self.z_min_threshold,
+                'z_max_threshold': self.z_max_threshold,
+                'recovery_delta': self.recovery_delta,
+                'reset_neutral_zone_long': self.reset_neutral_zone_long,
+                'reset_neutral_zone_short': self.reset_neutral_zone_short
+            }
         }
         
         # Long Entry Signal
@@ -120,13 +154,12 @@ class ElasticReversionZScoreEntry:
             self.long_recovery_triggered = True
             self.bars_since_last_long_signal = 0
             
-            # Debug-Info: Unterscheide zwischen Stacking und normalem Entry
             if self.bars_since_long_extreme <= self.recovery_cooldown_bars:
                 debug_info['long_entry_reason'] = f"STACK: New extreme recovery from {self.z_extreme_long:.2f} to {current_zscore:.2f}"
             else:
                 debug_info['long_entry_reason'] = f"NORMAL: Recovery from {self.z_extreme_long:.2f} to {current_zscore:.2f}"
             
-        # Short Entry Signal (analog)    
+        # Short Entry Signal    
         if (self.z_extreme_short is not None and
             self.z_extreme_short >= self.z_max_threshold and  
             current_zscore <= (self.z_extreme_short - self.recovery_delta) and  
@@ -137,7 +170,6 @@ class ElasticReversionZScoreEntry:
             self.short_recovery_triggered = True
             self.bars_since_last_short_signal = 0
             
-            # Debug-Info für Stacking vs Normal
             if self.bars_since_short_extreme <= self.recovery_cooldown_bars:
                 debug_info['short_entry_reason'] = f"STACK: New extreme recovery from {self.z_extreme_short:.2f} to {current_zscore:.2f}"
             else:
