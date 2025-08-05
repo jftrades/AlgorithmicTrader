@@ -16,7 +16,7 @@ kalman_exit_window: 10
 kalman_exit_zscore_window: [30]
  
 # Kalmanf für regime:
-kalman_process_var: [0.0000001]
+kalman_process_var: [0.0000005]
 kalman_measurement_var: [0.01]
 kalman_window: 10
 kalman_disable_price_condition_slope_long: 0.04
@@ -26,6 +26,8 @@ kalman_slope_thresholds:
   moderate_down: -0.03
   sideways: 0.03
   moderate_up: 0.1
+
+test_which_slope_params: true
 
 # je höher die VWAP Werte, desto weniger Trades aber auch besser die Performance stand jetzt, 
 # wenn wir ja noch nichts an slopes etc angepasst haben

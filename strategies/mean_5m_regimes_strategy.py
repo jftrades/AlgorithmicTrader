@@ -29,6 +29,7 @@ from tools.indicators.kalman_filter_2D import KalmanFilterRegression
 from tools.indicators.kalman_filter_2D_own_ZScore import KalmanFilterRegressionWithZScore
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
 from tools.structure.elastic_reversion_zscore_entry import ElasticReversionZScoreEntry
+from tools.help_funcs.slope_distrubition_monitor import SlopeDistributionMonitor
 from tools.indicators.VIX import VIX
 
 class Mean5mregimesStrategyConfig(StrategyConfig):
@@ -61,6 +62,7 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     vix_fear_threshold: float = 25.0
     vix_chill_threshold: float = 15.0
     gap_threshold_pct: float = 0.1
+    test_which_slope_params: bool = False
     close_positions_on_stop: bool = True
     invest_percent: float = 0.10
 
@@ -124,6 +126,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             recovery_cooldown_bars=entry_config.get('recovery_cooldown_bars', 5)
         )
 
+        self.slope_monitor = None
+        if config.test_which_slope_params:
+            self.slope_monitor = SlopeDistributionMonitor()
+            print("Slope Distribution Monitor: ENABLED")
+
         self.vix_start = config.start_date
         self.vix_end = config.end_date  
         self.vix_fear = config.vix_fear_threshold
@@ -167,6 +174,12 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             vix_value = self.vix.get_value_on_date(bar_date)
             self.current_kalman_mean, self.current_kalman_slope = self.kalman.update(float(bar.close))
             self.current_vix_value = vix_value
+
+            if self.slope_monitor and self.current_kalman_slope is not None:
+                self.slope_monitor.add_slope(self.current_kalman_slope)
+                
+                if self.slope_monitor.total_count % 100 == 0:
+                    self.slope_monitor.print_progress_update(self.current_kalman_slope)
 
         if bar.bar_type == self.bar_type_5m:
             bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
@@ -368,6 +381,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         return self.base_close_position()
     
     def on_stop(self) -> None:
+        if self.slope_monitor:
+            self.slope_monitor.print_distribution()
+            
         self.base_on_stop()
         try:
             unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
