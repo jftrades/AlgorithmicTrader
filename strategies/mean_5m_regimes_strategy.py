@@ -128,8 +128,12 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
 
         self.slope_monitor = None
         if config.test_which_slope_params:
-            self.slope_monitor = SlopeDistributionMonitor()
-            print("Slope Distribution Monitor: ENABLED")
+            # YAML-Thresholds an Monitor übergeben
+            self.slope_monitor = SlopeDistributionMonitor(
+                slope_thresholds=config.kalman_slope_thresholds
+            )
+            print(f"Slope Distribution Monitor: ENABLED with YAML thresholds")
+            print(f"Thresholds: {config.kalman_slope_thresholds}")
 
         self.vix_start = config.start_date
         self.vix_end = config.end_date  
