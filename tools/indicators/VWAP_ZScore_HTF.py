@@ -40,6 +40,10 @@ class VWAPZScoreHTFAnchored:
             'vwap_value': None
         }
         
+        # Grace Period für VWAP-Reset (verhindert zu häufige Resets)
+        self.last_reset_bar = -1  # Bar bei dem letzter Reset stattfand
+        self.reset_grace_period = min_bars_for_zscore  # Grace Period = min_bars_for_zscore
+        
         # History für Z-Score-Berechnungen
         self.segment_price_history = []
         self.segment_diff_history = []
@@ -72,26 +76,50 @@ class VWAPZScoreHTFAnchored:
     def set_kalman_exit_mean(self, kalman_exit_mean: float):
         self.kalman_exit_mean = kalman_exit_mean
 
-    def _detect_kalman_cross(self, current_price: float) -> bool:
+    def _detect_kalman_cross(self, current_price: float, open_price: float = None) -> bool:
+        """
+        Erkennt Kalman-Exit-Mean Crossings robust für VWAP-Anchoring
+        WICHTIG: Berücksichtigt auch Gap-Crossings über Wochenenden
+        """
         if self.kalman_exit_mean is None:
             return False
             
         current_above = current_price > self.kalman_exit_mean
         
-        # Erster Bar - initialisiere State
+        # Erster Bar - initialisiere State (kein Cross, nur State setzen)
         if self.last_price_above_kalman is None:
             self.last_price_above_kalman = current_above
+            print(f"[KALMAN INIT] Initial state set: price {current_price:.4f} is {'above' if current_above else 'below'} Kalman-Exit-Mean {self.kalman_exit_mean:.4f}")
             return True  # Initial anchor
+        
+        # Prüfe Gap-Cross: War letzter Close unter/über Kalman, aber Open ist über/unter?
+        if open_price is not None and self.last_close is not None:
+            last_above = self.last_close > self.kalman_exit_mean
+            open_above = open_price > self.kalman_exit_mean
             
-        # Cross Detection
+            # Gap-Cross Detection (Open auf anderer Seite als letzter Close)
+            if last_above != open_above:
+                gap_direction = "above" if open_above else "below"
+                old_direction = "above" if last_above else "below"
+                print(f"[KALMAN GAP-CROSS] Gap from {old_direction} to {gap_direction} Kalman-Exit-Mean {self.kalman_exit_mean:.4f} (close: {self.last_close:.4f} -> open: {open_price:.4f})")
+                
+                self.last_price_above_kalman = current_above  # Update auf aktuellen Close
+                return True
+            
+        # Standard Cross Detection - ERST prüfen, DANN State updaten
         cross_detected = current_above != self.last_price_above_kalman
         
         if cross_detected:
             direction = "above" if current_above else "below"
-            print(f"[KALMAN CROSS] Price crossed {direction} Kalman-Exit-Mean {self.kalman_exit_mean:.4f} at price {current_price:.4f}")
+            old_direction = "above" if self.last_price_above_kalman else "below"
+            print(f"[KALMAN CROSS] Price crossed from {old_direction} to {direction} Kalman-Exit-Mean {self.kalman_exit_mean:.4f} at price {current_price:.4f}")
             
-        self.last_price_above_kalman = current_above
-        return cross_detected
+            # WICHTIG: State wird nur bei tatsächlichem Cross aktualisiert
+            self.last_price_above_kalman = current_above
+            return True
+            
+        # Kein Cross - State bleibt unverändert
+        return False
 
     def is_rth(self, bar):
         t = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
@@ -99,15 +127,29 @@ class VWAPZScoreHTFAnchored:
         rth_end = datetime.time(*self.rth_end)
         return rth_start <= t <= rth_end
 
-    def _should_anchor_new_segment(self, current_price: float) -> Tuple[bool, str]:
-        # Primary: Kalman-Cross Detection
+    def _should_anchor_new_segment(self, current_price: float, open_price: float = None) -> Tuple[bool, str]:
+        """
+        Prüft ob ein neues VWAP-Segment gestartet werden soll
+        WICHTIG: Grace Period verhindert zu häufige Resets
+        """
+        # Grace Period Check: Kein Reset in den ersten X Bars nach letztem Reset
+        bars_since_last_reset = self.total_bar_count - self.last_reset_bar
+        if bars_since_last_reset < self.reset_grace_period:
+            # Debug: Zeige warum Reset blockiert wird
+            remaining_bars = self.reset_grace_period - bars_since_last_reset
+            if self.anchor_on_kalman_cross and self._detect_kalman_cross(current_price, open_price):
+                print(f"[GRACE PERIOD] Kalman cross detected but ignored - {remaining_bars} bars remaining in grace period")
+            return False, 'grace_period_active'
+        
+        # Primary: Kalman-Cross Detection (nur wenn Grace Period vorbei)
         if self.anchor_on_kalman_cross:
-            if self._detect_kalman_cross(current_price):
+            if self._detect_kalman_cross(current_price, open_price):
                 return True, 'kalman_cross'
             
         return False, 'none'
 
     def _start_new_segment(self, reason: str = 'unknown'):
+        """Startet ein neues VWAP-Segment mit komplettem Reset"""
         self.current_segment = {
             'start_bar': self.total_bar_count,
             'anchor_reason': reason,
@@ -116,19 +158,24 @@ class VWAPZScoreHTFAnchored:
             'vwap_value': None
         }
         
-        # History für neues Segment zurücksetzen
+        # KRITISCH: Kompletter Reset aller Historien für neues Segment
         self.segment_price_history = []
         self.segment_diff_history = []
         self.segment_atr_history = []
         
-        print(f"[ANCHORED VWAP] New segment started at bar {self.total_bar_count} - Reason: {reason}")
+        # Grace Period tracking: Merke wann Reset stattfand
+        self.last_reset_bar = self.total_bar_count
+        
+        print(f"[ANCHORED VWAP] New segment started at bar {self.total_bar_count} - Reason: {reason} - Grace period: {self.reset_grace_period} bars")
 
     def _calculate_segment_vwap(self) -> Optional[float]:
+        """Berechnet VWAP für das aktuelle Segment (gap-adjusted Preise)"""
         if not self.current_segment['price_volume_data']:
             return None
             
-        total_pv = sum(price * volume for price, volume, _, _ in self.current_segment['price_volume_data'])
-        total_volume = sum(volume for _, volume, _, _ in self.current_segment['price_volume_data'])
+        # WICHTIG: Verwende gap-adjusted Preise (erste Werte im Tupel)
+        total_pv = sum(adj_price * adj_volume for adj_price, adj_volume, _, _ in self.current_segment['price_volume_data'])
+        total_volume = sum(adj_volume for _, adj_volume, _, _ in self.current_segment['price_volume_data'])
         
         if total_volume == 0:
             return None
@@ -136,12 +183,14 @@ class VWAPZScoreHTFAnchored:
         return total_pv / total_volume
 
     def _calculate_simple_zscore(self, current_price: float, vwap_value: float) -> float:
+        """Einfache Z-Score Berechnung: price - vwap (beide gap-adjusted)"""
         return current_price - vwap_value
 
     def _calculate_atr_zscore(self, current_price: float, vwap_value: float, high: float, low: float) -> Optional[float]:
+        """ATR-basierte Z-Score Berechnung: (price - vwap) / ATR (gap-adjusted)"""
         atr_window = self.zscore_config.get('atr', {}).get('atr_window', 14)
         
-        # True Range für aktuellen Bar
+        # True Range für aktuellen Bar (gap-adjusted Preise)
         if self.segment_atr_history:
             prev_close = self.segment_atr_history[-1]['close']
             true_range = max(
@@ -152,7 +201,7 @@ class VWAPZScoreHTFAnchored:
         else:
             true_range = high - low
             
-        # ATR History speichern
+        # ATR History speichern (gap-adjusted close)
         self.segment_atr_history.append({
             'true_range': true_range,
             'close': current_price
@@ -168,12 +217,14 @@ class VWAPZScoreHTFAnchored:
         if atr == 0:
             return 0.0
             
+        # Beide gap-adjusted: (adj_price - adj_vwap) / atr
         return (current_price - vwap_value) / atr
 
     def _calculate_std_zscore(self, current_price: float, vwap_value: float) -> Optional[float]:
+        """Standard Deviation Z-Score: (price - vwap) / std(price - vwap) (gap-adjusted)"""
         std_window = self.zscore_config.get('std', {}).get('std_window', 20)
         
-        # Aktueller Diff
+        # Aktueller Diff (beide gap-adjusted)
         current_diff = current_price - vwap_value
         self.segment_diff_history.append(current_diff)
         
@@ -191,6 +242,7 @@ class VWAPZScoreHTFAnchored:
         return current_diff / std_diff
 
     def _calculate_segment_zscore(self, current_price: float, vwap_value: float, high: float = None, low: float = None) -> Optional[float]:
+        """Berechnet Z-Score basierend auf gewählter Methode - ALLE Werte sind gap-adjusted"""
         # Mindest-Bars Check
         if self.current_segment['bars_in_segment'] < self.min_bars_for_zscore:
             return None
@@ -212,6 +264,10 @@ class VWAPZScoreHTFAnchored:
             return self._calculate_simple_zscore(current_price, vwap_value)
 
     def update(self, bar, kalman_exit_mean: float = None) -> Tuple[Optional[float], Optional[float]]:
+        """
+        Main Update-Funktion mit korrekter Gap-Behandlung
+        WICHTIG: Alle Berechnungen verwenden gap-adjusted Werte
+        """
         price = float(bar.close)
         volume = float(bar.volume)
         high = float(bar.high)
@@ -228,6 +284,7 @@ class VWAPZScoreHTFAnchored:
             if gap_pct > self.gap_threshold_pct:
                 self.cumulative_gap += gap
                 self.gap_offsets.append((self.total_bar_count, self.cumulative_gap))
+                print(f"[GAP DETECTED] Bar {self.total_bar_count}: {gap:.4f} ({gap_pct:.2f}%), Cumulative: {self.cumulative_gap:.4f}")
 
         # 3. Gap-Offset berechnen
         offset = 0.0
@@ -248,40 +305,39 @@ class VWAPZScoreHTFAnchored:
                 self.current_rth_volume = 0.0
                 self.last_bar_was_rth = False
 
-        # 5. Adjusted Values
+        # 5. KRITISCH: Gap-Adjusted Values für ALLE Berechnungen
+        adj_price = price - offset
+        adj_high = high - offset
+        adj_low = low - offset
+        
         if is_rth:
-            adj_price = price - offset
             adj_volume = volume
-            adj_high = high - offset
-            adj_low = low - offset
         else:
             avg_rth_volume = np.mean(self.rth_session_volumes) if self.rth_session_volumes else volume
-            adj_price = price - offset
             adj_volume = avg_rth_volume
-            adj_high = high - offset
-            adj_low = low - offset
 
-        # 6. Segment Management - Prüfe ob neues Segment nötig
-        should_anchor, anchor_reason = self._should_anchor_new_segment(adj_price)
+        # 6. Segment Management - Prüfe ob neues Segment nötig (mit gap-adjusted Preisen und Open)
+        adj_open = float(bar.open) - offset
+        should_anchor, anchor_reason = self._should_anchor_new_segment(adj_price, adj_open)
         if should_anchor:
             self._start_new_segment(anchor_reason)
 
-        # 7. Daten zum aktuellen Segment hinzufügen
+        # 7. Daten zum aktuellen Segment hinzufügen (gap-adjusted Werte!)
         self.current_segment['price_volume_data'].append((adj_price, adj_volume, price, volume))
         self.current_segment['bars_in_segment'] += 1
 
-        # 8. VWAP für aktuelles Segment berechnen
+        # 8. VWAP für aktuelles Segment berechnen (gap-adjusted)
         vwap_value = self._calculate_segment_vwap()
         self.current_segment['vwap_value'] = vwap_value
         self.current_vwap_value = vwap_value
 
-        # 9. Z-Score berechnen
+        # 9. Z-Score berechnen (alle gap-adjusted Werte)
         zscore = None
         if vwap_value is not None:
             zscore = self._calculate_segment_zscore(adj_price, vwap_value, adj_high, adj_low)
 
         # 10. Update global counters
-        self.last_close = price
+        self.last_close = price  # WICHTIG: Original Price für nächste Gap-Berechnung
         self.total_bar_count += 1
         self.current_zscore = zscore
 
@@ -289,6 +345,9 @@ class VWAPZScoreHTFAnchored:
 
     def get_segment_info(self) -> dict:
         """Debug-Info über aktuelles Segment"""
+        bars_since_reset = self.total_bar_count - self.last_reset_bar
+        grace_remaining = max(0, self.reset_grace_period - bars_since_reset)
+        
         return {
             'segment_start_bar': self.current_segment['start_bar'],
             'anchor_reason': self.current_segment['anchor_reason'],
@@ -298,7 +357,11 @@ class VWAPZScoreHTFAnchored:
             'current_zscore': self.current_zscore,
             'zscore_method': self.zscore_method,
             'kalman_exit_mean': self.kalman_exit_mean,
-            'anchor_on_kalman_cross': self.anchor_on_kalman_cross
+            'anchor_on_kalman_cross': self.anchor_on_kalman_cross,
+            'last_reset_bar': self.last_reset_bar,
+            'bars_since_reset': bars_since_reset,
+            'grace_period_remaining': grace_remaining,
+            'grace_period_active': grace_remaining > 0
         }
 
     def force_new_segment(self, reason: str = 'forced'):
