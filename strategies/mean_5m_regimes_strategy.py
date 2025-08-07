@@ -27,7 +27,7 @@ from nautilus_trader.common.enums import LogColor
 from collections import deque
 from tools.indicators.kalman_filter_2D import KalmanFilterRegression
 from tools.indicators.kalman_filter_2D_own_ZScore import KalmanFilterRegressionWithZScore
-from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
+from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTFAnchored
 from tools.structure.elastic_reversion_zscore_entry import ElasticReversionZScoreEntry
 from tools.help_funcs.slope_distrubition_monitor import SlopeDistributionMonitor
 from tools.indicators.VIX import VIX
@@ -39,8 +39,6 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     risk_percent: float
     max_leverage: float
     min_account_balance: float
-    vwap_lookback: int
-    zscore_window: int
     kalman_process_var: float
     kalman_measurement_var: float
     kalman_window: int
@@ -58,7 +56,13 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     kalman_exit_zscore_window: int
 
     elastic_reversion_entry: dict
-
+    
+    # VWAP/ZScore Parameter
+    vwap_anchor_on_kalman_cross: bool = True
+    zscore_calculation: dict = None
+    gap_threshold_pct: float = 0.1
+    vwap_min_bars_for_zscore: int = 30
+    
     vix_fear_threshold: float = 25.0
     vix_chill_threshold: float = 15.0
     gap_threshold_pct: float = 0.1
@@ -84,10 +88,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.prev_close = None
         self.current_zscore = None
         self.collector = BacktestDataCollector()
-        self.vwap_zscore = VWAPZScoreHTF(
-            zscore_window=config.zscore_window,
-            vwap_lookback=config.vwap_lookback,
-            gap_threshold_pct=config.gap_threshold_pct
+        self.vwap_zscore = VWAPZScoreHTFAnchored(
+            anchor_on_kalman_cross=getattr(config, 'vwap_anchor_on_kalman_cross', True),
+            zscore_calculation=getattr(config, 'zscore_calculation', {"simple": {"enabled": True}}),
+            gap_threshold_pct=config.gap_threshold_pct,
+            min_bars_for_zscore=getattr(config, 'vwap_min_bars_for_zscore', 30)
         )
         
         self.current_vix_value = None
@@ -188,11 +193,13 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if bar.bar_type == self.bar_type_5m:
             bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
             vix_value = self.vix.get_value_on_date(bar_date)
-            vwap_value, zscore = self.vwap_zscore.update(bar)
-            self.current_zscore = zscore
-
-            # Kalman für Exits mit Z-Score
+            
+            # Kalman für Exits mit Z-Score ZUERST berechnen
             self.current_kalman_exit_mean, self.current_kalman_exit_slope, self.current_kalman_exit_zscore = self.kalman_exit.update(float(bar.close))
+            
+            # VWAP mit Kalman-Exit-Mean für Cross-Detection
+            vwap_value, zscore = self.vwap_zscore.update(bar, kalman_exit_mean=self.current_kalman_exit_mean)
+            self.current_zscore = zscore
 
             if zscore is not None:
                 self.elastic_entry.update_state(zscore)

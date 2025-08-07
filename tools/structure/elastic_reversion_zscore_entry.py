@@ -1,12 +1,11 @@
 from collections import deque
 import numpy as np
 from typing import Tuple, Optional, Dict, Any
-from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTF
-
+from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTFAnchored
 class ElasticReversionZScoreEntry:
     def __init__(
         self,
-        vwap_zscore_indicator: VWAPZScoreHTF,
+        vwap_zscore_indicator: VWAPZScoreHTFAnchored,
         lookback_window: int = 20,
         z_min_threshold: float = -2.0,      
         z_max_threshold: float = 2.0,       
