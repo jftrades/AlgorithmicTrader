@@ -62,6 +62,8 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     zscore_calculation: dict = None
     gap_threshold_pct: float = 0.1
     vwap_min_bars_for_zscore: int = 30
+    vwap_reset_grace_period: int = 25
+    vwap_require_trade_for_reset: bool = True
     
     vix_fear_threshold: float = 25.0
     vix_chill_threshold: float = 15.0
@@ -92,7 +94,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             anchor_on_kalman_cross=getattr(config, 'vwap_anchor_on_kalman_cross', True),
             zscore_calculation=getattr(config, 'zscore_calculation', {"simple": {"enabled": True}}),
             gap_threshold_pct=config.gap_threshold_pct,
-            min_bars_for_zscore=getattr(config, 'vwap_min_bars_for_zscore', 30)
+            min_bars_for_zscore=getattr(config, 'vwap_min_bars_for_zscore', 30),
+            reset_grace_period=getattr(config, 'vwap_reset_grace_period', 25),
+            require_trade_for_reset=getattr(config, 'vwap_require_trade_for_reset', True)
         )
         
         self.current_vix_value = None
@@ -464,6 +468,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
 
     
     def on_order_filled(self, order_filled) -> None:
+        # Benachrichtige VWAP-Indikator über Trade
+        self.vwap_zscore.notify_trade_occurred()
         return self.base_on_order_filled(order_filled)
 
     def on_position_closed(self, position_closed) -> None:

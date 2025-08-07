@@ -12,6 +12,8 @@ class VWAPZScoreHTFAnchored:
         rth_start = (15, 40),
         rth_end = (21, 50),
         min_bars_for_zscore: int = 30,
+        reset_grace_period: int = 25,
+        require_trade_for_reset: bool = True,
         **kwargs
     ):
         # Anchoring-Parameter
@@ -42,7 +44,11 @@ class VWAPZScoreHTFAnchored:
         
         # Grace Period für VWAP-Reset (verhindert zu häufige Resets)
         self.last_reset_bar = -1  # Bar bei dem letzter Reset stattfand
-        self.reset_grace_period = min_bars_for_zscore  # Grace Period = min_bars_for_zscore
+        self.reset_grace_period = reset_grace_period  # Separater Grace Period Parameter
+        
+        # Trade-Bedingung für Reset
+        self.require_trade_for_reset = require_trade_for_reset
+        self.trade_occurred_since_reset = False  # Flag ob Trade seit letztem Reset erfolgt ist
         
         # History für Z-Score-Berechnungen
         self.segment_price_history = []
@@ -65,13 +71,23 @@ class VWAPZScoreHTFAnchored:
         self.current_zscore = None
         
         print(f"[ANCHORED VWAP] Initialized - Cross-triggered: {anchor_on_kalman_cross}, "
-              f"ZScore method: {self.zscore_method}, Min bars: {min_bars_for_zscore}")
+              f"ZScore method: {self.zscore_method}, Min bars: {min_bars_for_zscore}, "
+              f"Grace Period: {reset_grace_period}, Require Trade: {require_trade_for_reset}")
 
     def _determine_zscore_method(self) -> str:
         for method, config in self.zscore_config.items():
             if config.get('enabled', False):
                 return method
         return 'simple'  # Default fallback
+
+    def notify_trade_occurred(self):
+        """
+        Wird von der Strategie aufgerufen wenn ein Trade ausgeführt wurde
+        Erlaubt dann VWAP-Resets (falls require_trade_for_reset=True)
+        """
+        if self.require_trade_for_reset:
+            self.trade_occurred_since_reset = True
+            print(f"[TRADE NOTIFICATION] Trade occurred - VWAP reset now allowed")
 
     def set_kalman_exit_mean(self, kalman_exit_mean: float):
         self.kalman_exit_mean = kalman_exit_mean
@@ -130,7 +146,7 @@ class VWAPZScoreHTFAnchored:
     def _should_anchor_new_segment(self, current_price: float, open_price: float = None) -> Tuple[bool, str]:
         """
         Prüft ob ein neues VWAP-Segment gestartet werden soll
-        WICHTIG: Grace Period verhindert zu häufige Resets
+        WICHTIG: Grace Period UND Trade-Bedingung (falls aktiviert) müssen erfüllt sein
         """
         # Grace Period Check: Kein Reset in den ersten X Bars nach letztem Reset
         bars_since_last_reset = self.total_bar_count - self.last_reset_bar
@@ -141,7 +157,13 @@ class VWAPZScoreHTFAnchored:
                 print(f"[GRACE PERIOD] Kalman cross detected but ignored - {remaining_bars} bars remaining in grace period")
             return False, 'grace_period_active'
         
-        # Primary: Kalman-Cross Detection (nur wenn Grace Period vorbei)
+        # Trade-Bedingung Check (falls aktiviert)
+        if self.require_trade_for_reset and not self.trade_occurred_since_reset:
+            if self.anchor_on_kalman_cross and self._detect_kalman_cross(current_price, open_price):
+                print(f"[TRADE REQUIRED] Kalman cross detected but ignored - no trade occurred since last reset")
+            return False, 'no_trade_since_reset'
+        
+        # Primary: Kalman-Cross Detection (nur wenn Grace Period UND Trade-Bedingung erfüllt)
         if self.anchor_on_kalman_cross:
             if self._detect_kalman_cross(current_price, open_price):
                 return True, 'kalman_cross'
@@ -166,7 +188,10 @@ class VWAPZScoreHTFAnchored:
         # Grace Period tracking: Merke wann Reset stattfand
         self.last_reset_bar = self.total_bar_count
         
-        print(f"[ANCHORED VWAP] New segment started at bar {self.total_bar_count} - Reason: {reason} - Grace period: {self.reset_grace_period} bars")
+        # Trade-Flag zurücksetzen bei neuem Segment
+        self.trade_occurred_since_reset = False
+        
+        print(f"[ANCHORED VWAP] New segment started at bar {self.total_bar_count} - Reason: {reason} - Grace period: {self.reset_grace_period} bars - Trade required: {self.require_trade_for_reset}")
 
     def _calculate_segment_vwap(self) -> Optional[float]:
         """Berechnet VWAP für das aktuelle Segment (gap-adjusted Preise)"""
@@ -361,7 +386,10 @@ class VWAPZScoreHTFAnchored:
             'last_reset_bar': self.last_reset_bar,
             'bars_since_reset': bars_since_reset,
             'grace_period_remaining': grace_remaining,
-            'grace_period_active': grace_remaining > 0
+            'grace_period_active': grace_remaining > 0,
+            'require_trade_for_reset': self.require_trade_for_reset,
+            'trade_occurred_since_reset': self.trade_occurred_since_reset,
+            'reset_conditions_met': grace_remaining == 0 and (not self.require_trade_for_reset or self.trade_occurred_since_reset)
         }
 
     def force_new_segment(self, reason: str = 'forced'):
