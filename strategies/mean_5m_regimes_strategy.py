@@ -1,30 +1,19 @@
 # Standard Library Importe
 from decimal import Decimal
 from typing import Any
-import sys
-from pathlib import Path
-import numpy as np
-import pandas as pd
 import datetime
 # Nautilus Kern offizielle Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.objects import Money, Price, Quantity
-from nautilus_trader.model.orders import MarketOrder, LimitOrder, StopMarketOrder
-from nautilus_trader.model.enums import OrderSide, TimeInForce
-from nautilus_trader.model.events import OrderEvent, PositionEvent
-from nautilus_trader.model.identifiers import AccountId
-from nautilus_trader.model.currencies import USDT, BTC
+from nautilus_trader.model.events import PositionEvent
+from nautilus_trader.common.enums import LogColor
 
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
-from tools.help_funcs.help_funcs_strategy import create_tags
 from tools.help_funcs.base_strategy import BaseStrategy
-from nautilus_trader.common.enums import LogColor
-from collections import deque
 from tools.indicators.kalman_filter_2D import KalmanFilterRegression
 from tools.indicators.kalman_filter_2D_own_ZScore import KalmanFilterRegressionWithZScore
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTFAnchored
@@ -149,12 +138,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
 
         self.slope_monitor = None
         if config.test_which_slope_params:
-            # YAML-Thresholds an Monitor übergeben
             self.slope_monitor = SlopeDistributionMonitor(
                 slope_thresholds=config.kalman_slope_thresholds
             )
-            print(f"Slope Distribution Monitor: ENABLED with YAML thresholds")
-            print(f"Thresholds: {config.kalman_slope_thresholds}")
 
         self.vix_start = config.start_date
         self.vix_end = config.end_date  
@@ -202,37 +188,23 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
 
             if self.slope_monitor and self.current_kalman_slope is not None:
                 self.slope_monitor.add_slope(self.current_kalman_slope)
-                
-                if self.slope_monitor.total_count % 100 == 0:
-                    self.slope_monitor.print_progress_update(self.current_kalman_slope)
 
         if bar.bar_type == self.bar_type_5m:
             bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
             vix_value = self.vix.get_value_on_date(bar_date)
             
-            # Kalman für Exits mit Z-Score ZUERST berechnen
             self.current_kalman_exit_mean, self.current_kalman_exit_slope, self.current_kalman_exit_zscore = self.kalman_exit.update(float(bar.close))
             
-            # WICHTIG: Hole VWAP Segment Info VOR dem Update
             vwap_segment_info_before = self.vwap_zscore.get_segment_info()
-            
-            # VWAP mit Kalman-Exit-Mean für Cross-Detection
             vwap_value, zscore = self.vwap_zscore.update(bar, kalman_exit_mean=self.current_kalman_exit_mean)
             self.current_zscore = zscore
-            
-            # WICHTIG: Hole VWAP Segment Info NACH dem Update für Vergleich
             vwap_segment_info_after = self.vwap_zscore.get_segment_info()
 
             if zscore is not None:
                 self.elastic_entry.update_state(zscore)
 
-            # Prüfe auf Kalman Cross für Stacking-Reset (verwendet VWAP Cross-Detection)
-            # WICHTIG: Nach update_state(), mit Vor/Nach Segment-Vergleich
             self._check_vwap_cross_for_stacking(bar, vwap_segment_info_before, vwap_segment_info_after)
-
-            # Increment bar counter für debugging
             self.bar_counter += 1
-
 
             bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
             if bar_time >= datetime.time(15, 40) and bar_time <= datetime.time(21, 50):
@@ -240,7 +212,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                     regime = self.get_vix_regime(self.current_vix_value)
 
                     if regime == 3:
-                        self.log.info("Markt ist zu volatil - keine Trades")
                         self.order_types.close_position_by_market_order()
                     else:
                         if self.current_kalman_exit_mean is not None and self.current_kalman_mean is not None and zscore is not None:
@@ -261,41 +232,20 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         return abs(int(pos)) if pos is not None else 0
     
     def _check_vwap_cross_for_stacking(self, bar, vwap_segment_info_before, vwap_segment_info_after):
-        """Nutzt VWAP Cross-Detection für Stacking Reset (synchronisiert)"""
-        # Vergleiche segment_start VOR und NACH VWAP update
         start_before = vwap_segment_info_before.get('segment_start_bar', 0)
         start_after = vwap_segment_info_after.get('segment_start_bar', 0)
         
-        # DEBUG: Zeige IMMER die segment_start Werte
         if start_before != start_after:
-            self.log.info(f"SEGMENT CHANGE: {start_before} -> {start_after}", color=LogColor.CYAN)
-        else:
-            # Zeige alle 100 Bars den Status
-            if self.bar_counter % 100 == 0:
-                self.log.info(f"NO SEGMENT CHANGE: before={start_before}, after={start_after}", color=LogColor.NORMAL)
-        
-        # Wenn start_bar sich geändert hat = neuer Segment
-        if start_before != start_after:
-            # VWAP hat neues Segment gestartet - synchronisiere Stacking Reset
             self.long_positions_since_cross = 0
             self.short_positions_since_cross = 0
-            
-            # NEU: Resettet auch ElasticReversionZScoreEntry bei Cross
-            # DEBUG: Vor und nach Reset prüfen
-            before_bars = len(self.elastic_entry.zscore_since_cross) if hasattr(self.elastic_entry, 'zscore_since_cross') else 0
             self.elastic_entry.reset_on_cross()
-            after_bars = len(self.elastic_entry.zscore_since_cross) if hasattr(self.elastic_entry, 'zscore_since_cross') else 0
             
-            self.log.info(f"ELASTIC RESET: bars_before={before_bars} -> bars_after={after_bars} | segment: {start_before} -> {start_after}", color=LogColor.RED)
-            
-            # Bestimme Cross-Richtung basierend auf aktueller Position relativ zu Kalman
             if self.current_kalman_exit_mean is not None:
                 current_above = bar.close > self.current_kalman_exit_mean
                 self.last_kalman_cross_direction = "up" if current_above else "down"
-                cross_direction = "UP" if current_above else "DOWN"
                 
                 anchor_reason = vwap_segment_info_after.get('anchor_reason', 'unknown')
-                self.log.info(f"ANCHOR RESET: {cross_direction} ({anchor_reason})", color=LogColor.BLUE)
+                self.log.info(f"VWAP anchor reset: {anchor_reason}", color=LogColor.BLUE)
     
     def can_stack_long(self, current_zscore: float) -> bool:
         """Prüft ob Long-Position gestackt werden kann"""
@@ -397,13 +347,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not allow_trades:
             return
         
-        # GEÄNDERT: Einfache Stacking-Logik
         current_net_pos = self.count_open_position()
         
-        # Wenn keine Position offen, normale Entry-Logik
         if current_net_pos == 0:
             can_enter = True
-        # Wenn schon Positionen offen, prüfe Stacking-Möglichkeiten
         else:
             can_enter = self.can_stack_long(zscore)
         
@@ -423,35 +370,19 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not valid_position or qty <= 0:
             return
 
-        # NEUuu: Elastic Entry Signal abrufen (ersetzt alte Z-Score-Logik)
         long_signal, _, debug_info = self.elastic_entry.check_entry_signals(zscore)
-        
-        # DEBUG: Zeige Elastic Entry State nur bei kritischen Z-Scores ODER wenn Signal gefunden
-        if abs(zscore) > 2.5 or long_signal:
-            state = self.elastic_entry.get_current_state()
-            extreme_long = state.get('z_extreme_long_since_cross')
-            extreme_str = f"{extreme_long:.2f}" if extreme_long is not None else "None"
-            self.log.info(f"Elastic Long Check: z={zscore:.2f} | extreme={extreme_str} | bars_since_cross={state.get('bars_since_cross', 0)} | signal={long_signal}", color=LogColor.YELLOW)
         
         if long_signal:
             entry_reason = debug_info.get('long_entry_reason', 'Recovery signal')
-            current_params = debug_info.get('current_parameters', {})
             
-            # VWAP benachrichtigen dass Trade erfolgt ist
             self.vwap_zscore.notify_trade_occurred()
-            
             self.order_types.submit_long_market_order(qty, price=bar.close)
-            
-            # Erhöhe Long-Counter für Stacking
             self.long_positions_since_cross += 1
             
             stack_info = f"Stack {self.long_positions_since_cross}/{self.max_stacked_positions}" if self.long_positions_since_cross > 1 else "Initial"
             
             self.log.info(
-                f"Long Entry [{sector}/regime{regime}] {stack_info}: {entry_reason} | "
-                f"Params: z_min={current_params.get('z_min_threshold', 'N/A'):.2f}, "
-                f"recovery_delta={current_params.get('recovery_delta', 'N/A'):.2f} | "
-                f"ZScore: {zscore:.2f}", 
+                f"Long Entry [{sector}/regime{regime}] {stack_info}: {entry_reason} | ZScore: {zscore:.2f}", 
                 color=LogColor.GREEN
             )
 
@@ -471,13 +402,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not allow_trades:
             return
         
-        # GEÄNDERT: Einfache Stacking-Logik
         current_net_pos = self.count_open_position()
         
-        # Wenn keine Position offen, normale Entry-Logik
         if current_net_pos == 0:
             can_enter = True
-        # Wenn schon Positionen offen, prüfe Stacking-Möglichkeiten
         else:
             can_enter = self.can_stack_short(zscore)
         
@@ -497,36 +425,19 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not valid_position or qty <= 0:
             return
 
-        # NEUuu: Elastic Entry Signal abrufen (ersetzt alte Z-Score-Logik)
         _, short_signal, debug_info = self.elastic_entry.check_entry_signals(zscore)
         
-        # DEBUG: Zeige Elastic Entry State nur bei kritischen Z-Scores ODER wenn Signal gefunden
-        if abs(zscore) > 2.5 or short_signal:
-            state = self.elastic_entry.get_current_state()
-            extreme_short = state.get('z_extreme_short_since_cross')
-            extreme_str = f"{extreme_short:.2f}" if extreme_short is not None else "None"
-            self.log.info(f"Elastic Short Check: z={zscore:.2f} | extreme={extreme_str} | bars_since_cross={state.get('bars_since_cross', 0)} | signal={short_signal}", color=LogColor.YELLOW)
-        
         if short_signal:
-            # Erweiterte Logging-Info mit Sector/Regime und aktuellen Parametern
             entry_reason = debug_info.get('short_entry_reason', 'Recovery signal')
-            current_params = debug_info.get('current_parameters', {})
             
-            # VWAP benachrichtigen dass Trade erfolgt ist
             self.vwap_zscore.notify_trade_occurred()
-            
             self.order_types.submit_short_market_order(qty, price=bar.close)
-            
-            # Erhöhe Short-Counter für Stacking
             self.short_positions_since_cross += 1
             
             stack_info = f"Stack {self.short_positions_since_cross}/{self.max_stacked_positions}" if self.short_positions_since_cross > 1 else "Initial"
             
             self.log.info(
-                f"Short Entry [{sector}/regime{regime}] {stack_info}: {entry_reason} | "
-                f"Params: z_max={current_params.get('z_max_threshold', 'N/A'):.2f}, "
-                f"recovery_delta={current_params.get('recovery_delta', 'N/A'):.2f} | "
-                f"ZScore: {zscore:.2f}", 
+                f"Short Entry [{sector}/regime{regime}] {stack_info}: {entry_reason} | ZScore: {zscore:.2f}", 
                 color=LogColor.MAGENTA
             )
 
@@ -597,7 +508,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
         kalman_exit_mean = self.current_kalman_exit_mean if self.kalman_exit.initialized else None
 
-
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vix", value=self.current_vix_value)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="equity", value=equity)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
@@ -609,13 +519,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_exit_mean", value=kalman_exit_mean)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_exit_zscore", value=self.current_kalman_exit_zscore)
 
-
         logging_message = self.collector.save_data()
         self.log.info(logging_message, color=LogColor.GREEN)
-
     
     def on_order_filled(self, order_filled) -> None:
-        # Benachrichtige VWAP-Indikator über Trade
         self.vwap_zscore.notify_trade_occurred()
         return self.base_on_order_filled(order_filled)
 
@@ -639,7 +546,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             vwap_value = self.vwap_zscore.current_vwap_value
             kalman_exit_mean = self.current_kalman_exit_mean if self.kalman_exit.initialized else None
 
-
             self.collector.add_indicator(timestamp=bar.ts_event, name="vix", value=self.current_vix_value)
             self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_mean", value=kalman_mean)
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap", value=vwap_value)
@@ -651,9 +557,5 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_zscore", value=self.current_zscore)
             self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_exit_mean", value=kalman_exit_mean)
             self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_exit_zscore", value=self.current_kalman_exit_zscore)
-        
-        elif bar.bar_type == self.bar_type_1h:
-
-            pass
 
 
