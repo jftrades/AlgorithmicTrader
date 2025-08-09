@@ -30,7 +30,7 @@ kalman_slope_thresholds:
 test_which_slope_params: true
 
 vwap_anchor_on_kalman_cross: true       
-vwap_zscore_mode: "atr"              
+vwap_zscore_mode: "simple"              
 vwap_min_bars_for_zscore: 15
 vwap_reset_grace_period: 30             # Separate Grace Period für VWAP-Resets
 vwap_require_trade_for_reset: true      # Trade muss erfolgt sein vor erneutem Reset
@@ -56,6 +56,13 @@ elastic_reversion_entry:
   lookback_window: 15
   allow_multiple_recoveries: true
   recovery_cooldown_bars: 5
+  # Stacking-Parameter
+  allow_stacking:
+    enabled: true
+    max_stacked_positions: 3
+    additional_zscore_min_gain: 0.5
+    recovery_delta_reentry: 0.3
+    stacking_bar_cooldown: 10
 
 kalman_slope_sector_params:
   strong_down:

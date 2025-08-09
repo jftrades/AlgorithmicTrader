@@ -135,6 +135,19 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             recovery_cooldown_bars=entry_config.get('recovery_cooldown_bars', 5)
         )
 
+        # NEU: Stacking-Parameter aus YAML
+        stacking_config = entry_config.get('allow_stacking', {})
+        self.allow_stacking = stacking_config.get('enabled', False) if isinstance(stacking_config, dict) else False
+        self.max_stacked_positions = stacking_config.get('max_stacked_positions', 3)
+        self.additional_zscore_min_gain = stacking_config.get('additional_zscore_min_gain', 0.5)
+        self.recovery_delta_reentry = stacking_config.get('recovery_delta_reentry', 0.3)
+        self.stacking_bar_cooldown = stacking_config.get('stacking_bar_cooldown', 10)
+        
+        # NEU: Einfaches Tracking für Stacking seit letztem Kalman Cross
+        self.long_positions_since_cross = 0
+        self.short_positions_since_cross = 0
+        self.last_kalman_cross_direction = None  # "up" oder "down"
+
         self.slope_monitor = None
         if config.test_which_slope_params:
             # YAML-Thresholds an Monitor übergeben
@@ -205,6 +218,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             vwap_value, zscore = self.vwap_zscore.update(bar, kalman_exit_mean=self.current_kalman_exit_mean)
             self.current_zscore = zscore
 
+            # Prüfe auf Kalman Cross für Stacking-Reset (verwendet VWAP Cross-Detection)
+            self._check_vwap_cross_for_stacking(bar)
+
             if zscore is not None:
                 self.elastic_entry.update_state(zscore)
 
@@ -231,8 +247,66 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.prev_zscore = zscore
 
     def count_open_position(self) -> int:
+        """Zählt die Anzahl der aktuell offenen Positionen (Stacks)"""
         pos = self.portfolio.net_position(self.instrument_id)
         return abs(int(pos)) if pos is not None else 0
+    
+    def _check_vwap_cross_for_stacking(self, bar):
+        """Nutzt VWAP Cross-Detection für Stacking Reset (synchronisiert)"""
+        # Hole VWAP Segment Info
+        vwap_segment_info = self.vwap_zscore.get_segment_info()
+        current_segment_start = vwap_segment_info.get('start_bar', 0)
+        
+        # Wenn neuer Segment begonnen hat, reset Stacking Counters
+        if not hasattr(self, '_last_vwap_segment_start'):
+            self._last_vwap_segment_start = current_segment_start
+            return
+        
+        if current_segment_start != self._last_vwap_segment_start:
+            # VWAP hat neues Segment gestartet - synchronisiere Stacking Reset
+            self.long_positions_since_cross = 0
+            self.short_positions_since_cross = 0
+            
+            # Bestimme Cross-Richtung basierend auf aktueller Position relativ zu Kalman
+            if self.current_kalman_exit_mean is not None:
+                current_above = bar.close > self.current_kalman_exit_mean
+                self.last_kalman_cross_direction = "up" if current_above else "down"
+                cross_direction = "UP" if current_above else "DOWN"
+                
+                anchor_reason = vwap_segment_info.get('anchor_reason', 'unknown')
+                self.log.info(f"VWAP+Stacking Reset: {cross_direction} Cross ({anchor_reason})", color=LogColor.BLUE)
+            
+            self._last_vwap_segment_start = current_segment_start
+    
+    def can_stack_long(self, current_zscore: float) -> bool:
+        """Prüft ob Long-Position gestackt werden kann"""
+        if not self.allow_stacking:
+            return False
+        
+        # Maximal erlaubte Stacks erreicht?
+        if self.long_positions_since_cross >= self.max_stacked_positions:
+            return False
+        
+        # Muss schon mindestens einen Short seit letztem Cross gegeben haben
+        if self.short_positions_since_cross == 0:
+            return False
+        
+        return True
+    
+    def can_stack_short(self, current_zscore: float) -> bool:
+        """Prüft ob Short-Position gestackt werden kann"""
+        if not self.allow_stacking:
+            return False
+        
+        # Maximal erlaubte Stacks erreicht?
+        if self.short_positions_since_cross >= self.max_stacked_positions:
+            return False
+        
+        # Muss schon mindestens einen Long seit letztem Cross gegeben haben
+        if self.long_positions_since_cross == 0:
+            return False
+        
+        return True
     
     def should_apply_price_condition(self, direction: str) -> bool:
 
@@ -304,7 +378,17 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not allow_trades:
             return
         
-        if self.count_open_position() >= 2:
+        # GEÄNDERT: Einfache Stacking-Logik
+        current_net_pos = self.count_open_position()
+        
+        # Wenn keine Position offen, normale Entry-Logik
+        if current_net_pos == 0:
+            can_enter = True
+        # Wenn schon Positionen offen, prüfe Stacking-Möglichkeiten
+        else:
+            can_enter = self.can_stack_long(zscore)
+        
+        if not can_enter:
             return
         
         sector = self.get_kalman_slope_sector()
@@ -327,11 +411,21 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             entry_reason = debug_info.get('long_entry_reason', 'Recovery signal')
             current_params = debug_info.get('current_parameters', {})
             
+            # VWAP benachrichtigen dass Trade erfolgt ist
+            self.vwap_zscore.notify_trade_occurred()
+            
             self.order_types.submit_long_market_order(qty, price=bar.close)
+            
+            # Erhöhe Long-Counter für Stacking
+            self.long_positions_since_cross += 1
+            
+            stack_info = f"Stack {self.long_positions_since_cross}/{self.max_stacked_positions}" if self.long_positions_since_cross > 1 else "Initial"
+            
             self.log.info(
-                f"Long Entry [{sector}/regime{regime}]: {entry_reason} | "
+                f"Long Entry [{sector}/regime{regime}] {stack_info}: {entry_reason} | "
                 f"Params: z_min={current_params.get('z_min_threshold', 'N/A'):.2f}, "
-                f"recovery_delta={current_params.get('recovery_delta', 'N/A'):.2f}", 
+                f"recovery_delta={current_params.get('recovery_delta', 'N/A'):.2f} | "
+                f"ZScore: {zscore:.2f}", 
                 color=LogColor.GREEN
             )
 
@@ -351,7 +445,17 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not allow_trades:
             return
         
-        if self.count_open_position() >= 2:
+        # GEÄNDERT: Einfache Stacking-Logik
+        current_net_pos = self.count_open_position()
+        
+        # Wenn keine Position offen, normale Entry-Logik
+        if current_net_pos == 0:
+            can_enter = True
+        # Wenn schon Positionen offen, prüfe Stacking-Möglichkeiten
+        else:
+            can_enter = self.can_stack_short(zscore)
+        
+        if not can_enter:
             return
 
         sector = self.get_kalman_slope_sector()
@@ -375,11 +479,21 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             entry_reason = debug_info.get('short_entry_reason', 'Recovery signal')
             current_params = debug_info.get('current_parameters', {})
             
+            # VWAP benachrichtigen dass Trade erfolgt ist
+            self.vwap_zscore.notify_trade_occurred()
+            
             self.order_types.submit_short_market_order(qty, price=bar.close)
+            
+            # Erhöhe Short-Counter für Stacking
+            self.short_positions_since_cross += 1
+            
+            stack_info = f"Stack {self.short_positions_since_cross}/{self.max_stacked_positions}" if self.short_positions_since_cross > 1 else "Initial"
+            
             self.log.info(
-                f"Short Entry [{sector}/regime{regime}]: {entry_reason} | "
+                f"Short Entry [{sector}/regime{regime}] {stack_info}: {entry_reason} | "
                 f"Params: z_max={current_params.get('z_max_threshold', 'N/A'):.2f}, "
-                f"recovery_delta={current_params.get('recovery_delta', 'N/A'):.2f}", 
+                f"recovery_delta={current_params.get('recovery_delta', 'N/A'):.2f} | "
+                f"ZScore: {zscore:.2f}", 
                 color=LogColor.MAGENTA
             )
 
