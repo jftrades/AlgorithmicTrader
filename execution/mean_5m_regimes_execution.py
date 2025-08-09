@@ -33,7 +33,6 @@ symbol = Symbol(params["symbol"])
 venue = Venue(params["venue"])
 instrument_id = InstrumentId(symbol, venue)
 instrument_id_str = params["instrument_id"]
-bar_type_1h = params["bar_type_1h"]
 bar_type_5m = params ["bar_type_5m"]
 risk_percent = params["risk_percent"]
 max_leverage = params["max_leverage"]
@@ -45,7 +44,7 @@ catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE"
 data_config = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:Bar",
     catalog_path=catalog_path,
-    bar_types=[bar_type_1h, bar_type_5m],
+    bar_types=[ bar_type_5m],
     instrument_ids=[instrument_id_str]
 )
 

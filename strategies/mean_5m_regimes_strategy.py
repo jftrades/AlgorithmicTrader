@@ -23,7 +23,6 @@ from tools.indicators.VIX import VIX
 
 class Mean5mregimesStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
-    bar_type_1h: str 
     bar_type_5m: str
     risk_percent: float
     max_leverage: float
@@ -68,7 +67,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.close_positions_on_stop = config.close_positions_on_stop
         self.venue = self.instrument_id.venue
         self.risk_manager = None
-        self.bar_type_1h = BarType.from_str(config.bar_type_1h)
         self.bar_type_5m = BarType.from_str(config.bar_type_5m)
         self.zscore_neutral_counter = 3
         self.prev_zscore = None
@@ -150,7 +148,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
-        self.subscribe_bars(self.bar_type_1h)
         self.subscribe_bars(self.bar_type_5m)
         self.log.info("Strategy started!")
 
@@ -179,46 +176,42 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
 
     def on_bar(self, bar: Bar) -> None:
         zscore = None
+        bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
 
-        if bar.bar_type == self.bar_type_1h:
-            bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
-            vix_value = self.vix.get_value_on_date(bar_date)
-            self.current_kalman_mean, self.current_kalman_slope = self.kalman.update(float(bar.close))
-            self.current_vix_value = vix_value
+        if self.slope_monitor and self.current_kalman_slope is not None:
+            self.slope_monitor.add_slope(self.current_kalman_slope)
+        vix_value = self.vix.get_value_on_date(bar_date)
 
-            if self.slope_monitor and self.current_kalman_slope is not None:
-                self.slope_monitor.add_slope(self.current_kalman_slope)
+        self.current_kalman_mean, self.current_kalman_slope = self.kalman.update(float(bar.close))
 
-        if bar.bar_type == self.bar_type_5m:
-            bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
-            vix_value = self.vix.get_value_on_date(bar_date)
+        self.current_vix_value = vix_value
             
-            self.current_kalman_exit_mean, self.current_kalman_exit_slope, self.current_kalman_exit_zscore = self.kalman_exit.update(float(bar.close))
+        self.current_kalman_exit_mean, self.current_kalman_exit_slope, self.current_kalman_exit_zscore = self.kalman_exit.update(float(bar.close))
             
-            vwap_segment_info_before = self.vwap_zscore.get_segment_info()
-            vwap_value, zscore = self.vwap_zscore.update(bar, kalman_exit_mean=self.current_kalman_exit_mean)
-            self.current_zscore = zscore
-            vwap_segment_info_after = self.vwap_zscore.get_segment_info()
+        vwap_segment_info_before = self.vwap_zscore.get_segment_info()
+        vwap_value, zscore = self.vwap_zscore.update(bar, kalman_exit_mean=self.current_kalman_exit_mean)
+        self.current_zscore = zscore
+        vwap_segment_info_after = self.vwap_zscore.get_segment_info()
 
-            if zscore is not None:
-                self.elastic_entry.update_state(zscore)
+        if zscore is not None:
+            self.elastic_entry.update_state(zscore)
 
-            self._check_vwap_cross_for_stacking(bar, vwap_segment_info_before, vwap_segment_info_after)
-            self.bar_counter += 1
+        self._check_vwap_cross_for_stacking(bar, vwap_segment_info_before, vwap_segment_info_after)
+        self.bar_counter += 1
 
-            bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
-            if bar_time >= datetime.time(15, 40) and bar_time <= datetime.time(21, 50):
-                if self.current_vix_value is not None:
-                    regime = self.get_vix_regime(self.current_vix_value)
+        bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
+        if bar_time >= datetime.time(15, 40) and bar_time <= datetime.time(21, 50):
+            if self.current_vix_value is not None:
+                regime = self.get_vix_regime(self.current_vix_value)
 
-                    if regime == 3:
-                        self.order_types.close_position_by_market_order()
-                    else:
-                        if self.current_kalman_exit_mean is not None and self.current_kalman_mean is not None and zscore is not None:
-                            if bar.close < self.current_kalman_exit_mean:
-                                self.check_for_long_trades(bar, zscore)
-                            elif bar.close > self.current_kalman_exit_mean:
-                                self.check_for_short_trades(bar, zscore)
+                if regime == 3:
+                    self.order_types.close_position_by_market_order()
+                else:
+                    if self.current_kalman_exit_mean is not None and self.current_kalman_mean is not None and zscore is not None:
+                        if bar.close < self.current_kalman_exit_mean:
+                            self.check_for_long_trades(bar, zscore)
+                        elif bar.close > self.current_kalman_exit_mean:
+                            self.check_for_short_trades(bar, zscore)
 
         self.check_for_long_exit(bar)
         self.check_for_short_exit(bar)
@@ -227,7 +220,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.prev_zscore = zscore
 
     def count_open_position(self) -> int:
-        """Zählt die Anzahl der aktuell offenen Positionen (Stacks)"""
         pos = self.portfolio.net_position(self.instrument_id)
         return abs(int(pos)) if pos is not None else 0
     
@@ -248,34 +240,30 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                 self.log.info(f"VWAP anchor reset: {anchor_reason}", color=LogColor.BLUE)
     
     def can_stack_long(self, current_zscore: float) -> bool:
-        """Prüft ob Long-Position gestackt werden kann"""
         if not self.allow_stacking:
             return False
         
-        # Maximal erlaubte Stacks erreicht?
         if self.long_positions_since_cross >= self.max_stacked_positions:
             return False
         
-        # Muss schon mindestens einen Short seit letztem Cross gegeben haben
-        if self.short_positions_since_cross == 0:
-            return False
+        # Stacking nur erlaubt wenn bereits Long Positionen offen sind
+        if self.long_positions_since_cross == 0:
+            return True  # Erste Position ist immer erlaubt
         
-        return True
+        return True  # Weitere Long Stacks sind erlaubt
     
     def can_stack_short(self, current_zscore: float) -> bool:
-        """Prüft ob Short-Position gestackt werden kann"""
         if not self.allow_stacking:
             return False
         
-        # Maximal erlaubte Stacks erreicht?
         if self.short_positions_since_cross >= self.max_stacked_positions:
             return False
         
-        # Muss schon mindestens einen Long seit letztem Cross gegeben haben
-        if self.long_positions_since_cross == 0:
-            return False
+        # Stacking nur erlaubt wenn bereits Short Positionen offen sind  
+        if self.short_positions_since_cross == 0:
+            return True  # Erste Position ist immer erlaubt
         
-        return True
+        return True  # Weitere Short Stacks sind erlaubt
     
     def should_apply_price_condition(self, direction: str) -> bool:
 
@@ -534,28 +522,27 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         return self.base_on_error(error)
     
     def update_visualizer_data(self, bar: Bar) -> None:
-        if bar.bar_type == self.bar_type_5m:
-            net_position = self.portfolio.net_position(self.instrument_id)
-            unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
-            venue = self.instrument_id.venue
-            account = self.portfolio.account(venue)
-            usd_balance = account.balance_total()
-            equity = usd_balance.as_double() + float(unrealized_pnl) if unrealized_pnl is not None else usd_balance.as_double()
+        net_position = self.portfolio.net_position(self.instrument_id)
+        unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
+        venue = self.instrument_id.venue
+        account = self.portfolio.account(venue)
+        usd_balance = account.balance_total()
+        equity = usd_balance.as_double() + float(unrealized_pnl) if unrealized_pnl is not None else usd_balance.as_double()
             
-            kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
-            vwap_value = self.vwap_zscore.current_vwap_value
-            kalman_exit_mean = self.current_kalman_exit_mean if self.kalman_exit.initialized else None
+        kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
+        vwap_value = self.vwap_zscore.current_vwap_value
+        kalman_exit_mean = self.current_kalman_exit_mean if self.kalman_exit.initialized else None
 
-            self.collector.add_indicator(timestamp=bar.ts_event, name="vix", value=self.current_vix_value)
-            self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_mean", value=kalman_mean)
-            self.collector.add_indicator(timestamp=bar.ts_event, name="vwap", value=vwap_value)
-            self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
-            self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
-            self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl else None)
-            self.collector.add_indicator(timestamp=bar.ts_event, name="equity", value=equity)
-            self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
-            self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_zscore", value=self.current_zscore)
-            self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_exit_mean", value=kalman_exit_mean)
-            self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_exit_zscore", value=self.current_kalman_exit_zscore)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="vix", value=self.current_vix_value)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_mean", value=kalman_mean)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="vwap", value=vwap_value)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl else None)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="equity", value=equity)
+        self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_zscore", value=self.current_zscore)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_exit_mean", value=kalman_exit_mean)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_exit_zscore", value=self.current_kalman_exit_zscore)
 
 
