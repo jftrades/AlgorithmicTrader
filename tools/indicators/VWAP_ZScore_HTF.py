@@ -87,7 +87,8 @@ class VWAPZScoreHTFAnchored:
         """
         if self.require_trade_for_reset:
             self.trade_occurred_since_reset = True
-            print(f"[TRADE NOTIFICATION] Trade occurred - VWAP reset now allowed")
+            # Reduziertes Logging
+            pass
 
     def set_kalman_exit_mean(self, kalman_exit_mean: float):
         self.kalman_exit_mean = kalman_exit_mean
@@ -105,7 +106,6 @@ class VWAPZScoreHTFAnchored:
         # Erster Bar - initialisiere State (kein Cross, nur State setzen)
         if self.last_price_above_kalman is None:
             self.last_price_above_kalman = current_above
-            print(f"[KALMAN INIT] Initial state set: price {current_price:.4f} is {'above' if current_above else 'below'} Kalman-Exit-Mean {self.kalman_exit_mean:.4f}")
             return True  # Initial anchor
         
         # Prüfe Gap-Cross: War letzter Close unter/über Kalman, aber Open ist über/unter?
@@ -126,10 +126,6 @@ class VWAPZScoreHTFAnchored:
         cross_detected = current_above != self.last_price_above_kalman
         
         if cross_detected:
-            direction = "above" if current_above else "below"
-            old_direction = "above" if self.last_price_above_kalman else "below"
-            print(f"[KALMAN CROSS] Price crossed from {old_direction} to {direction} Kalman-Exit-Mean {self.kalman_exit_mean:.4f} at price {current_price:.4f}")
-            
             # WICHTIG: State wird nur bei tatsächlichem Cross aktualisiert
             self.last_price_above_kalman = current_above
             return True
@@ -151,16 +147,10 @@ class VWAPZScoreHTFAnchored:
         # Grace Period Check: Kein Reset in den ersten X Bars nach letztem Reset
         bars_since_last_reset = self.total_bar_count - self.last_reset_bar
         if bars_since_last_reset < self.reset_grace_period:
-            # Debug: Zeige warum Reset blockiert wird
-            remaining_bars = self.reset_grace_period - bars_since_last_reset
-            if self.anchor_on_kalman_cross and self._detect_kalman_cross(current_price, open_price):
-                print(f"[GRACE PERIOD] Kalman cross detected but ignored - {remaining_bars} bars remaining in grace period")
             return False, 'grace_period_active'
         
         # Trade-Bedingung Check (falls aktiviert)
         if self.require_trade_for_reset and not self.trade_occurred_since_reset:
-            if self.anchor_on_kalman_cross and self._detect_kalman_cross(current_price, open_price):
-                print(f"[TRADE REQUIRED] Kalman cross detected but ignored - no trade occurred since last reset")
             return False, 'no_trade_since_reset'
         
         # Primary: Kalman-Cross Detection (nur wenn Grace Period UND Trade-Bedingung erfüllt)
@@ -180,10 +170,18 @@ class VWAPZScoreHTFAnchored:
             'vwap_value': None
         }
         
-        # KRITISCH: Kompletter Reset aller Historien für neues Segment
-        self.segment_price_history = []
-        self.segment_diff_history = []
-        self.segment_atr_history = []
+        # KRITISCH: Unterscheide zwischen echtem VWAP-Anchor und normalem Cross
+        # Nur bei echtem VWAP-Anchor: Kompletter Reset aller Z-Score Historien
+        if reason in ['kalman_cross', 'gap', 'initial', 'forced']:
+            # VOLLSTÄNDIGER RESET: Lösche ATR und STD Historien
+            self.segment_price_history = []
+            self.segment_diff_history = []
+            self.segment_atr_history = []
+            print(f"[VWAP ANCHOR] Full reset - ATR/STD histories cleared for reason: {reason}")
+        else:
+            # PARTIELLER RESET: Behalte ATR und STD Historien für Kontinuität
+            # Nur price_volume_data wird für neuen VWAP geleert
+            print(f"[VWAP SEGMENT] Partial reset - ATR/STD histories preserved for reason: {reason}")
         
         # Grace Period tracking: Merke wann Reset stattfand
         self.last_reset_bar = self.total_bar_count
@@ -191,7 +189,9 @@ class VWAPZScoreHTFAnchored:
         # Trade-Flag zurücksetzen bei neuem Segment
         self.trade_occurred_since_reset = False
         
-        print(f"[ANCHORED VWAP] New segment started at bar {self.total_bar_count} - Reason: {reason} - Grace period: {self.reset_grace_period} bars - Trade required: {self.require_trade_for_reset}")
+        # Reduziertes Logging nur bei wichtigen Segmenten
+        if reason in ['kalman_cross', 'gap', 'initial']:
+            print(f"[VWAP ANCHOR] New segment #{self.total_bar_count} - {reason}")
 
     def _calculate_segment_vwap(self) -> Optional[float]:
         """Berechnet VWAP für das aktuelle Segment (gap-adjusted Preise)"""
@@ -279,10 +279,18 @@ class VWAPZScoreHTFAnchored:
         elif self.zscore_method == 'atr':
             if high is None or low is None:
                 return None
-            return self._calculate_atr_zscore(current_price, vwap_value, high, low)
+            atr_zscore = self._calculate_atr_zscore(current_price, vwap_value, high, low)
+            # FALLBACK: Wenn ATR noch nicht verfügbar, nutze simple Z-Score
+            if atr_zscore is None:
+                return self._calculate_simple_zscore(current_price, vwap_value)
+            return atr_zscore
             
         elif self.zscore_method == 'std':
-            return self._calculate_std_zscore(current_price, vwap_value)
+            std_zscore = self._calculate_std_zscore(current_price, vwap_value)
+            # FALLBACK: Wenn STD noch nicht verfügbar, nutze simple Z-Score
+            if std_zscore is None:
+                return self._calculate_simple_zscore(current_price, vwap_value)
+            return std_zscore
             
         else:
             # Fallback zu simple

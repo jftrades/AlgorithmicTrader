@@ -31,18 +31,18 @@ test_which_slope_params: true
 
 vwap_anchor_on_kalman_cross: true       
 vwap_zscore_mode: "simple"              
-vwap_min_bars_for_zscore: 15
-vwap_reset_grace_period: 30             # Separate Grace Period für VWAP-Resets
-vwap_require_trade_for_reset: true      # Trade muss erfolgt sein vor erneutem Reset
+vwap_min_bars_for_zscore: 10
+vwap_reset_grace_period: 15             # Reduziert von 30 auf 15
+vwap_require_trade_for_reset: false     # TEMPORÄR FALSE - teste ob das das Problem ist
 
 # nur eine wird verwendet
 zscore_calculation:
   simple:
     # Einfach: price - vwap 
-    enabled: false
+    enabled: true   # TEMPORÄR ZURÜCK ZU SIMPLE FÜR DEBUG
   atr:
     # (price - vwap) / ATR
-    enabled: true
+    enabled: false  # TEMPORÄR DEAKTIVIERT
     atr_window: 14
   std:
     # (price - vwap) / std(price - vwap)
@@ -53,16 +53,15 @@ gap_threshold_pct: 0.1
 
 elastic_reversion_entry:
   enabled: true
-  lookback_window: 15
   allow_multiple_recoveries: true
   recovery_cooldown_bars: 5
   # Stacking-Parameter
   allow_stacking:
     enabled: true
     max_stacked_positions: 3
-    additional_zscore_min_gain: 0.5
-    recovery_delta_reentry: 0.3
-    stacking_bar_cooldown: 10
+    additional_zscore_min_gain: 0.8
+    recovery_delta_reentry: 0.8
+    stacking_bar_cooldown: 5
 
 kalman_slope_sector_params:
   strong_down:
@@ -74,9 +73,9 @@ kalman_slope_sector_params:
         kalman_zscore_exit_long: 0
         kalman_zscore_exit_short: 0
         elastic_entry:
-          z_min_threshold: -2.5 
-          z_max_threshold: 2.5
-          recovery_delta: 0.4 
+          z_min_threshold: -2.0  # Reduziert von -2.5
+          z_max_threshold: 2.0   # Reduziert von 2.5
+          recovery_delta: 0.3    # Reduziert von 0.4 
           reset_neutral_zone_long: -0.5
           reset_neutral_zone_short: 0.5
       regime2:
@@ -98,9 +97,9 @@ kalman_slope_sector_params:
         kalman_zscore_exit_long: 0
         kalman_zscore_exit_short: 0
         elastic_entry:
-          z_min_threshold: -2.0  
-          z_max_threshold: 2.0
-          recovery_delta: 0.4 
+          z_min_threshold: -1.5  # Reduziert von -2.0
+          z_max_threshold: 1.5   # Reduziert von 2.0
+          recovery_delta: 0.3    # Reduziert von 0.4 
           reset_neutral_zone_long: -0.5
           reset_neutral_zone_short: 0.5
       regime2:

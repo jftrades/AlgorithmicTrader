@@ -125,7 +125,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         entry_config = config.elastic_reversion_entry
         self.elastic_entry = ElasticReversionZScoreEntry(
             vwap_zscore_indicator=self.vwap_zscore,
-            lookback_window=entry_config.get('lookback_window', 15),
             z_min_threshold=-2.0,
             z_max_threshold=2.0,
             recovery_delta=0.6,
@@ -214,15 +213,25 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             # Kalman für Exits mit Z-Score ZUERST berechnen
             self.current_kalman_exit_mean, self.current_kalman_exit_slope, self.current_kalman_exit_zscore = self.kalman_exit.update(float(bar.close))
             
+            # WICHTIG: Hole VWAP Segment Info VOR dem Update
+            vwap_segment_info_before = self.vwap_zscore.get_segment_info()
+            
             # VWAP mit Kalman-Exit-Mean für Cross-Detection
             vwap_value, zscore = self.vwap_zscore.update(bar, kalman_exit_mean=self.current_kalman_exit_mean)
             self.current_zscore = zscore
-
-            # Prüfe auf Kalman Cross für Stacking-Reset (verwendet VWAP Cross-Detection)
-            self._check_vwap_cross_for_stacking(bar)
+            
+            # WICHTIG: Hole VWAP Segment Info NACH dem Update für Vergleich
+            vwap_segment_info_after = self.vwap_zscore.get_segment_info()
 
             if zscore is not None:
                 self.elastic_entry.update_state(zscore)
+
+            # Prüfe auf Kalman Cross für Stacking-Reset (verwendet VWAP Cross-Detection)
+            # WICHTIG: Nach update_state(), mit Vor/Nach Segment-Vergleich
+            self._check_vwap_cross_for_stacking(bar, vwap_segment_info_before, vwap_segment_info_after)
+
+            # Increment bar counter für debugging
+            self.bar_counter += 1
 
 
             bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
@@ -251,21 +260,33 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         pos = self.portfolio.net_position(self.instrument_id)
         return abs(int(pos)) if pos is not None else 0
     
-    def _check_vwap_cross_for_stacking(self, bar):
+    def _check_vwap_cross_for_stacking(self, bar, vwap_segment_info_before, vwap_segment_info_after):
         """Nutzt VWAP Cross-Detection für Stacking Reset (synchronisiert)"""
-        # Hole VWAP Segment Info
-        vwap_segment_info = self.vwap_zscore.get_segment_info()
-        current_segment_start = vwap_segment_info.get('start_bar', 0)
+        # Vergleiche segment_start VOR und NACH VWAP update
+        start_before = vwap_segment_info_before.get('segment_start_bar', 0)
+        start_after = vwap_segment_info_after.get('segment_start_bar', 0)
         
-        # Wenn neuer Segment begonnen hat, reset Stacking Counters
-        if not hasattr(self, '_last_vwap_segment_start'):
-            self._last_vwap_segment_start = current_segment_start
-            return
+        # DEBUG: Zeige IMMER die segment_start Werte
+        if start_before != start_after:
+            self.log.info(f"SEGMENT CHANGE: {start_before} -> {start_after}", color=LogColor.CYAN)
+        else:
+            # Zeige alle 100 Bars den Status
+            if self.bar_counter % 100 == 0:
+                self.log.info(f"NO SEGMENT CHANGE: before={start_before}, after={start_after}", color=LogColor.NORMAL)
         
-        if current_segment_start != self._last_vwap_segment_start:
+        # Wenn start_bar sich geändert hat = neuer Segment
+        if start_before != start_after:
             # VWAP hat neues Segment gestartet - synchronisiere Stacking Reset
             self.long_positions_since_cross = 0
             self.short_positions_since_cross = 0
+            
+            # NEU: Resettet auch ElasticReversionZScoreEntry bei Cross
+            # DEBUG: Vor und nach Reset prüfen
+            before_bars = len(self.elastic_entry.zscore_since_cross) if hasattr(self.elastic_entry, 'zscore_since_cross') else 0
+            self.elastic_entry.reset_on_cross()
+            after_bars = len(self.elastic_entry.zscore_since_cross) if hasattr(self.elastic_entry, 'zscore_since_cross') else 0
+            
+            self.log.info(f"ELASTIC RESET: bars_before={before_bars} -> bars_after={after_bars} | segment: {start_before} -> {start_after}", color=LogColor.RED)
             
             # Bestimme Cross-Richtung basierend auf aktueller Position relativ zu Kalman
             if self.current_kalman_exit_mean is not None:
@@ -273,10 +294,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                 self.last_kalman_cross_direction = "up" if current_above else "down"
                 cross_direction = "UP" if current_above else "DOWN"
                 
-                anchor_reason = vwap_segment_info.get('anchor_reason', 'unknown')
-                self.log.info(f"VWAP+Stacking Reset: {cross_direction} Cross ({anchor_reason})", color=LogColor.BLUE)
-            
-            self._last_vwap_segment_start = current_segment_start
+                anchor_reason = vwap_segment_info_after.get('anchor_reason', 'unknown')
+                self.log.info(f"ANCHOR RESET: {cross_direction} ({anchor_reason})", color=LogColor.BLUE)
     
     def can_stack_long(self, current_zscore: float) -> bool:
         """Prüft ob Long-Position gestackt werden kann"""
@@ -404,8 +423,15 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not valid_position or qty <= 0:
             return
 
-        # NEU: Elastic Entry Signal abrufen (ersetzt alte Z-Score-Logik)
+        # NEUuu: Elastic Entry Signal abrufen (ersetzt alte Z-Score-Logik)
         long_signal, _, debug_info = self.elastic_entry.check_entry_signals(zscore)
+        
+        # DEBUG: Zeige Elastic Entry State nur bei kritischen Z-Scores ODER wenn Signal gefunden
+        if abs(zscore) > 2.5 or long_signal:
+            state = self.elastic_entry.get_current_state()
+            extreme_long = state.get('z_extreme_long_since_cross')
+            extreme_str = f"{extreme_long:.2f}" if extreme_long is not None else "None"
+            self.log.info(f"Elastic Long Check: z={zscore:.2f} | extreme={extreme_str} | bars_since_cross={state.get('bars_since_cross', 0)} | signal={long_signal}", color=LogColor.YELLOW)
         
         if long_signal:
             entry_reason = debug_info.get('long_entry_reason', 'Recovery signal')
@@ -473,6 +499,13 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
 
         # NEUuu: Elastic Entry Signal abrufen (ersetzt alte Z-Score-Logik)
         _, short_signal, debug_info = self.elastic_entry.check_entry_signals(zscore)
+        
+        # DEBUG: Zeige Elastic Entry State nur bei kritischen Z-Scores ODER wenn Signal gefunden
+        if abs(zscore) > 2.5 or short_signal:
+            state = self.elastic_entry.get_current_state()
+            extreme_short = state.get('z_extreme_short_since_cross')
+            extreme_str = f"{extreme_short:.2f}" if extreme_short is not None else "None"
+            self.log.info(f"Elastic Short Check: z={zscore:.2f} | extreme={extreme_str} | bars_since_cross={state.get('bars_since_cross', 0)} | signal={short_signal}", color=LogColor.YELLOW)
         
         if short_signal:
             # Erweiterte Logging-Info mit Sector/Regime und aktuellen Parametern

@@ -1,12 +1,9 @@
-from collections import deque
-import numpy as np
-from typing import Tuple, Optional, Dict, Any
+from typing import Tuple, Dict, Any
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTFAnchored
 class ElasticReversionZScoreEntry:
     def __init__(
         self,
         vwap_zscore_indicator: VWAPZScoreHTFAnchored,
-        lookback_window: int = 20,
         z_min_threshold: float = -2.0,      
         z_max_threshold: float = 2.0,       
         recovery_delta: float = 0.4,        
@@ -16,16 +13,16 @@ class ElasticReversionZScoreEntry:
         recovery_cooldown_bars: int = 5   
     ):
         self.vwap_zscore = vwap_zscore_indicator
-        self.lookback_window = lookback_window
         self.z_min_threshold = z_min_threshold
         self.z_max_threshold = z_max_threshold
         self.recovery_delta = recovery_delta
         self.reset_neutral_zone_long = reset_neutral_zone_long
         self.reset_neutral_zone_short = reset_neutral_zone_short
         
-        self.zscore_history = deque(maxlen=lookback_window)
-        self.z_extreme_long = None      
-        self.z_extreme_short = None     
+        # NEU: Cross-basiertes System (ersetzt lookback_window)
+        self.zscore_since_cross = []  # Alle Z-Scores seit letztem Cross
+        self.z_extreme_long_since_cross = None      
+        self.z_extreme_short_since_cross = None     
         self.bars_since_long_extreme = 0
         self.bars_since_short_extreme = 0
         self.long_recovery_triggered = False
@@ -48,6 +45,18 @@ class ElasticReversionZScoreEntry:
             self.reset_neutral_zone_long = reset_neutral_zone_long
         if reset_neutral_zone_short is not None:
             self.reset_neutral_zone_short = reset_neutral_zone_short
+
+    def reset_on_cross(self):
+        """Resettet das System bei einem neuen Kalman Cross - ersetzt lookback_window"""
+        self.zscore_since_cross = []
+        self.z_extreme_long_since_cross = None
+        self.z_extreme_short_since_cross = None
+        self.bars_since_long_extreme = 0
+        self.bars_since_short_extreme = 0
+        self.long_recovery_triggered = False
+        self.short_recovery_triggered = False
+        self.bars_since_last_long_signal = 0
+        self.bars_since_last_short_signal = 0
 
     def get_sector_regime_params(self, config_params: Dict[str, Any], sector: str, regime: int) -> Dict[str, float]:
         sector_params = config_params.get(sector, {})
@@ -80,8 +89,9 @@ class ElasticReversionZScoreEntry:
         if zscore is None:
             return
             
-        self.zscore_history.append(zscore)
-        self._update_extremes(zscore)
+        # NEU: Füge zur Cross-basierten Historie hinzu
+        self.zscore_since_cross.append(zscore)
+        self._update_extremes_since_cross(zscore)
 
         self.bars_since_long_extreme += 1
         self.bars_since_short_extreme += 1
@@ -89,32 +99,26 @@ class ElasticReversionZScoreEntry:
         self.bars_since_last_short_signal += 1
         self._handle_neutral_zone_reset(zscore)
         
-    def _update_extremes(self, zscore: float) -> None:
-        if self.z_extreme_long is None or zscore < self.z_extreme_long:
-            self.z_extreme_long = zscore
+    def _update_extremes_since_cross(self, zscore: float) -> None:
+        """Sucht Extreme seit letztem Cross anstatt im fixen lookback_window"""
+        if self.z_extreme_long_since_cross is None or zscore < self.z_extreme_long_since_cross:
+            self.z_extreme_long_since_cross = zscore
             self.bars_since_long_extreme = 0
             self.long_recovery_triggered = False
             
-        if self.z_extreme_short is None or zscore > self.z_extreme_short:
-            self.z_extreme_short = zscore
+        if self.z_extreme_short_since_cross is None or zscore > self.z_extreme_short_since_cross:
+            self.z_extreme_short_since_cross = zscore
             self.bars_since_short_extreme = 0
             self.short_recovery_triggered = False
             
     def _handle_neutral_zone_reset(self, zscore: float) -> None:
+        """Nur noch Neutral Zone Reset - Cross Reset ersetzt lookback_window Logik"""
         if (self.reset_neutral_zone_short <= zscore <= self.reset_neutral_zone_long):
             if self.bars_since_last_long_signal >= self.recovery_cooldown_bars:
                 self.long_recovery_triggered = False
                 
             if self.bars_since_last_short_signal >= self.recovery_cooldown_bars:
                 self.short_recovery_triggered = False
-        
-        if self.bars_since_long_extreme > self.lookback_window * 1.5:
-            self.z_extreme_long = None
-            self.long_recovery_triggered = False
-            
-        if self.bars_since_short_extreme > self.lookback_window * 1.5:
-            self.z_extreme_short = None
-            self.short_recovery_triggered = False
 
     def check_entry_signals(self, current_zscore: float) -> Tuple[bool, bool, dict]:
         if current_zscore is None:
@@ -125,14 +129,15 @@ class ElasticReversionZScoreEntry:
         
         debug_info = {
             'current_zscore': current_zscore,
-            'z_extreme_long': self.z_extreme_long,
-            'z_extreme_short': self.z_extreme_short,
+            'z_extreme_long_since_cross': self.z_extreme_long_since_cross,
+            'z_extreme_short_since_cross': self.z_extreme_short_since_cross,
             'long_recovery_triggered': self.long_recovery_triggered,
             'short_recovery_triggered': self.short_recovery_triggered,
             'bars_since_long_extreme': self.bars_since_long_extreme,
             'bars_since_short_extreme': self.bars_since_short_extreme,
             'bars_since_last_long_signal': self.bars_since_last_long_signal,
             'bars_since_last_short_signal': self.bars_since_last_short_signal,
+            'bars_since_cross': len(self.zscore_since_cross),
             'current_parameters': {
                 'z_min_threshold': self.z_min_threshold,
                 'z_max_threshold': self.z_max_threshold,
@@ -142,10 +147,10 @@ class ElasticReversionZScoreEntry:
             }
         }
         
-        # Long Entry Signal
-        if (self.z_extreme_long is not None and 
-            self.z_extreme_long <= self.z_min_threshold and  
-            current_zscore >= (self.z_extreme_long + self.recovery_delta) and  
+        # Long Entry Signal - nutzt Extreme seit Cross
+        if (self.z_extreme_long_since_cross is not None and 
+            self.z_extreme_long_since_cross <= self.z_min_threshold and  
+            current_zscore >= (self.z_extreme_long_since_cross + self.recovery_delta) and  
             not self.long_recovery_triggered and
             self.bars_since_last_long_signal >= self.recovery_cooldown_bars):
             
@@ -154,14 +159,14 @@ class ElasticReversionZScoreEntry:
             self.bars_since_last_long_signal = 0
             
             if self.bars_since_long_extreme <= self.recovery_cooldown_bars:
-                debug_info['long_entry_reason'] = f"STACK: New extreme recovery from {self.z_extreme_long:.2f} to {current_zscore:.2f}"
+                debug_info['long_entry_reason'] = f"STACK: Cross-based recovery from {self.z_extreme_long_since_cross:.2f} to {current_zscore:.2f}"
             else:
-                debug_info['long_entry_reason'] = f"NORMAL: Recovery from {self.z_extreme_long:.2f} to {current_zscore:.2f}"
+                debug_info['long_entry_reason'] = f"NORMAL: Cross-based recovery from {self.z_extreme_long_since_cross:.2f} to {current_zscore:.2f}"
             
-        # Short Entry Signal    
-        if (self.z_extreme_short is not None and
-            self.z_extreme_short >= self.z_max_threshold and  
-            current_zscore <= (self.z_extreme_short - self.recovery_delta) and  
+        # Short Entry Signal - nutzt Extreme seit Cross  
+        if (self.z_extreme_short_since_cross is not None and
+            self.z_extreme_short_since_cross >= self.z_max_threshold and  
+            current_zscore <= (self.z_extreme_short_since_cross - self.recovery_delta) and  
             not self.short_recovery_triggered and
             self.bars_since_last_short_signal >= self.recovery_cooldown_bars):
             
@@ -170,22 +175,22 @@ class ElasticReversionZScoreEntry:
             self.bars_since_last_short_signal = 0
             
             if self.bars_since_short_extreme <= self.recovery_cooldown_bars:
-                debug_info['short_entry_reason'] = f"STACK: New extreme recovery from {self.z_extreme_short:.2f} to {current_zscore:.2f}"
+                debug_info['short_entry_reason'] = f"STACK: Cross-based recovery from {self.z_extreme_short_since_cross:.2f} to {current_zscore:.2f}"
             else:
-                debug_info['short_entry_reason'] = f"NORMAL: Recovery from {self.z_extreme_short:.2f} to {current_zscore:.2f}"
+                debug_info['short_entry_reason'] = f"NORMAL: Cross-based recovery from {self.z_extreme_short_since_cross:.2f} to {current_zscore:.2f}"
                 
         return long_signal, short_signal, debug_info
     
     def get_current_state(self) -> dict:
-        """Erweiterte State-Info"""
+        """Erweiterte State-Info mit Cross-basiertem System"""
         return {
-            'z_extreme_long': self.z_extreme_long,
-            'z_extreme_short': self.z_extreme_short,
+            'z_extreme_long_since_cross': self.z_extreme_long_since_cross,
+            'z_extreme_short_since_cross': self.z_extreme_short_since_cross,
             'bars_since_long_extreme': self.bars_since_long_extreme,
             'bars_since_short_extreme': self.bars_since_short_extreme,
             'long_recovery_triggered': self.long_recovery_triggered,
             'short_recovery_triggered': self.short_recovery_triggered,
-            'zscore_history_length': len(self.zscore_history),
+            'bars_since_cross': len(self.zscore_since_cross),
             'parameters': {
                 'z_min_threshold': self.z_min_threshold,
                 'z_max_threshold': self.z_max_threshold,
@@ -196,12 +201,5 @@ class ElasticReversionZScoreEntry:
         }
         
     def reset_state(self) -> None:
-        self.zscore_history.clear()
-        self.z_extreme_long = None
-        self.z_extreme_short = None
-        self.bars_since_long_extreme = 0
-        self.bars_since_short_extreme = 0
-        self.long_recovery_triggered = False
-        self.short_recovery_triggered = False
-        self.bars_since_last_long_signal = 0
-        self.bars_since_last_short_signal = 0
+        """Legacy Reset - nutze reset_on_cross() für Cross-basiertes Reset"""
+        self.reset_on_cross()
