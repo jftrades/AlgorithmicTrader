@@ -133,6 +133,12 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.long_positions_since_cross = 0
         self.short_positions_since_cross = 0
         self.last_kalman_cross_direction = None  # "up" oder "down"
+        
+        # NEU: Entry-ZScore Tracking für Stacking
+        self.long_entry_zscores = []  # List der ZScores bei Long Entries
+        self.short_entry_zscores = []  # List der ZScores bei Short Entries
+        self.bars_since_last_long_entry = 0
+        self.bars_since_last_short_entry = 0
 
         self.slope_monitor = None
         if config.test_which_slope_params:
@@ -199,12 +205,17 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self._check_vwap_cross_for_stacking(bar, vwap_segment_info_before, vwap_segment_info_after)
         self.bar_counter += 1
 
+        # Update Entry Tracking Counters
+        self.bars_since_last_long_entry += 1
+        self.bars_since_last_short_entry += 1
+
         bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
         if bar_time >= datetime.time(15, 40) and bar_time <= datetime.time(21, 50):
             if self.current_vix_value is not None:
                 regime = self.get_vix_regime(self.current_vix_value)
 
                 if regime == 3:
+                    self.vwap_zscore.notify_exit_trade_occurred()
                     self.order_types.close_position_by_market_order()
                 else:
                     if self.current_kalman_exit_mean is not None and self.current_kalman_mean is not None and zscore is not None:
@@ -228,8 +239,16 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         start_after = vwap_segment_info_after.get('segment_start_bar', 0)
         
         if start_before != start_after:
+            # Reset Position Tracking
             self.long_positions_since_cross = 0
             self.short_positions_since_cross = 0
+            
+            # Reset Entry ZScore Tracking
+            self.long_entry_zscores = []
+            self.short_entry_zscores = []
+            self.bars_since_last_long_entry = 0
+            self.bars_since_last_short_entry = 0
+            
             self.elastic_entry.reset_on_cross()
             
             if self.current_kalman_exit_mean is not None:
@@ -237,24 +256,53 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                 self.last_kalman_cross_direction = "up" if current_above else "down"
                 
                 anchor_reason = vwap_segment_info_after.get('anchor_reason', 'unknown')
-                self.log.info(f"VWAP anchor reset: {anchor_reason}", color=LogColor.BLUE)
+                self.log.info(f"VWAP anchor reset: {anchor_reason} | Stacking counters reset", color=LogColor.BLUE)
     
     def can_stack_long(self, current_zscore: float) -> bool:
+        # Erste Position ist immer erlaubt, auch wenn Stacking deaktiviert ist
+        if self.long_positions_since_cross == 0:
+            return True
+            
+        # Wenn Stacking deaktiviert ist, keine weiteren Positionen erlauben
         if not self.allow_stacking:
             return False
         
         if self.long_positions_since_cross >= self.max_stacked_positions:
             return False
+                    
+        if self.bars_since_last_long_entry < self.stacking_bar_cooldown:
+            return False
+            
+        if self.long_entry_zscores and current_zscore is not None:
+            last_entry_zscore = self.long_entry_zscores[-1]
+            zscore_deterioration = last_entry_zscore - current_zscore  # Für Long: negativer = schlechter
+            
+            if zscore_deterioration < self.additional_zscore_min_gain:
+                return False
         
-        return True  # Weitere Long Stacks sind erlaubt
+        return True  
     
     def can_stack_short(self, current_zscore: float) -> bool:
+        # Erste Position ist immer erlaubt, auch wenn Stacking deaktiviert ist
+        if self.short_positions_since_cross == 0:
+            return True
+            
+        # Wenn Stacking deaktiviert ist, keine weiteren Positionen erlauben
         if not self.allow_stacking:
             return False
         
-        # Verwende Position Count, nicht Aktienanzahl!
         if self.short_positions_since_cross >= self.max_stacked_positions:
             return False
+            
+        if self.bars_since_last_short_entry < self.stacking_bar_cooldown:
+            return False
+            
+        if self.short_entry_zscores and current_zscore is not None:
+            last_entry_zscore = self.short_entry_zscores[-1]
+            zscore_deterioration = current_zscore - last_entry_zscore  # Für Short: positiver = schlechter
+            
+            if zscore_deterioration < self.additional_zscore_min_gain:
+                return False
         
         return True
     
@@ -351,9 +399,14 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if long_signal:
             entry_reason = debug_info.get('long_entry_reason', 'Recovery signal')
             
-            self.vwap_zscore.notify_trade_occurred()
+            # KEIN VWAP Reset bei Entry Trades!
+            # self.vwap_zscore.notify_trade_occurred()
             self.order_types.submit_long_market_order(qty, price=bar.close)
             self.long_positions_since_cross += 1
+            
+            # Track Entry ZScore für Stacking
+            self.long_entry_zscores.append(zscore)
+            self.bars_since_last_long_entry = 0
             
             stack_info = f"Stack {self.long_positions_since_cross}/{self.max_stacked_positions}" if self.long_positions_since_cross > 1 else "Initial"
             
@@ -401,9 +454,14 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if short_signal:
             entry_reason = debug_info.get('short_entry_reason', 'Recovery signal')
             
-            self.vwap_zscore.notify_trade_occurred()
+            # KEIN VWAP Reset bei Entry Trades!
+            # self.vwap_zscore.notify_trade_occurred()
             self.order_types.submit_short_market_order(qty, price=bar.close)
             self.short_positions_since_cross += 1
+            
+            # Track Entry ZScore für Stacking
+            self.short_entry_zscores.append(zscore)
+            self.bars_since_last_short_entry = 0
             
             stack_info = f"Stack {self.short_positions_since_cross}/{self.max_stacked_positions}" if self.short_positions_since_cross > 1 else "Initial"
             
@@ -420,6 +478,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         allow_trades = params[0]
         kalman_zscore_exit_long = params[3] 
         if not allow_trades:
+            self.vwap_zscore.notify_exit_trade_occurred()
             self.order_types.close_position_by_market_order()
             return
 
@@ -430,6 +489,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                 and kalman_zscore_exit_long is not None
                 and self.current_kalman_exit_zscore >= kalman_zscore_exit_long
             ):
+                self.vwap_zscore.notify_exit_trade_occurred()
                 self.order_types.close_position_by_market_order()
 
     def check_for_short_exit(self, bar):
@@ -440,6 +500,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         allow_trades = params[0]
         kalman_zscore_exit_short = params[4]
         if not allow_trades:
+            self.vwap_zscore.notify_exit_trade_occurred()
             self.order_types.close_position_by_market_order()
             return
         
@@ -450,6 +511,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             and kalman_zscore_exit_short is not None
             and self.current_kalman_exit_zscore <= kalman_zscore_exit_short
         ):
+            self.vwap_zscore.notify_exit_trade_occurred()
             self.order_types.close_position_by_market_order()
 
     def on_position_event(self, event: PositionEvent) -> None:
@@ -459,6 +521,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         pass
 
     def close_position(self) -> None:
+        self.vwap_zscore.notify_exit_trade_occurred()
         return self.base_close_position()
     
     def on_stop(self) -> None:
@@ -494,7 +557,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.log.info(logging_message, color=LogColor.GREEN)
     
     def on_order_filled(self, order_filled) -> None:
-        self.vwap_zscore.notify_trade_occurred()
+        # KEIN automatischer VWAP Reset bei allen Order Fills
+        # self.vwap_zscore.notify_trade_occurred()
         return self.base_on_order_filled(order_filled)
 
     def on_position_closed(self, position_closed) -> None:

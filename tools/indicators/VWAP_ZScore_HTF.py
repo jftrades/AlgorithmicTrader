@@ -64,6 +64,11 @@ class VWAPZScoreHTFAnchored:
     def notify_trade_occurred(self):
         if self.require_trade_for_reset:
             self.trade_occurred_since_reset = True
+            
+    def notify_exit_trade_occurred(self):
+        """Spezielle Methode für Exit-Trades - nur diese lösen VWAP Reset aus"""
+        if self.require_trade_for_reset:
+            self.trade_occurred_since_reset = True
 
     def set_kalman_exit_mean(self, kalman_exit_mean: float):
         self.kalman_exit_mean = kalman_exit_mean

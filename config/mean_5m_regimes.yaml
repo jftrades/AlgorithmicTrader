@@ -5,33 +5,33 @@ instrument_id: "SPY.ARCA"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
 
 # Backtest-Zeitraum
-start_date: "2022-1-01T00:00:00Z"
-end_date: "2024-09-01T23:59:59Z"
+start_date: "2024-05-01T00:00:00Z"
+end_date: "2024-10-01T23:59:59Z"
 
 # Regime-Kalman:
-kalman_process_var: 0.0000005 
+kalman_process_var: [0.00000004]
 kalman_measurement_var: 0.001                     
 kalman_window: 10                                 
 kalman_disable_price_condition_slope_long: 0.025  
 kalman_disable_price_condition_slope_short: 0.025 
 kalman_slope_thresholds:
-  strong_down: -0.02
-  moderate_down: -0.01
-  sideways: 0.001
-  moderate_up: 0.02
+  strong_down: -0.025
+  moderate_down: -0.012
+  sideways: 0.012
+  moderate_up: 0.025
 test_which_slope_params: true
 
 # Mean-Exit-Kalman:
-kalman_exit_process_var: [0.0000005]
-kalman_exit_measurement_var: [0.01]              
+kalman_exit_process_var: [0.00000002]
+kalman_exit_measurement_var: 0.001             
 kalman_exit_window: 10                           
 kalman_exit_zscore_window: [20]             
 
 # VWAP 
 vwap_anchor_on_kalman_cross: true                 
 vwap_zscore_mode: "simple"              
-vwap_min_bars_for_zscore: 10
-vwap_reset_grace_period: 50
+vwap_min_bars_for_zscore: 15
+vwap_reset_grace_period: 40
 vwap_require_trade_for_reset: true
 zscore_calculation:
   simple:
@@ -44,7 +44,7 @@ zscore_calculation:
     std_window: 20
 
 # GAP-handling
-gap_threshold_pct: 0.1
+gap_threshold_pct: 0.2
 
 # Entry-params
 elastic_reversion_entry:
@@ -52,16 +52,15 @@ elastic_reversion_entry:
   allow_multiple_recoveries: true
   recovery_cooldown_bars: 5
   allow_stacking:
-    enabled: true
+    enabled: false
     max_stacked_positions: 3
-    additional_zscore_min_gain: 0.8
-    recovery_delta_reentry: 0.8
-    stacking_bar_cooldown: 20
+    additional_zscore_min_gain: 3.0
+    recovery_delta_reentry: 1.5
+    stacking_bar_cooldown: 15
 
 # VIX
 vix_fear_threshold: [38]
 vix_chill_threshold: [22]
-
 kalman_slope_sector_params:
   strong_down:
     allow_trades: true
@@ -74,16 +73,16 @@ kalman_slope_sector_params:
         elastic_entry:
           z_min_threshold: -2.5
           z_max_threshold: 2.5
-          recovery_delta: 0.8
+          recovery_delta: 1.0
           reset_neutral_zone_long: -0.5
           reset_neutral_zone_short: 0.5
       regime2:
         kalman_zscore_exit_long: 0.0
         kalman_zscore_exit_short: 0.0
         elastic_entry:
-          z_min_threshold: -3.0
-          z_max_threshold: 3.0
-          recovery_delta: 1.0
+          z_min_threshold: -2.5
+          z_max_threshold: 2.5
+          recovery_delta: 1.5
           reset_neutral_zone_long: -0.8
           reset_neutral_zone_short: 0.8
 
@@ -98,16 +97,16 @@ kalman_slope_sector_params:
         elastic_entry:
           z_min_threshold: -2.5
           z_max_threshold: 2.5
-          recovery_delta: 0.8
+          recovery_delta: 1.0
           reset_neutral_zone_long: -0.5
           reset_neutral_zone_short: 0.5
       regime2:
         kalman_zscore_exit_long: 0.0
         kalman_zscore_exit_short: 0.0
         elastic_entry:
-          z_min_threshold: -3.0
-          z_max_threshold: 3.0
-          recovery_delta: 1.0
+          z_min_threshold: -2.5
+          z_max_threshold: 2.5
+          recovery_delta: 1.5
           reset_neutral_zone_long: -0.8
           reset_neutral_zone_short: 0.8
 
@@ -122,16 +121,16 @@ kalman_slope_sector_params:
         elastic_entry:
           z_min_threshold: -2.5
           z_max_threshold: 2.5
-          recovery_delta: 0.8
+          recovery_delta: 1.0
           reset_neutral_zone_long: -0.5
           reset_neutral_zone_short: 0.5
       regime2:
         kalman_zscore_exit_long: 0.0
         kalman_zscore_exit_short: 0.0
         elastic_entry:
-          z_min_threshold: -3.0
-          z_max_threshold: 3.0
-          recovery_delta: 1.0
+          z_min_threshold: -2.5
+          z_max_threshold: 2.5
+          recovery_delta: 1.5
           reset_neutral_zone_long: -0.8
           reset_neutral_zone_short: 0.8
 
@@ -146,16 +145,16 @@ kalman_slope_sector_params:
         elastic_entry:
           z_min_threshold: -2.5
           z_max_threshold: 2.5
-          recovery_delta: 0.8
+          recovery_delta: 1.0
           reset_neutral_zone_long: -0.5
           reset_neutral_zone_short: 0.5
       regime2:
         kalman_zscore_exit_long: 0.0
         kalman_zscore_exit_short: 0.0
         elastic_entry:
-          z_min_threshold: -3.0
-          z_max_threshold: 3.0
-          recovery_delta: 1.0
+          z_min_threshold: -2.5
+          z_max_threshold: 2.5
+          recovery_delta: 1.5
           reset_neutral_zone_long: -0.8
           reset_neutral_zone_short: 0.8
 
@@ -170,16 +169,16 @@ kalman_slope_sector_params:
         elastic_entry:
           z_min_threshold: -2.5
           z_max_threshold: 2.5
-          recovery_delta: 0.8
+          recovery_delta: 1.5
           reset_neutral_zone_long: -0.5
           reset_neutral_zone_short: 0.5
       regime2:
         kalman_zscore_exit_long: 0.0
         kalman_zscore_exit_short: 0.0
         elastic_entry:
-          z_min_threshold: -3.0
-          z_max_threshold: 3.0
-          recovery_delta: 1.0
+          z_min_threshold: -2.5
+          z_max_threshold: 2.5
+          recovery_delta: 1.5
           reset_neutral_zone_long: -0.8
           reset_neutral_zone_short: 0.8
 
