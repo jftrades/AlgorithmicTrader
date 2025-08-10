@@ -246,24 +246,17 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if self.long_positions_since_cross >= self.max_stacked_positions:
             return False
         
-        # Stacking nur erlaubt wenn bereits Long Positionen offen sind
-        if self.long_positions_since_cross == 0:
-            return True  # Erste Position ist immer erlaubt
-        
         return True  # Weitere Long Stacks sind erlaubt
     
     def can_stack_short(self, current_zscore: float) -> bool:
         if not self.allow_stacking:
             return False
         
+        # Verwende Position Count, nicht Aktienanzahl!
         if self.short_positions_since_cross >= self.max_stacked_positions:
             return False
         
-        # Stacking nur erlaubt wenn bereits Short Positionen offen sind  
-        if self.short_positions_since_cross == 0:
-            return True  # Erste Position ist immer erlaubt
-        
-        return True  # Weitere Short Stacks sind erlaubt
+        return True
     
     def should_apply_price_condition(self, direction: str) -> bool:
 
@@ -335,13 +328,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not allow_trades:
             return
         
-        current_net_pos = self.count_open_position()
-        
-        if current_net_pos == 0:
-            can_enter = True
-        else:
-            can_enter = self.can_stack_long(zscore)
-        
+        can_enter = self.can_stack_long(zscore)
+            
         if not can_enter:
             return
         
@@ -390,13 +378,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not allow_trades:
             return
         
-        current_net_pos = self.count_open_position()
-        
-        if current_net_pos == 0:
-            can_enter = True
-        else:
-            can_enter = self.can_stack_short(zscore)
-        
+        can_enter = self.can_stack_short(zscore)
+    
         if not can_enter:
             return
 
