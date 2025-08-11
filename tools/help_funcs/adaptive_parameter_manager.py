@@ -1,6 +1,6 @@
 import numpy as np
 from collections import deque
-from tools.indicators.kalman_filter_2D import KalmanFilter1D
+from tools.indicators.kalman_filter_2D import KalmanFilter1D, KalmanFilterRegression
 
 
 class AdaptiveParameterManager:
@@ -8,7 +8,7 @@ class AdaptiveParameterManager:
         self.base_params = base_params
         self.adaptive_factors = adaptive_factors
         
-        # Initialize ATR if enabled
+        # Initialize ATR tracking
         if self.adaptive_factors.get('atr', {}).get('enabled', False):
             atr_config = self.adaptive_factors['atr']
             self.atr_kalman = KalmanFilter1D(
@@ -24,13 +24,39 @@ class AdaptiveParameterManager:
             self.atr_history = None
             self.current_atr_percentile = 0.5
             self.atr_historical = None
+            
+        if self.adaptive_factors.get('slope', {}).get('enabled', False):
+            slope_config = self.adaptive_factors['slope']
+            self.slope_kalman = KalmanFilterRegression(
+                process_var=slope_config.get('kalman_process_var', 0.000000001),  # Legacy default
+                measurement_var=slope_config.get('kalman_measurement_var', 0.001),  # Legacy default
+                window=slope_config.get('kalman_window', 10)  # Legacy default
+            )
+            self.current_slope = 0.0
+            self.current_kalman_mean = None  # Keep track of mean too for compatibility
+        else:
+            self.slope_kalman = None
+            self.current_slope = 0.0
+            self.current_kalman_mean = None
+    
+    def update_slope(self, price: float):
+        if self.slope_kalman is not None:
+            mean, slope = self.slope_kalman.update(price)
+            if mean is not None:
+                self.current_kalman_mean = mean
+            if slope is not None:
+                self.current_slope = slope
+            return mean, slope
+        return None, None
+    
+    def update_market_data(self, price: float, high: float, low: float, prev_close: float = None):
+        self.update_slope(price)
+        self.update_atr(high, low, prev_close)
     
     def update_atr(self, high: float, low: float, prev_close: float = None):
-        """Update ATR and calculate percentile"""
         if not self.adaptive_factors.get('atr', {}).get('enabled', False):
             return
             
-        # Calculate True Range
         if prev_close is not None:
             tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
         else:
@@ -67,7 +93,6 @@ class AdaptiveParameterManager:
                 self.current_atr_percentile = max(0.05, min(0.95, self.current_atr_percentile))
     
     def calculate_slope_factor(self, slope: float) -> float:
-        """Calculate scaling factor based on slope"""
         if not self.adaptive_factors.get('slope', {}).get('enabled', False):
             return 1.0
             
@@ -96,7 +121,10 @@ class AdaptiveParameterManager:
     
     def get_adaptive_parameters(self, slope: float = None) -> tuple:
         """Get scaled parameters based on current market conditions"""
-        slope_factor = self.calculate_slope_factor(slope) if slope is not None else 1.0
+        # Use internal slope if none provided
+        slope_to_use = slope if slope is not None else self.current_slope
+        
+        slope_factor = self.calculate_slope_factor(slope_to_use)
         atr_factor = self.calculate_atr_factor()
         
         # Combine factors multiplicatively
@@ -145,9 +173,12 @@ class AdaptiveParameterManager:
         
         return adaptive_params, slope_factor, atr_factor, combined_factor
     
-    def get_trend_factor(self, slope: float) -> float:
+    def get_trend_factor(self, slope: float = None) -> float:
         """Get a single trend factor from -1 to +1 based on slope direction and strength"""
-        if slope is None:
+        # Use internal slope if none provided
+        slope_to_use = slope if slope is not None else self.current_slope
+        
+        if slope_to_use is None:
             return 0.0
             
         slope_config = self.adaptive_factors.get('slope', {})
@@ -155,7 +186,7 @@ class AdaptiveParameterManager:
         
         # Normalize slope to -1 to +1 range
         # Positive slope = trending up, negative slope = trending down
-        normalized_slope = slope / (sensitivity / 100)  # Convert sensitivity to decimal
+        normalized_slope = slope_to_use / (sensitivity / 100)  # Convert sensitivity to decimal
         
         # Clamp to reasonable range
         trend_factor = max(-1.0, min(1.0, normalized_slope))
@@ -172,7 +203,10 @@ class AdaptiveParameterManager:
     
     def get_market_state(self, slope: float = None) -> dict:
         """Get current market state with clear factors for linear parameter adjustment"""
-        trend_factor = self.get_trend_factor(slope)
+        # Use internal slope if none provided
+        slope_to_use = slope if slope is not None else self.current_slope
+        
+        trend_factor = self.get_trend_factor(slope_to_use)
         volatility_factor = self.get_volatility_factor()
         
         # Determine market characteristics
@@ -191,12 +225,14 @@ class AdaptiveParameterManager:
             'is_high_volatility': is_high_volatility,
             'is_low_volatility': is_low_volatility,
             'trend_strength': abs(trend_factor),    # 0 to 1
-            'raw_slope': slope
+            'raw_slope': slope_to_use
         }
     
-    def should_trade_in_current_state(self, slope: float) -> bool:
+    def should_trade_in_current_state(self, slope: float = None) -> bool:
         """Simple check if we should trade - can be customized"""
-        market_state = self.get_market_state(slope)
+        # Use internal slope if none provided
+        slope_to_use = slope if slope is not None else self.current_slope
+        market_state = self.get_market_state(slope_to_use)
         
         # Trade unless trend is extremely strong (adjust threshold as needed)
         return market_state['trend_strength'] < 0.8
@@ -230,6 +266,8 @@ class AdaptiveParameterManager:
             'atr_enabled': self.adaptive_factors.get('atr', {}).get('enabled', False),
             'slope_enabled': self.adaptive_factors.get('slope', {}).get('enabled', False),
             'current_atr_percentile': self.current_atr_percentile,
+            'current_slope': self.current_slope,
             'atr_history_length': len(self.atr_history) if self.atr_history else 0,
             'atr_historical_length': len(self.atr_historical) if self.atr_historical else 0,
+            'slope_kalman_initialized': self.slope_kalman.initialized if self.slope_kalman else False,
         }

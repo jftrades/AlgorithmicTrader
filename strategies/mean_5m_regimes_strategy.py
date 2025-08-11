@@ -14,7 +14,6 @@ from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 from tools.help_funcs.base_strategy import BaseStrategy
-from tools.indicators.kalman_filter_2D import KalmanFilterRegression
 from tools.indicators.kalman_filter_2D_own_ZScore import KalmanFilterRegressionWithZScore
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTFAnchored
 from tools.structure.elastic_reversion_zscore_entry import ElasticReversionZScoreEntry
@@ -28,11 +27,6 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     max_leverage: float
     min_account_balance: float
     
-    # Legacy Kalman parameters (for basic slope calculation)
-    kalman_process_var: float
-    kalman_measurement_var: float
-    kalman_window: int
-
     start_date: str
     end_date: str
     
@@ -68,13 +62,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.current_zscore = None
         self.collector = BacktestDataCollector()
         
-        # Initialize adaptive parameter manager FIRST
         self.adaptive_manager = AdaptiveParameterManager(
             base_params=config.base_parameters,
             adaptive_factors=config.adaptive_factors
         )
         
-        # Initialize VWAP with adaptive parameters
         adaptive_params, _, _, _ = self.adaptive_manager.get_adaptive_parameters()
         vwap_params = adaptive_params['vwap']
         self.vwap_zscore = VWAPZScoreHTFAnchored(
@@ -87,17 +79,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         )
         
         self.current_vix_value = None
-        self.current_kalman_slope = None
         
-        # Bestehender Kalman für Regime/Slope
-        self.kalman = KalmanFilterRegression(
-            process_var=config.kalman_process_var,
-            measurement_var=config.kalman_measurement_var,
-            window=config.kalman_window
-        )
-        self.current_kalman_mean = None
-        self.current_kalman_slope = None
-
         # Neuer Kalman für Exit-Z-Score - use adaptive parameters
         adaptive_params, _, _, _ = self.adaptive_manager.get_adaptive_parameters()
         self.kalman_exit = KalmanFilterRegressionWithZScore(
@@ -123,14 +105,12 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             recovery_cooldown_bars=adaptive_elastic_params['recovery_cooldown_bars']
         )
 
-        # Stacking parameters from adaptive config
         self.allow_stacking = adaptive_elastic_params.get('alllow_stacking', False)
         self.max_stacked_positions = adaptive_elastic_params.get('max_stacked_positions', 3)
         self.additional_zscore_min_gain = adaptive_elastic_params.get('additional_zscore_min_gain', 0.5)
         self.recovery_delta_reentry = adaptive_elastic_params.get('recovery_delta_reentry', 0.3)
         self.stacking_bar_cooldown = adaptive_elastic_params.get('stacking_bar_cooldown', 10)
         
-        # Entry tracking for stacking
         self.long_positions_since_cross = 0
         self.short_positions_since_cross = 0
         self.last_kalman_cross_direction = None
@@ -160,15 +140,14 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.order_types = OrderTypes(self)
 
         self.collector.initialise_logging_indicator("vwap", 0)
-        self.collector.initialise_logging_indicator("kalman_exit_mean", 0)
-        self.collector.initialise_logging_indicator("kalman_mean", 0)
-        self.collector.initialise_logging_indicator("vwap_zscore", 1)
-        self.collector.initialise_logging_indicator("kalman_exit_zscore", 2)
-        self.collector.initialise_logging_indicator("vix", 3)
-        self.collector.initialise_logging_indicator("position", 4)
-        self.collector.initialise_logging_indicator("realized_pnl", 5)
-        self.collector.initialise_logging_indicator("unrealized_pnl", 6)
-        self.collector.initialise_logging_indicator("equity", 7)
+        self.collector.initialise_logging_indicator("kalman_exit_mean", 1)
+        self.collector.initialise_logging_indicator("vwap_zscore", 2)
+        self.collector.initialise_logging_indicator("kalman_exit_zscore", 3)
+        self.collector.initialise_logging_indicator("vix", 4)
+        self.collector.initialise_logging_indicator("position", 5)
+        self.collector.initialise_logging_indicator("realized_pnl", 6)
+        self.collector.initialise_logging_indicator("unrealized_pnl", 7)
+        self.collector.initialise_logging_indicator("equity", 8)
 
 
     def get_position(self):
@@ -178,25 +157,20 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         zscore = None
         bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
 
-        # Update VIX
         vix_value = self.vix.get_value_on_date(bar_date)
         self.current_vix_value = vix_value
 
-        # Update Kalman filters
-        self.current_kalman_mean, self.current_kalman_slope = self.kalman.update(float(bar.close))
+        current_kalman_mean, current_kalman_slope = self.adaptive_manager.update_slope(float(bar.close))
+
         self.current_kalman_exit_mean, self.current_kalman_exit_slope, self.current_kalman_exit_zscore = self.kalman_exit.update(float(bar.close))
         
-        # Update adaptive parameters with current market conditions
         self.adaptive_manager.update_atr(float(bar.high), float(bar.low), float(self.prev_close) if self.prev_close else None)
-        adaptive_params, slope_factor, atr_factor, combined_factor = self.adaptive_manager.get_adaptive_parameters(self.current_kalman_slope)
+        adaptive_params, slope_factor, atr_factor, combined_factor = self.adaptive_manager.get_adaptive_parameters()
         
-        # Get market state for linear adjustments
-        market_state = self.adaptive_manager.get_market_state(self.current_kalman_slope)
+        market_state = self.adaptive_manager.get_market_state()
         
-        # Apply linear adjustments to entry parameters based on market state
         elastic_base = adaptive_params['elastic_entry']
         
-        # Get sensitivity settings from config
         linear_config = self.adaptive_manager.adaptive_factors.get('linear_adjustments', {})
         trend_sensitivity = linear_config.get('trend_sensitivity', 0.3)
         vol_sensitivity = linear_config.get('vol_sensitivity', 0.4)
@@ -273,7 +247,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                     self.vwap_zscore.notify_exit_trade_occurred()
                     self.order_types.close_position_by_market_order()
                 else:
-                    if self.current_kalman_exit_mean is not None and self.current_kalman_mean is not None and zscore is not None:
+                    if self.current_kalman_exit_mean is not None and zscore is not None:
                         # Check if we should trade in current market state
                         if market_state['trend_strength'] < max_trend_strength:
                             # Use adaptive risk factors
@@ -517,7 +491,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         usd_balance = account.balance_total()
         equity = usd_balance.as_double() + float(unrealized_pnl) if unrealized_pnl is not None else usd_balance.as_double()
         vwap_value = self.vwap_zscore.current_vwap_value
-        kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
         kalman_exit_mean = self.current_kalman_exit_mean if self.kalman_exit.initialized else None
 
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vix", value=self.current_vix_value)
@@ -525,7 +498,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_mean", value=kalman_mean)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap", value=vwap_value)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap_zscore", value=self.current_zscore)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_exit_mean", value=kalman_exit_mean)
@@ -554,12 +526,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         usd_balance = account.balance_total()
         equity = usd_balance.as_double() + float(unrealized_pnl) if unrealized_pnl is not None else usd_balance.as_double()
             
-        kalman_mean = self.current_kalman_mean if self.kalman.initialized else None
         vwap_value = self.vwap_zscore.current_vwap_value
         kalman_exit_mean = self.current_kalman_exit_mean if self.kalman_exit.initialized else None
 
         self.collector.add_indicator(timestamp=bar.ts_event, name="vix", value=self.current_vix_value)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_mean", value=kalman_mean)
         self.collector.add_indicator(timestamp=bar.ts_event, name="vwap", value=vwap_value)
         self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
         self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
