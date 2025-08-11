@@ -1,198 +1,75 @@
-# das hier ist ein recht robuster stand, der aber nicht adaptiv / weich ist für alle Marktpahsen / Jahre
-# in den neuen skripten der mean_5m_regimes_strategy/yaml ist folgendes der Plan:
-
-# 1. In der Yaml Baseline/werte für ZScoreEntry, exit Z-Score, long und short risk, delta recovery, reentry... festlegen
-# 2. unabhängiger Stable ATR Faktor hinzufügen, (ATR mit kalman filter verrechnet)
-# 3. mit diesem ATR Skalierungsfunktion bauen
-# 4. mit diesem Faktor (und min und max Werten) und dynamischer skalierung kommen wir weg von fixen schwellen und sind immer an marktlage angepasst
-# 5. yaml sollte kompakter und robuster werden
-# weil gerade performen wir immer in bestimmten szenarien schlecht
-# danach erst finetuning
-
-
-# Instrument
+# Instrument & Daten
 symbol: "SPY"
 venue: "ARCA"
 instrument_id: "SPY.ARCA"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
-
-# Backtest-Zeitraum
-start_date: "2022-06-01T00:00:00Z"
+start_date: "2023-06-01T00:00:00Z"
 end_date: "2023-12-01T23:59:59Z"
 
-# Regime-Kalman:
-kalman_process_var: [0.000000001]
-kalman_measurement_var: 0.001                     
-kalman_window: 10                                 
-kalman_disable_price_condition_slope_long: 0.025  
-kalman_disable_price_condition_slope_short: 0.025 
-kalman_slope_thresholds:
-  strong_down: -0.025
-  moderate_down: -0.012
-  sideways: 0.012
-  moderate_up: 0.025
-test_which_slope_params: true
+# ATR - FAKTOR - IDEE:
+# dann normalize diesen Wert to percentile
+# dann soll das mit den base werten jeweils verrechnet werden und zwischen scale_min und scale_max liegen (vom ATR)
 
-# Mean-Exit-Kalman:
-kalman_exit_process_var: [0.00000002]
-kalman_exit_measurement_var: 0.001             
-kalman_exit_window: 10                           
-kalman_exit_zscore_window: [20]             
+# die Params für unsere Regime detection
+kalman_process_var: 0.000000001
+kalman_measurement_var: 0.001
+kalman_window: 10
 
-# VWAP 
-vwap_anchor_on_kalman_cross: true                 
-vwap_zscore_mode: "simple"              
-vwap_min_bars_for_zscore: 15
-vwap_reset_grace_period: 40
-vwap_require_trade_for_reset: true
-zscore_calculation:
-  simple:
-    enabled: true
-  atr:
-    enabled: false
-    atr_window: 14
-  std:
-    enabled: false
-    std_window: 20
+# BAAsis - Params (hier drunter sind die Starteinstellungen)
+base_parameters:
+  kalman_exit_process_var: 0.0000001
+  kalman_exit_measurement_var: 0.001
+  kalman_exit_zscore_window: 20
 
-# GAP-handling
-gap_threshold_pct: 0.2
+  vwap:
+    vwap_anchor_on_kalman_cross: true 
+    vwap_require_trade_for_reset: true 
+    vwap_min_bars_for_zscore: 15
+    vwap_reset_grace_period: 40
+   
 
-# Entry-params
-elastic_reversion_entry:
-  enabled: true
-  allow_multiple_recoveries: true
-  recovery_cooldown_bars: 5
-  allow_stacking:
-    enabled: true
+  elastic_entry:
+    zscore_long_threshold: -2.0
+    base_zscore_short_threshold: 2.0
+    recovery_delta: 1.0
+    allow_multiple_recoveries: true
+    recovery_cooldown_bars: 5
+    alllow_stacking: true
     max_stacked_positions: 3
-    additional_zscore_min_gain: 3.0
-    recovery_delta_reentry: 1.5
-    stacking_bar_cooldown: 15
+    additional_zscore_min_gain: 1.5
+    recovery_delta_reentry: 1.0
+    stacking_bar_cooldown: 20
+  
+  kalman_exit_long: 0
+  kalman_exit_short: 0 
 
-# VIX
-vix_fear_threshold: [38]
-vix_chill_threshold: [22]
-kalman_slope_sector_params:
-  strong_down:
-    allow_trades: true
-    long_risk_factor: 1
-    short_risk_factor: 1
-    regime_params:
-      regime1:
-        kalman_zscore_exit_long: 0
-        kalman_zscore_exit_short: 0
-        elastic_entry:
-          z_min_threshold: -2.5
-          z_max_threshold: 2.5
-          recovery_delta: 1.0
-          reset_neutral_zone_long: -0.5
-          reset_neutral_zone_short: 0.5
-      regime2:
-        kalman_zscore_exit_long: 0.0
-        kalman_zscore_exit_short: 0.0
-        elastic_entry:
-          z_min_threshold: -2.5
-          z_max_threshold: 2.5
-          recovery_delta: 1.5
-          reset_neutral_zone_long: -0.8
-          reset_neutral_zone_short: 0.8
+  long_risk_factor: 1
+  short_risk_factor: 1
 
-  moderate_down:
-    allow_trades: true
-    long_risk_factor: 1
-    short_risk_factor: 1
-    regime_params:
-      regime1:
-        kalman_zscore_exit_long: 0
-        kalman_zscore_exit_short: 0
-        elastic_entry:
-          z_min_threshold: -2.5
-          z_max_threshold: 2.5
-          recovery_delta: 1.0
-          reset_neutral_zone_long: -0.5
-          reset_neutral_zone_short: 0.5
-      regime2:
-        kalman_zscore_exit_long: 0.0
-        kalman_zscore_exit_short: 0.0
-        elastic_entry:
-          z_min_threshold: -2.5
-          z_max_threshold: 2.5
-          recovery_delta: 1.5
-          reset_neutral_zone_long: -0.8
-          reset_neutral_zone_short: 0.8
+# diese werden berechnet während dem run und skalieren dann die base params oben :)
+adaptive_factors:
+  slope: 
+    enabled: true
+    min: 0.7
+    max: 1.3
+    sensitivity: 10  # Higher = more sensitive to slope changes
+  atr: 
+    enabled: true
+    window: 14
+    min: 0.7
+    max: 1.5
+    smoothing_kalman_process_var: 0.0000001
+    smoothing_kalman_measurement_var: 0.001
+  
+  # Linear adjustment sensitivities for direct parameter adjustment
+  linear_adjustments:
+    trend_sensitivity: 0.3    # How much trend affects parameters (0-1)
+    vol_sensitivity: 0.4      # How much volatility affects parameters (0-1)
+    max_trend_strength: 0.8   # Maximum trend strength before trading stops (0-1)
 
-  sideways:
-    allow_trades: true
-    long_risk_factor: 1
-    short_risk_factor: 1
-    regime_params:
-      regime1:
-        kalman_zscore_exit_long: 0
-        kalman_zscore_exit_short: 0
-        elastic_entry:
-          z_min_threshold: -2.5
-          z_max_threshold: 2.5
-          recovery_delta: 1.0
-          reset_neutral_zone_long: -0.5
-          reset_neutral_zone_short: 0.5
-      regime2:
-        kalman_zscore_exit_long: 0.0
-        kalman_zscore_exit_short: 0.0
-        elastic_entry:
-          z_min_threshold: -2.5
-          z_max_threshold: 2.5
-          recovery_delta: 1.5
-          reset_neutral_zone_long: -0.8
-          reset_neutral_zone_short: 0.8
-
-  moderate_up:
-    allow_trades: true
-    long_risk_factor: 1
-    short_risk_factor: 1
-    regime_params:
-      regime1:
-        kalman_zscore_exit_long: 0
-        kalman_zscore_exit_short: 0
-        elastic_entry:
-          z_min_threshold: -2.5
-          z_max_threshold: 2.5
-          recovery_delta: 1.0
-          reset_neutral_zone_long: -0.5
-          reset_neutral_zone_short: 0.5
-      regime2:
-        kalman_zscore_exit_long: 0.0
-        kalman_zscore_exit_short: 0.0
-        elastic_entry:
-          z_min_threshold: -2.5
-          z_max_threshold: 2.5
-          recovery_delta: 1.5
-          reset_neutral_zone_long: -0.8
-          reset_neutral_zone_short: 0.8
-
-  strong_up:
-    allow_trades: true
-    long_risk_factor: 1
-    short_risk_factor: 1
-    regime_params:
-      regime1:
-        kalman_zscore_exit_long: 0
-        kalman_zscore_exit_short: 0
-        elastic_entry:
-          z_min_threshold: -2.5
-          z_max_threshold: 2.5
-          recovery_delta: 1.5
-          reset_neutral_zone_long: -0.5
-          reset_neutral_zone_short: 0.5
-      regime2:
-        kalman_zscore_exit_long: 0.0
-        kalman_zscore_exit_short: 0.0
-        elastic_entry:
-          z_min_threshold: -2.5
-          z_max_threshold: 2.5
-          recovery_delta: 1.5
-          reset_neutral_zone_long: -0.8
-          reset_neutral_zone_short: 0.8
+gap_threshold_pct: 0.2
+vix_fear_threshold: 38
+vix_chill_threshold: 22
 
 # Risk-Parameter
 invest_percent: 1.5

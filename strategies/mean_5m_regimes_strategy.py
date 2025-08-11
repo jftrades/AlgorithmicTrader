@@ -18,8 +18,8 @@ from tools.indicators.kalman_filter_2D import KalmanFilterRegression
 from tools.indicators.kalman_filter_2D_own_ZScore import KalmanFilterRegressionWithZScore
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTFAnchored
 from tools.structure.elastic_reversion_zscore_entry import ElasticReversionZScoreEntry
-from tools.help_funcs.slope_distrubition_monitor import SlopeDistributionMonitor
 from tools.indicators.VIX import VIX
+from tools.help_funcs.adaptive_parameter_manager import AdaptiveParameterManager
 
 class Mean5mregimesStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
@@ -27,36 +27,26 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     risk_percent: float
     max_leverage: float
     min_account_balance: float
+    
+    # Legacy Kalman parameters (for basic slope calculation)
     kalman_process_var: float
     kalman_measurement_var: float
     kalman_window: int
-    kalman_slope_thresholds: dict
-    kalman_disable_price_condition_slope_long: float
-    kalman_disable_price_condition_slope_short: float
 
     start_date: str
     end_date: str
     
-    kalman_slope_sector_params: dict
-    kalman_exit_process_var: float
-    kalman_exit_measurement_var: float
-    kalman_exit_window: int
-    kalman_exit_zscore_window: int
-
-    elastic_reversion_entry: dict
+    # New adaptive system
+    base_parameters: dict
+    adaptive_factors: dict
     
     # VWAP/ZScore Parameter
     vwap_anchor_on_kalman_cross: bool = True
     zscore_calculation: dict = None
     gap_threshold_pct: float = 0.1
-    vwap_min_bars_for_zscore: int = 30
-    vwap_reset_grace_period: int = 25
-    vwap_require_trade_for_reset: bool = True
     
     vix_fear_threshold: float = 25.0
     vix_chill_threshold: float = 15.0
-    gap_threshold_pct: float = 0.1
-    test_which_slope_params: bool = False
     close_positions_on_stop: bool = True
     invest_percent: float = 0.10
 
@@ -77,13 +67,23 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.prev_close = None
         self.current_zscore = None
         self.collector = BacktestDataCollector()
+        
+        # Initialize adaptive parameter manager FIRST
+        self.adaptive_manager = AdaptiveParameterManager(
+            base_params=config.base_parameters,
+            adaptive_factors=config.adaptive_factors
+        )
+        
+        # Initialize VWAP with adaptive parameters
+        adaptive_params, _, _, _ = self.adaptive_manager.get_adaptive_parameters()
+        vwap_params = adaptive_params['vwap']
         self.vwap_zscore = VWAPZScoreHTFAnchored(
-            anchor_on_kalman_cross=getattr(config, 'vwap_anchor_on_kalman_cross', True),
+            anchor_on_kalman_cross=vwap_params['vwap_anchor_on_kalman_cross'],
             zscore_calculation=getattr(config, 'zscore_calculation', {"simple": {"enabled": True}}),
             gap_threshold_pct=config.gap_threshold_pct,
-            min_bars_for_zscore=getattr(config, 'vwap_min_bars_for_zscore', 30),
-            reset_grace_period=getattr(config, 'vwap_reset_grace_period', 25),
-            require_trade_for_reset=getattr(config, 'vwap_require_trade_for_reset', True)
+            min_bars_for_zscore=vwap_params['vwap_min_bars_for_zscore'],
+            reset_grace_period=vwap_params['vwap_reset_grace_period'],
+            require_trade_for_reset=vwap_params['vwap_require_trade_for_reset']
         )
         
         self.current_vix_value = None
@@ -98,54 +98,48 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.current_kalman_mean = None
         self.current_kalman_slope = None
 
-        # Neuer Kalman für Exit-Z-Score
+        # Neuer Kalman für Exit-Z-Score - use adaptive parameters
+        adaptive_params, _, _, _ = self.adaptive_manager.get_adaptive_parameters()
         self.kalman_exit = KalmanFilterRegressionWithZScore(
-            process_var=config.kalman_exit_process_var,
-            measurement_var=config.kalman_exit_measurement_var,
-            window=config.kalman_exit_window,
-            zscore_window=config.kalman_exit_zscore_window
+            process_var=adaptive_params['kalman_exit_process_var'],
+            measurement_var=adaptive_params['kalman_exit_measurement_var'],
+            window=10,  # Fixed window size
+            zscore_window=adaptive_params['kalman_exit_zscore_window']
         )
         self.current_kalman_exit_mean = None
         self.current_kalman_exit_slope = None
         self.current_kalman_exit_zscore = None
 
-        entry_config = config.elastic_reversion_entry
+        # Initialize with adaptive parameters
+        adaptive_elastic_params = adaptive_params['elastic_entry']
         self.elastic_entry = ElasticReversionZScoreEntry(
             vwap_zscore_indicator=self.vwap_zscore,
-            z_min_threshold=-2.0,
-            z_max_threshold=2.0,
-            recovery_delta=0.6,
+            z_min_threshold=adaptive_elastic_params['zscore_long_threshold'],
+            z_max_threshold=adaptive_elastic_params['base_zscore_short_threshold'],
+            recovery_delta=adaptive_elastic_params['recovery_delta'],
             reset_neutral_zone_long=1.0,
             reset_neutral_zone_short=-1.0,
-            allow_multiple_recoveries=entry_config.get('allow_multiple_recoveries', True),
-            recovery_cooldown_bars=entry_config.get('recovery_cooldown_bars', 5)
+            allow_multiple_recoveries=adaptive_elastic_params['allow_multiple_recoveries'],
+            recovery_cooldown_bars=adaptive_elastic_params['recovery_cooldown_bars']
         )
 
-        # NEU: Stacking-Parameter aus YAML
-        stacking_config = entry_config.get('allow_stacking', {})
-        self.allow_stacking = stacking_config.get('enabled', False) if isinstance(stacking_config, dict) else False
-        self.max_stacked_positions = stacking_config.get('max_stacked_positions', 3)
-        self.additional_zscore_min_gain = stacking_config.get('additional_zscore_min_gain', 0.5)
-        self.recovery_delta_reentry = stacking_config.get('recovery_delta_reentry', 0.3)
-        self.stacking_bar_cooldown = stacking_config.get('stacking_bar_cooldown', 10)
+        # Stacking parameters from adaptive config
+        self.allow_stacking = adaptive_elastic_params.get('alllow_stacking', False)
+        self.max_stacked_positions = adaptive_elastic_params.get('max_stacked_positions', 3)
+        self.additional_zscore_min_gain = adaptive_elastic_params.get('additional_zscore_min_gain', 0.5)
+        self.recovery_delta_reentry = adaptive_elastic_params.get('recovery_delta_reentry', 0.3)
+        self.stacking_bar_cooldown = adaptive_elastic_params.get('stacking_bar_cooldown', 10)
         
-        # NEU: Einfaches Tracking für Stacking seit letztem Kalman Cross
+        # Entry tracking for stacking
         self.long_positions_since_cross = 0
         self.short_positions_since_cross = 0
-        self.last_kalman_cross_direction = None  # "up" oder "down"
-        
-        # NEU: Entry-ZScore Tracking für Stacking
-        self.long_entry_zscores = []  # List der ZScores bei Long Entries
-        self.short_entry_zscores = []  # List der ZScores bei Short Entries
+        self.last_kalman_cross_direction = None
+        self.long_entry_zscores = []
+        self.short_entry_zscores = []
         self.bars_since_last_long_entry = 0
         self.bars_since_last_short_entry = 0
 
-        self.slope_monitor = None
-        if config.test_which_slope_params:
-            self.slope_monitor = SlopeDistributionMonitor(
-                slope_thresholds=config.kalman_slope_thresholds
-            )
-
+        # VIX initialization
         self.vix_start = config.start_date
         self.vix_end = config.end_date  
         self.vix_fear = config.vix_fear_threshold
@@ -184,16 +178,71 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         zscore = None
         bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
 
-        if self.slope_monitor and self.current_kalman_slope is not None:
-            self.slope_monitor.add_slope(self.current_kalman_slope)
+        # Update VIX
         vix_value = self.vix.get_value_on_date(bar_date)
-
-        self.current_kalman_mean, self.current_kalman_slope = self.kalman.update(float(bar.close))
-
         self.current_vix_value = vix_value
-            
+
+        # Update Kalman filters
+        self.current_kalman_mean, self.current_kalman_slope = self.kalman.update(float(bar.close))
         self.current_kalman_exit_mean, self.current_kalman_exit_slope, self.current_kalman_exit_zscore = self.kalman_exit.update(float(bar.close))
+        
+        # Update adaptive parameters with current market conditions
+        self.adaptive_manager.update_atr(float(bar.high), float(bar.low), float(self.prev_close) if self.prev_close else None)
+        adaptive_params, slope_factor, atr_factor, combined_factor = self.adaptive_manager.get_adaptive_parameters(self.current_kalman_slope)
+        
+        # Get market state for linear adjustments
+        market_state = self.adaptive_manager.get_market_state(self.current_kalman_slope)
+        
+        # Apply linear adjustments to entry parameters based on market state
+        elastic_base = adaptive_params['elastic_entry']
+        
+        # Get sensitivity settings from config
+        linear_config = self.adaptive_manager.adaptive_factors.get('linear_adjustments', {})
+        trend_sensitivity = linear_config.get('trend_sensitivity', 0.3)
+        vol_sensitivity = linear_config.get('vol_sensitivity', 0.4)
+        max_trend_strength = linear_config.get('max_trend_strength', 0.8)
+        
+        # Linear adjustment examples:
+        # - Trending up: tighter long entries (smaller negative thresholds), looser short entries
+        # - Trending down: looser long entries (larger negative thresholds), tighter short entries
+        # - High volatility: wider thresholds overall
+        
+        adjusted_long_threshold = self.adaptive_manager.get_linear_adjustment(
+            base_value=elastic_base['zscore_long_threshold'],
+            trend_factor=market_state['trend_factor'],
+            volatility_factor=market_state['volatility_factor'],
+            trend_sensitivity=trend_sensitivity,
+            vol_sensitivity=vol_sensitivity
+        )
+        
+        adjusted_short_threshold = self.adaptive_manager.get_linear_adjustment(
+            base_value=elastic_base['base_zscore_short_threshold'],
+            trend_factor=-market_state['trend_factor'],  # Inverse for short
+            volatility_factor=market_state['volatility_factor'],
+            trend_sensitivity=trend_sensitivity,
+            vol_sensitivity=vol_sensitivity
+        )
+        
+        adjusted_recovery_delta = self.adaptive_manager.get_linear_adjustment(
+            base_value=elastic_base['recovery_delta'],
+            trend_factor=0,  # Keep recovery delta neutral to trend
+            volatility_factor=market_state['volatility_factor'],
+            trend_sensitivity=0,
+            vol_sensitivity=vol_sensitivity * 0.5  # Only adjust slightly for volatility
+        )
+        
+        # Update elastic entry with dynamically adjusted parameters
+        self.elastic_entry.update_parameters(
+            z_min_threshold=adjusted_long_threshold,
+            z_max_threshold=adjusted_short_threshold,
+            recovery_delta=adjusted_recovery_delta
+        )
+        
+        # Update stacking parameters
+        self.additional_zscore_min_gain = elastic_base['additional_zscore_min_gain']
+        self.recovery_delta_reentry = elastic_base['recovery_delta_reentry']
             
+        # Update VWAP
         vwap_segment_info_before = self.vwap_zscore.get_segment_info()
         vwap_value, zscore = self.vwap_zscore.update(bar, kalman_exit_mean=self.current_kalman_exit_mean)
         self.current_zscore = zscore
@@ -205,27 +254,39 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self._check_vwap_cross_for_stacking(bar, vwap_segment_info_before, vwap_segment_info_after)
         self.bar_counter += 1
 
-        # Update Entry Tracking Counters
+        # Update entry tracking counters
         self.bars_since_last_long_entry += 1
         self.bars_since_last_short_entry += 1
 
+        # Log adaptive factors periodically
+        if self.bar_counter % 50 == 0:
+            self.log.info(f"Market State - Trend: {market_state['trend_factor']:.3f}, Vol: {market_state['volatility_factor']:.3f} | "
+                         f"Long Threshold: {adjusted_long_threshold:.2f}, Short Threshold: {adjusted_short_threshold:.2f}")
+
+        # Trading logic
         bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
         if bar_time >= datetime.time(15, 40) and bar_time <= datetime.time(21, 50):
             if self.current_vix_value is not None:
                 regime = self.get_vix_regime(self.current_vix_value)
 
-                if regime == 3:
+                if regime == 3:  # High VIX - close positions
                     self.vwap_zscore.notify_exit_trade_occurred()
                     self.order_types.close_position_by_market_order()
                 else:
                     if self.current_kalman_exit_mean is not None and self.current_kalman_mean is not None and zscore is not None:
-                        if bar.close < self.current_kalman_exit_mean:
-                            self.check_for_long_trades(bar, zscore)
-                        elif bar.close > self.current_kalman_exit_mean:
-                            self.check_for_short_trades(bar, zscore)
+                        # Check if we should trade in current market state
+                        if market_state['trend_strength'] < max_trend_strength:
+                            # Use adaptive risk factors
+                            self.current_long_risk_factor = adaptive_params['long_risk_factor']
+                            self.current_short_risk_factor = adaptive_params['short_risk_factor']
+                            
+                            if bar.close < self.current_kalman_exit_mean:
+                                self.check_for_long_trades(bar, zscore, adaptive_params, market_state)
+                            elif bar.close > self.current_kalman_exit_mean:
+                                self.check_for_short_trades(bar, zscore, adaptive_params, market_state)
 
-        self.check_for_long_exit(bar)
-        self.check_for_short_exit(bar)
+        self.check_for_long_exit(bar, adaptive_params)
+        self.check_for_short_exit(bar, adaptive_params)
         self.update_visualizer_data(bar)
         self.prev_close = bar.close
         self.prev_zscore = zscore
@@ -305,23 +366,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                 return False
         
         return True
-    
-    def should_apply_price_condition(self, direction: str) -> bool:
-
-        if self.current_kalman_slope is None:
-            return False
-
-        slope_abs = abs(self.current_kalman_slope)
-
-        if direction == "long":
-            threshold = abs(self.config.kalman_disable_price_condition_slope_long)  # 0.025
-            return slope_abs <= threshold
-            
-        elif direction == "short":
-            threshold = abs(self.config.kalman_disable_price_condition_slope_short)  # 0.025
-            return slope_abs <= threshold
-            
-        return False
 
     def get_vix_regime(self, vix_value: float) -> int:
         if vix_value < self.vix_chill:
@@ -330,64 +374,21 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             return 2  
         else:
             return 3
-        
-        
-    def get_kalman_slope_sector(self):
-        slope = self.current_kalman_slope
-        thresholds = self.config.kalman_slope_thresholds
-        if slope < thresholds["strong_down"]:
-            return "strong_down"
-        elif slope < thresholds["moderate_down"]:
-            return "moderate_down"
-        elif slope <= thresholds["sideways"]:
-            return "sideways"
-        elif slope <= thresholds["moderate_up"]:
-            return "moderate_up"
-        else:
-            return "strong_up"
-        
-    def get_slope_sector_params(self, regime: int):
-        sector = self.get_kalman_slope_sector()
-        params = self.config.kalman_slope_sector_params.get(sector, {})
-        allow_trades = params.get("allow_trades", True)
-        long_risk_factor = params.get("long_risk_factor", 1.0)
-        short_risk_factor = params.get("short_risk_factor", 1.0)
-        regime_key = f"regime{regime}"
-        regime_params = params.get("regime_params", {}).get(regime_key, {})
-        kalman_zscore_exit_long = regime_params.get("kalman_zscore_exit_long", None)
-        kalman_zscore_exit_short = regime_params.get("kalman_zscore_exit_short", None)
-        
-        return (allow_trades, long_risk_factor, short_risk_factor,
-                kalman_zscore_exit_long, kalman_zscore_exit_short)
     
-    def check_for_long_trades(self, bar: Bar, zscore: float):
-        if self.should_apply_price_condition("long"):
-            if bar.close >= self.current_kalman_mean:
-                return
-            
+    def check_for_long_trades(self, bar: Bar, zscore: float, adaptive_params: dict, market_state: dict):
         if self.current_kalman_exit_mean is not None and bar.close >= self.current_kalman_exit_mean:
             return
 
         regime = self.get_vix_regime(self.current_vix_value)
-        params = self.get_slope_sector_params(regime)
-        allow_trades = params[0]
-        long_risk_factor = params[1]
-        
-        if not allow_trades:
+        if regime == 3:  # High VIX regime - no trades
             return
         
         can_enter = self.can_stack_long(zscore)
-            
         if not can_enter:
             return
-        
-        sector = self.get_kalman_slope_sector()
-        self.elastic_entry.apply_sector_regime_params(
-            config_params=self.config.kalman_slope_sector_params,
-            sector=sector,
-            regime=regime
-        )
 
+        # Use adaptive risk factor
+        long_risk_factor = adaptive_params['long_risk_factor']
         invest_percent = Decimal(str(self.config.invest_percent)) * Decimal(str(long_risk_factor))
         entry_price = Decimal(str(bar.close))
         qty, valid_position = self.risk_manager.calculate_investment_size(invest_percent, entry_price)
@@ -399,50 +400,34 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if long_signal:
             entry_reason = debug_info.get('long_entry_reason', 'Recovery signal')
             
-            # KEIN VWAP Reset bei Entry Trades!
-            # self.vwap_zscore.notify_trade_occurred()
             self.order_types.submit_long_market_order(qty, price=bar.close)
             self.long_positions_since_cross += 1
             
-            # Track Entry ZScore für Stacking
+            # Track entry ZScore for stacking
             self.long_entry_zscores.append(zscore)
             self.bars_since_last_long_entry = 0
             
             stack_info = f"Stack {self.long_positions_since_cross}/{self.max_stacked_positions}" if self.long_positions_since_cross > 1 else "Initial"
             
             self.log.info(
-                f"Long Entry [{sector}/regime{regime}] {stack_info}: {entry_reason} | ZScore: {zscore:.2f}", 
+                f"Long Entry [VIX{regime}/T:{market_state['trend_factor']:.2f}/V:{market_state['volatility_factor']:.2f}] {stack_info}: {entry_reason} | ZScore: {zscore:.2f} | Risk: {long_risk_factor:.3f}", 
                 color=LogColor.GREEN
             )
 
-    def check_for_short_trades(self, bar: Bar, zscore: float):
-        if self.should_apply_price_condition("short"):
-            if bar.close <= self.current_kalman_mean:
-                return
-            
+    def check_for_short_trades(self, bar: Bar, zscore: float, adaptive_params: dict, market_state: dict):
         if self.current_kalman_exit_mean is not None and bar.close <= self.current_kalman_exit_mean:
             return
     
         regime = self.get_vix_regime(self.current_vix_value)
-        params = self.get_slope_sector_params(regime)
-        allow_trades = params[0]
-        short_risk_factor = params[2]
-        
-        if not allow_trades:
+        if regime == 3:  # High VIX regime - no trades
             return
         
         can_enter = self.can_stack_short(zscore)
-    
         if not can_enter:
             return
 
-        sector = self.get_kalman_slope_sector()
-        self.elastic_entry.apply_sector_regime_params(
-            config_params=self.config.kalman_slope_sector_params,
-            sector=sector,
-            regime=regime
-        )
-
+        # Use adaptive risk factor
+        short_risk_factor = adaptive_params['short_risk_factor']
         invest_percent = Decimal(str(self.config.invest_percent)) * Decimal(str(short_risk_factor))
         entry_price = Decimal(str(bar.close))
         qty, valid_position = self.risk_manager.calculate_investment_size(invest_percent, entry_price)
@@ -454,63 +439,59 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if short_signal:
             entry_reason = debug_info.get('short_entry_reason', 'Recovery signal')
             
-            # KEIN VWAP Reset bei Entry Trades!
-            # self.vwap_zscore.notify_trade_occurred()
             self.order_types.submit_short_market_order(qty, price=bar.close)
             self.short_positions_since_cross += 1
             
-            # Track Entry ZScore für Stacking
+            # Track entry ZScore for stacking
             self.short_entry_zscores.append(zscore)
             self.bars_since_last_short_entry = 0
             
             stack_info = f"Stack {self.short_positions_since_cross}/{self.max_stacked_positions}" if self.short_positions_since_cross > 1 else "Initial"
             
             self.log.info(
-                f"Short Entry [{sector}/regime{regime}] {stack_info}: {entry_reason} | ZScore: {zscore:.2f}", 
+                f"Short Entry [VIX{regime}/T:{market_state['trend_factor']:.2f}/V:{market_state['volatility_factor']:.2f}] {stack_info}: {entry_reason} | ZScore: {zscore:.2f} | Risk: {short_risk_factor:.3f}", 
                 color=LogColor.MAGENTA
             )
 
-    def check_for_long_exit(self, bar):
+    def check_for_long_exit(self, bar, adaptive_params: dict):
         if self.current_vix_value is None:
             return
         regime = self.get_vix_regime(self.current_vix_value)
-        params = self.get_slope_sector_params(regime)
-        allow_trades = params[0]
-        kalman_zscore_exit_long = params[3] 
-        if not allow_trades:
+        
+        if regime == 3:  # High VIX - force exit
             self.vwap_zscore.notify_exit_trade_occurred()
             self.order_types.close_position_by_market_order()
             return
 
         net_pos = self.portfolio.net_position(self.instrument_id)
-        if (
-                net_pos is not None and net_pos > 0
-                and self.current_kalman_exit_zscore is not None
-                and kalman_zscore_exit_long is not None
-                and self.current_kalman_exit_zscore >= kalman_zscore_exit_long
-            ):
-                self.vwap_zscore.notify_exit_trade_occurred()
-                self.order_types.close_position_by_market_order()
+        kalman_exit_threshold = adaptive_params['kalman_exit_long']
+        
+        if (net_pos is not None and net_pos > 0
+            and self.current_kalman_exit_zscore is not None
+            and kalman_exit_threshold is not None
+            and self.current_kalman_exit_zscore >= kalman_exit_threshold):
+            
+            self.vwap_zscore.notify_exit_trade_occurred()
+            self.order_types.close_position_by_market_order()
 
-    def check_for_short_exit(self, bar):
+    def check_for_short_exit(self, bar, adaptive_params: dict):
         if self.current_vix_value is None:
             return
         regime = self.get_vix_regime(self.current_vix_value)
-        params = self.get_slope_sector_params(regime)
-        allow_trades = params[0]
-        kalman_zscore_exit_short = params[4]
-        if not allow_trades:
+        
+        if regime == 3:  # High VIX - force exit
             self.vwap_zscore.notify_exit_trade_occurred()
             self.order_types.close_position_by_market_order()
             return
         
         net_pos = self.portfolio.net_position(self.instrument_id)
-        if (
-            net_pos is not None and net_pos < 0
+        kalman_exit_threshold = adaptive_params['kalman_exit_short']
+        
+        if (net_pos is not None and net_pos < 0
             and self.current_kalman_exit_zscore is not None
-            and kalman_zscore_exit_short is not None
-            and self.current_kalman_exit_zscore <= kalman_zscore_exit_short
-        ):
+            and kalman_exit_threshold is not None
+            and self.current_kalman_exit_zscore <= kalman_exit_threshold):
+            
             self.vwap_zscore.notify_exit_trade_occurred()
             self.order_types.close_position_by_market_order()
 
@@ -525,9 +506,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         return self.base_close_position()
     
     def on_stop(self) -> None:
-        if self.slope_monitor:
-            self.slope_monitor.print_distribution()
-
         self.base_on_stop()
         try:
             unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
