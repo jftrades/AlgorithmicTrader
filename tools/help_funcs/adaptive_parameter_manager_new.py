@@ -1,6 +1,5 @@
 import numpy as np
 from collections import deque
-from tools.indicators.kalman_filter_2D import KalmanFilterRegression
 from tools.help_funcs.slope_distrubition_monitor import SlopeDistributionMonitor
 
 
@@ -90,26 +89,13 @@ class RobustATRCalculator:
 
 
 class AdaptiveParameterManager:
-    def __init__(self, base_params: dict, adaptive_factors: dict):
+    def __init__(self, base_params: dict, adaptive_factors: dict, kalman_filter=None):
         self.base_params = base_params
         self.adaptive_factors = adaptive_factors
+        self.kalman = kalman_filter
+        self.current_slope = 0.0
+        self.current_kalman_mean = None
         
-        # Kalman Filter for slope calculation
-        if self.adaptive_factors.get('kalman', {}).get('enabled', False):
-            kalman_config = self.adaptive_factors['kalman']
-            self.kalman = KalmanFilterRegression(
-                process_var=kalman_config.get('process_var', 0.000000001),
-                measurement_var=kalman_config.get('measurement_var', 0.001),
-                window=10
-            )
-            self.current_slope = 0.0
-            self.current_kalman_mean = None
-        else:
-            self.kalman = None
-            self.current_slope = 0.0
-            self.current_kalman_mean = None
-        
-        # Robust ATR Calculator
         if self.adaptive_factors.get('atr', {}).get('enabled', False):
             atr_config = self.adaptive_factors['atr']
             self.atr_calculator = RobustATRCalculator(
@@ -122,7 +108,6 @@ class AdaptiveParameterManager:
             self.atr_calculator = None
             self.current_atr_percentile = 0.5
         
-        # Slope Distribution Monitor
         if self.adaptive_factors.get('slope_monitor', {}).get('enabled', False):
             monitor_config = self.adaptive_factors['slope_monitor']
             self.slope_monitor = SlopeDistributionMonitor(
@@ -131,20 +116,17 @@ class AdaptiveParameterManager:
         else:
             self.slope_monitor = None
     
-    def update_slope(self, price: float):
-        if self.kalman is not None:
-            mean, slope = self.kalman.update(price)
-            if mean is not None:
-                self.current_kalman_mean = mean
-            if slope is not None:
-                self.current_slope = slope
-                if self.slope_monitor is not None:
-                    self.slope_monitor.add_slope(slope)
-            return mean, slope
-        return None, None
+    def update_slope(self, kalman_mean: float, kalman_slope: float):
+        if kalman_mean is not None:
+            self.current_kalman_mean = kalman_mean
+        if kalman_slope is not None:
+            self.current_slope = kalman_slope
+            if self.slope_monitor is not None:
+                self.slope_monitor.add_slope(kalman_slope)
+        return kalman_mean, kalman_slope
     
-    def update_market_data(self, price: float, high: float, low: float, prev_close: float = None):
-        self.update_slope(price)
+    def update_market_data(self, kalman_mean: float, kalman_slope: float, high: float, low: float, prev_close: float = None):
+        self.update_slope(kalman_mean, kalman_slope)
         self.update_atr(high, low, prev_close)
     
     def update_atr(self, high: float, low: float, prev_close: float = None):
@@ -235,8 +217,8 @@ class AdaptiveParameterManager:
             'max_stacked_positions': elastic_base.get('max_stacked_positions', 3),
         }
         
-        adaptive_params['kalman_exit_long'] = self.base_params['kalman_exit_long'] * combined_factor
-        adaptive_params['kalman_exit_short'] = self.base_params['kalman_exit_short'] * combined_factor
+        adaptive_params['kalman_zscore_exit_long'] = self.base_params['kalman_zscore_exit_long'] * combined_factor
+        adaptive_params['kalman_zscore_exit_short'] = self.base_params['kalman_zscore_exit_short'] * combined_factor
         adaptive_params['long_risk_factor'] = self.base_params['long_risk_factor'] * combined_factor
         adaptive_params['short_risk_factor'] = self.base_params['short_risk_factor'] * combined_factor
         
@@ -248,9 +230,9 @@ class AdaptiveParameterManager:
             'vwap_reset_grace_period': vwap_base.get('vwap_reset_grace_period', 40),
         }
         
-        adaptive_params['kalman_exit_process_var'] = self.base_params['kalman_exit_process_var']
-        adaptive_params['kalman_exit_measurement_var'] = self.base_params['kalman_exit_measurement_var']
-        adaptive_params['kalman_exit_zscore_window'] = self.base_params['kalman_exit_zscore_window']
+        adaptive_params['kalman_process_var'] = self.base_params['kalman_process_var']
+        adaptive_params['kalman_measurement_var'] = self.base_params['kalman_measurement_var']
+        adaptive_params['kalman_zscore_window'] = self.base_params['kalman_zscore_window']
         
         return adaptive_params, slope_factor, atr_factor, combined_factor
     

@@ -3,77 +3,72 @@ symbol: "SPY"
 venue: "ARCA"
 instrument_id: "SPY.ARCA"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
-start_date: "2024-01-01T00:00:00Z"
-end_date: "2024-03-01T23:59:59Z"
+start_date: "2023-01-01T00:00:00Z"
+end_date: "2024-12-01T23:59:59Z"
 
 # BAAsis - Params (hier drunter sind die Starteinstellungen)
 base_parameters:
-  kalman_exit_process_var: 0.00000001
-  kalman_exit_measurement_var: 0.001
-  kalman_exit_zscore_window: 10
+  kalman_process_var: 0.00001
+  kalman_measurement_var: 0.05
+  kalman_zscore_window: 15
 
   vwap:
     vwap_anchor_on_kalman_cross: true 
     vwap_require_trade_for_reset: true 
-    vwap_min_bars_for_zscore: 15
+    vwap_min_bars_for_zscore: 10
     vwap_reset_grace_period: 40
 
   elastic_entry:
-    zscore_long_threshold: -2.8
-    zscore_short_threshold: 2.8
-    recovery_delta: 1.0
+    zscore_long_threshold: -2.0
+    zscore_short_threshold: 2.0
+    recovery_delta: 0.8
     allow_multiple_recoveries: true
-    recovery_cooldown_bars: 5
+    recovery_cooldown_bars: 2
     alllow_stacking: true
-    max_stacked_positions: 2
-    additional_zscore_min_gain: 1.5
-    recovery_delta_reentry: 1.0
-    stacking_bar_cooldown: 20
+    max_stacked_positions: 4
+    additional_zscore_min_gain: 0.8
+    recovery_delta_reentry: 0.6
+    stacking_bar_cooldown: 3 
   
-  kalman_exit_long: 0
-  kalman_exit_short: 0 
+  kalman_zscore_exit_long: -0.2
+  kalman_zscore_exit_short: 0.8
 
-  long_risk_factor: 1
-  short_risk_factor: 1
+  long_risk_factor: 1.4
+  short_risk_factor: 0.7 
 
 # these will be calculated while Runnninnng and then netted with base params
 adaptive_factors:
-  kalman: 
+  slope:
     enabled: true
-    process_var: 0.00000001
-    measurement_var: 0.001 
+    min: 0.6
+    max: 1.6
+    sensitivity: 0.03
   
-  slope: # the stats we are changing below are the outer borders for the multiplication, which will be scaled linearlly
+  atr:
     enabled: true
-    min: 0.4
-    max: 2.0
-    sensitivity: 0.4
+    window: 25
+    percentile_window: 100
+    outlier_threshold: 2.5
+    min: 0.7
+    max: 1.4
   
-  atr: # the ATR weighting only depends on the atr precentile window -> only enable to see if ATR is not redundant
-    enabled: true
-    window: 14
-    percentile_window: 100 # how many of the last ATR-values are being used for perecentile- calculation
-    outlier_threshold: 3.0 # Sigma - threshold (based on winsorizing) -> prevents distortion from big gaps, jumps...
-    min: 0.5
-    max: 2.0
-  
-  combination: # if set to true - we don´t just multiply atr and the slope, but combine them logarithmically
+  combination:
     use_log_space: true
-    min_combined_factor: 0.5 # 1 is the base - factor
+    min_combined_factor: 0.3
     max_combined_factor: 2.5
 
   asymmetric_offset:
     enabled: true
-    max_offset_pct: 3 
-    min_trend_strength: 0.001  # Sehr niedrig für kleine Slopes
-    strength_threshold: 0.5   # Niedrigere Schwelle für echte Slope-Range
+    max_offset_pct: 1.2
+    min_trend_strength: 0.02
+    strength_threshold: 0.15
     scale_by_volatility: true
-    vol_sensitivity: 0.5  
+    vol_sensitivity: 0.4
     
   linear_adjustments:
-    trend_sensitivity: 0.5
-    vol_sensitivity: 0.5
-    max_trend_strength: 0.5
+    trend_sensitivity: 0.4
+    vol_sensitivity: 0.3
+    max_trend_strength: 0.8
   
   slope_monitor:
     enabled: true
@@ -83,9 +78,9 @@ gap_threshold_pct: 0.2
 vix_fear_threshold: 38
 
 # Risk-Parameter
-invest_percent: 1.5
+invest_percent: 2.0
 close_positions_on_stop: true
-risk_percent: 0.01
+risk_percent: 0.015
 max_leverage: 2
 min_account_balance: 1000
 
