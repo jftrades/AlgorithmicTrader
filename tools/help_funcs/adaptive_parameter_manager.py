@@ -1,6 +1,7 @@
 import numpy as np
 from collections import deque
 from tools.indicators.kalman_filter_2D import KalmanFilterRegression
+from tools.help_funcs.slope_distrubition_monitor import SlopeDistributionMonitor
 
 
 class AdaptiveParameterManager:
@@ -31,6 +32,14 @@ class AdaptiveParameterManager:
             self.atr_history = None
             self.current_atr_percentile = 0.5
             self.atr_historical = None
+        
+        if self.adaptive_factors.get('slope_monitor', {}).get('enabled', False):
+            monitor_config = self.adaptive_factors['slope_monitor']
+            self.slope_monitor = SlopeDistributionMonitor(
+                bin_size=monitor_config.get('bin_size', 0.001)
+            )
+        else:
+            self.slope_monitor = None
     
     def update_slope(self, price: float):
         if self.kalman is not None:
@@ -39,6 +48,8 @@ class AdaptiveParameterManager:
                 self.current_kalman_mean = mean
             if slope is not None:
                 self.current_slope = slope
+                if self.slope_monitor is not None:
+                    self.slope_monitor.add_slope(slope)
             return mean, slope
         return None, None
     
@@ -179,10 +190,11 @@ class AdaptiveParameterManager:
         return base_value + trend_adjustment + vol_adjustment
     
     def get_debug_info(self) -> dict:
-        return {
+        debug_info = {
             'kalman_enabled': self.adaptive_factors.get('kalman', {}).get('enabled', False),
             'atr_enabled': self.adaptive_factors.get('atr', {}).get('enabled', False),
             'slope_enabled': self.adaptive_factors.get('slope', {}).get('enabled', False),
+            'slope_monitor_enabled': self.adaptive_factors.get('slope_monitor', {}).get('enabled', False),
             'current_atr_percentile': self.current_atr_percentile,
             'current_slope': self.current_slope,
             'current_kalman_mean': self.current_kalman_mean,
@@ -190,3 +202,14 @@ class AdaptiveParameterManager:
             'atr_historical_length': len(self.atr_historical) if self.atr_historical else 0,
             'kalman_initialized': self.kalman.initialized if self.kalman else False,
         }
+        
+        if self.slope_monitor is not None:
+            debug_info['slope_monitor_samples'] = self.slope_monitor.total_count
+            
+        return debug_info
+    
+    def print_slope_distribution(self):
+        if self.slope_monitor is not None:
+            self.slope_monitor.print_distribution()
+        else:
+            print("Slope monitor is disabled.")

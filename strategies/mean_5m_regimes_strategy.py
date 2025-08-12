@@ -503,6 +503,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
 
         logging_message = self.collector.save_data()
         self.log.info(logging_message, color=LogColor.GREEN)
+        
+        self.adaptive_manager.print_slope_distribution()
     
     def on_order_filled(self, order_filled) -> None:
         # KEIN automatischer VWAP Reset bei allen Order Fills
