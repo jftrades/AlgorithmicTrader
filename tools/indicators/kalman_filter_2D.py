@@ -20,6 +20,8 @@ class KalmanFilterRegression:
         self.buffer = deque(maxlen=window)  # Für Regression
 
     def update(self, value: float):
+        self.buffer.append(value)
+        
         # Initialisierung
         if not self.initialized:
             self.window.append(value)
@@ -37,13 +39,11 @@ class KalmanFilterRegression:
         self.mean = pred_mean + K * (value - pred_mean)
         self.var = (1 - K) * pred_var
 
-        # Buffer für Regression aktualisieren
-        self.buffer.append(self.mean)
-        # Slope per Regression berechnen
         if len(self.buffer) >= 2:
             y = np.array(self.buffer)
             x = np.arange(len(y))
-            slope = np.polyfit(x, y, 1)[0]
+            raw_slope = np.polyfit(x, y, 1)[0]
+            slope = raw_slope * 1  
         else:
             slope = 0.0
 
@@ -66,7 +66,9 @@ class KalmanFilterRegression:
         if len(self.buffer) >= 2:
             y = np.array(self.buffer)
             x = np.arange(len(y))
-            return np.polyfit(x, y, 1)[0]
+            raw_slope = np.polyfit(x, y, 1)[0]
+            # Scale up the slope to make trends more pronounced
+            return raw_slope * 100  # Scale factor of 100
         return 0.0
 
 class KalmanFilter1D:

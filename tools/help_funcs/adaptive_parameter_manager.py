@@ -50,6 +50,12 @@ class AdaptiveParameterManager:
                 self.current_slope = slope
                 if self.slope_monitor is not None:
                     self.slope_monitor.add_slope(slope)
+                if hasattr(self, '_debug_counter'):
+                    self._debug_counter += 1
+                else:
+                    self._debug_counter = 1
+                if self._debug_counter % 100 == 0:
+                    print(f"DEBUG: Slope={slope:.6f}, Mean={mean:.2f}, Price={price:.2f}")
             return mean, slope
         return None, None
     
@@ -71,13 +77,7 @@ class AdaptiveParameterManager:
         if len(self.atr_history) >= self.adaptive_factors['atr']['window']:
             current_atr = np.mean(self.atr_history)
             
-            if self.kalman is not None and self.kalman.initialized:
-                smoothed_atr = current_atr
-                for _ in range(5):
-                    _, _ = self.kalman.update(smoothed_atr)
-                    smoothed_atr = self.kalman.current_mean if hasattr(self.kalman, 'current_mean') else current_atr
-            else:
-                smoothed_atr = current_atr
+            smoothed_atr = current_atr
             
             self.atr_historical.append(smoothed_atr)
             
@@ -167,7 +167,7 @@ class AdaptiveParameterManager:
         slope_config = self.adaptive_factors.get('slope', {})
         sensitivity = slope_config.get('sensitivity', 10)
         
-        normalized_slope = slope_to_use / (sensitivity / 100)
+        normalized_slope = slope_to_use / sensitivity
         
         trend_factor = max(-1.0, min(1.0, normalized_slope))
         

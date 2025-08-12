@@ -41,7 +41,7 @@ adaptive_factors:
   kalman: 
     enabled: true
     process_var: 0.000001
-    measurement_var: 0.01 
+    measurement_var: 0.001 
   slope: 
     enabled: true
     min: 0.7
