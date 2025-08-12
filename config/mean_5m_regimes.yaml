@@ -38,21 +38,20 @@ base_parameters:
 
 # these will be calculated while Runnninnng and then netted with base params
 adaptive_factors:
+  kalman: 
+    enabled: true
+    process_var: 0.000000001
+    measurement_var: 0.001 
   slope: 
     enabled: true
     min: 0.7
     max: 1.3
     sensitivity: 10  # Higher = more sensitive to slope changes
-    kalman_process_var: 0.000000001
-    kalman_measurement_var: 0.001   
-    kalman_window: 10               
   atr: 
     enabled: true
     window: 14
     min: 0.7
     max: 1.5
-    smoothing_kalman_process_var: 0.0000001
-    smoothing_kalman_measurement_var: 0.001
   
   # Linear adjustment sensitivities for direct parameter adjustment
   linear_adjustments:

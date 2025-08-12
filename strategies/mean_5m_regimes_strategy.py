@@ -167,41 +167,30 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.adaptive_manager.update_atr(float(bar.high), float(bar.low), float(self.prev_close) if self.prev_close else None)
         adaptive_params, slope_factor, atr_factor, combined_factor = self.adaptive_manager.get_adaptive_parameters()
         
-        market_state = self.adaptive_manager.get_market_state()
-        
-        elastic_base = adaptive_params['elastic_entry']
-        
+        # Get sensitivity settings from config
         linear_config = self.adaptive_manager.adaptive_factors.get('linear_adjustments', {})
         trend_sensitivity = linear_config.get('trend_sensitivity', 0.3)
         vol_sensitivity = linear_config.get('vol_sensitivity', 0.4)
         max_trend_strength = linear_config.get('max_trend_strength', 0.8)
         
-        # Linear adjustment examples:
-        # - Trending up: tighter long entries (smaller negative thresholds), looser short entries
-        # - Trending down: looser long entries (larger negative thresholds), tighter short entries
-        # - High volatility: wider thresholds overall
+        # Direct linear adjustments - no intermediate states!
+        elastic_base = adaptive_params['elastic_entry']
         
         adjusted_long_threshold = self.adaptive_manager.get_linear_adjustment(
             base_value=elastic_base['zscore_long_threshold'],
-            trend_factor=market_state['trend_factor'],
-            volatility_factor=market_state['volatility_factor'],
             trend_sensitivity=trend_sensitivity,
             vol_sensitivity=vol_sensitivity
         )
         
         adjusted_short_threshold = self.adaptive_manager.get_linear_adjustment(
             base_value=elastic_base['base_zscore_short_threshold'],
-            trend_factor=-market_state['trend_factor'],  # Inverse for short
-            volatility_factor=market_state['volatility_factor'],
-            trend_sensitivity=trend_sensitivity,
+            trend_sensitivity=-trend_sensitivity,  # Inverse for short
             vol_sensitivity=vol_sensitivity
         )
         
         adjusted_recovery_delta = self.adaptive_manager.get_linear_adjustment(
             base_value=elastic_base['recovery_delta'],
-            trend_factor=0,  # Keep recovery delta neutral to trend
-            volatility_factor=market_state['volatility_factor'],
-            trend_sensitivity=0,
+            trend_sensitivity=0,  # Keep recovery delta neutral to trend
             vol_sensitivity=vol_sensitivity * 0.5  # Only adjust slightly for volatility
         )
         
@@ -234,7 +223,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
 
         # Log adaptive factors periodically
         if self.bar_counter % 50 == 0:
-            self.log.info(f"Market State - Trend: {market_state['trend_factor']:.3f}, Vol: {market_state['volatility_factor']:.3f} | "
+            trend_factor = self.adaptive_manager.get_trend_factor()
+            vol_factor = self.adaptive_manager.get_volatility_factor()
+            self.log.info(f"Adaptive Factors - Trend: {trend_factor:.3f}, Vol: {vol_factor:.3f} | "
                          f"Long Threshold: {adjusted_long_threshold:.2f}, Short Threshold: {adjusted_short_threshold:.2f}")
 
         # Trading logic
@@ -248,16 +239,17 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                     self.order_types.close_position_by_market_order()
                 else:
                     if self.current_kalman_exit_mean is not None and zscore is not None:
-                        # Check if we should trade in current market state
-                        if market_state['trend_strength'] < max_trend_strength:
+                        # Check if we should trade - simple trend strength check
+                        trend_strength = abs(self.adaptive_manager.get_trend_factor())
+                        if trend_strength < max_trend_strength:
                             # Use adaptive risk factors
                             self.current_long_risk_factor = adaptive_params['long_risk_factor']
                             self.current_short_risk_factor = adaptive_params['short_risk_factor']
                             
                             if bar.close < self.current_kalman_exit_mean:
-                                self.check_for_long_trades(bar, zscore, adaptive_params, market_state)
+                                self.check_for_long_trades(bar, zscore, adaptive_params)
                             elif bar.close > self.current_kalman_exit_mean:
-                                self.check_for_short_trades(bar, zscore, adaptive_params, market_state)
+                                self.check_for_short_trades(bar, zscore, adaptive_params)
 
         self.check_for_long_exit(bar, adaptive_params)
         self.check_for_short_exit(bar, adaptive_params)
@@ -349,7 +341,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         else:
             return 3
     
-    def check_for_long_trades(self, bar: Bar, zscore: float, adaptive_params: dict, market_state: dict):
+    def check_for_long_trades(self, bar: Bar, zscore: float, adaptive_params: dict):
         if self.current_kalman_exit_mean is not None and bar.close >= self.current_kalman_exit_mean:
             return
 
@@ -383,12 +375,15 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             
             stack_info = f"Stack {self.long_positions_since_cross}/{self.max_stacked_positions}" if self.long_positions_since_cross > 1 else "Initial"
             
+            trend_factor = self.adaptive_manager.get_trend_factor()
+            vol_factor = self.adaptive_manager.get_volatility_factor()
+            
             self.log.info(
-                f"Long Entry [VIX{regime}/T:{market_state['trend_factor']:.2f}/V:{market_state['volatility_factor']:.2f}] {stack_info}: {entry_reason} | ZScore: {zscore:.2f} | Risk: {long_risk_factor:.3f}", 
+                f"Long Entry [VIX{regime}/T:{trend_factor:.2f}/V:{vol_factor:.2f}] {stack_info}: {entry_reason} | ZScore: {zscore:.2f} | Risk: {long_risk_factor:.3f}", 
                 color=LogColor.GREEN
             )
 
-    def check_for_short_trades(self, bar: Bar, zscore: float, adaptive_params: dict, market_state: dict):
+    def check_for_short_trades(self, bar: Bar, zscore: float, adaptive_params: dict):
         if self.current_kalman_exit_mean is not None and bar.close <= self.current_kalman_exit_mean:
             return
     
@@ -422,8 +417,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             
             stack_info = f"Stack {self.short_positions_since_cross}/{self.max_stacked_positions}" if self.short_positions_since_cross > 1 else "Initial"
             
+            trend_factor = self.adaptive_manager.get_trend_factor()
+            vol_factor = self.adaptive_manager.get_volatility_factor()
+            
             self.log.info(
-                f"Short Entry [VIX{regime}/T:{market_state['trend_factor']:.2f}/V:{market_state['volatility_factor']:.2f}] {stack_info}: {entry_reason} | ZScore: {zscore:.2f} | Risk: {short_risk_factor:.3f}", 
+                f"Short Entry [VIX{regime}/T:{trend_factor:.2f}/V:{vol_factor:.2f}] {stack_info}: {entry_reason} | ZScore: {zscore:.2f} | Risk: {short_risk_factor:.3f}", 
                 color=LogColor.MAGENTA
             )
 
