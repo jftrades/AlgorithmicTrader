@@ -6,8 +6,7 @@ class VIX:
         self,
         start: str = "2020-01-01",
         end: str = "2025-01-01",
-        fear_threshold: float = 25.0,
-        chill_threshold: float = 15.0
+        fear_threshold: float = 25.0
     ):
         # Robust: Nur das Datum extrahieren, falls Zeitanteil vorhanden ist
         start_clean = start.split("T")[0]
@@ -15,7 +14,6 @@ class VIX:
         self.data = yf.download("^VIX", start=start_clean, end=end_clean)
         self.data.index = pd.to_datetime(self.data.index).date
         self.fear_threshold = fear_threshold
-        self.chill_threshold = chill_threshold
 
     def get_latest_value(self) -> float:
         return float(self.data["Close"].iloc[-1])
@@ -35,8 +33,3 @@ class VIX:
         if value is None:
             value = self.get_latest_value()
         return value >= self.fear_threshold
-
-    def is_market_chilling(self, value: float = None) -> bool:
-        if value is None:
-            value = self.get_latest_value()
-        return value <= self.chill_threshold

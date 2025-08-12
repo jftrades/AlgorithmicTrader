@@ -3,7 +3,7 @@ symbol: "SPY"
 venue: "ARCA"
 instrument_id: "SPY.ARCA"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
-start_date: "2023-06-01T00:00:00Z"
+start_date: "2023-01-01T00:00:00Z"
 end_date: "2023-12-01T23:59:59Z"
 
 # BAAsis - Params (hier drunter sind die Starteinstellungen)
@@ -42,36 +42,45 @@ adaptive_factors:
     enabled: true
     process_var: 0.000001
     measurement_var: 0.001 
-  slope: 
+  
+  slope: # the stats we are changing below are the outer borders for the multiplication, which will be scaled linearlly
     enabled: true
     min: 0.7
     max: 1.3
-    sensitivity: 10
-  atr: 
-    enabled: true
+    sensitivity: 10 # the higher the sensitivity, the faster we reach our min/max
+  
+  atr: # the ATR weighting only depends on the atr precentile window -> only enable to see if ATR is not redundant
+    enabled: false
     window: 14
-    percentile_window: 200
-    outlier_threshold: 3.0
-    min: 0.7
-    max: 1.5
+    percentile_window: 200 # how many of the last ATR-values are being used for perecentile- calculation
+    outlier_threshold: 3.0 # Sigma - threshold (based on winsorizing) -> prevents distortion from big gaps, jumps...
+    min: 0.7 
+    max: 1.3 
   
-  combination:
+  combination: # if set to true - we don´t just multiply atr and the slope, but combine them logarithmically
     use_log_space: true
-    min_combined_factor: 0.3
+    min_combined_factor: 0.3 # 1 is the base - factor
     max_combined_factor: 3.0
-  
-  slope_monitor:
+
+  asymmetric_offset:
     enabled: true
-    bin_size: 0.001
-  
+    max_offset_pct: 3 # (z.B. 1.5 = max 1.5 Z-Score Verschiebung linear mit Trend)
+    min_trend_strength: 0.001 # mindest trend/slope kalman
+    strength_threshold: 0.1 # max trend/slope kalman
+    scale_by_volatility: false
+    vol_sensitivity: 0.3  
+    
   linear_adjustments:
     trend_sensitivity: 0.3
     vol_sensitivity: 0.4
     max_trend_strength: 0.8
+  
+  slope_monitor:
+    enabled: true
+    bin_size: 0.001
 
 gap_threshold_pct: 0.2
 vix_fear_threshold: 38
-vix_chill_threshold: 22
 
 # Risk-Parameter
 invest_percent: 1.5

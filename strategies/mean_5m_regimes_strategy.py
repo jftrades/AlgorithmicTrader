@@ -18,7 +18,7 @@ from tools.indicators.kalman_filter_2D_own_ZScore import KalmanFilterRegressionW
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTFAnchored
 from tools.structure.elastic_reversion_zscore_entry import ElasticReversionZScoreEntry
 from tools.indicators.VIX import VIX
-from tools.help_funcs.adaptive_parameter_manager import AdaptiveParameterManager
+from tools.help_funcs.adaptive_parameter_manager_new import AdaptiveParameterManager
 
 class Mean5mregimesStrategyConfig(StrategyConfig):
     instrument_id: InstrumentId
@@ -40,7 +40,6 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     gap_threshold_pct: float = 0.1
     
     vix_fear_threshold: float = 25.0
-    vix_chill_threshold: float = 15.0
     close_positions_on_stop: bool = True
     invest_percent: float = 0.10
 
@@ -122,8 +121,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.vix_start = config.start_date
         self.vix_end = config.end_date  
         self.vix_fear = config.vix_fear_threshold
-        self.vix_chill = config.vix_chill_threshold
-        self.vix = VIX(start=self.vix_start, end=self.vix_end, fear_threshold=self.vix_fear, chill_threshold=self.vix_chill)
+        self.vix = VIX(start=self.vix_start, end=self.vix_end, fear_threshold=self.vix_fear)
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
@@ -157,7 +155,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
 
         vix_value = self.vix.get_value_on_date(bar_date)
-        self.current_vix_value = vix_value
+        if vix_value is not None:
+            self.current_vix_value = float(vix_value)
+        else:
+            self.current_vix_value = None
 
         current_kalman_mean, current_kalman_slope = self.adaptive_manager.update_slope(float(bar.close))
 
@@ -200,9 +201,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.additional_zscore_min_gain = elastic_base['additional_zscore_min_gain']
         self.recovery_delta_reentry = elastic_base['recovery_delta_reentry']
             
-        # Update VWAP
+        # Update VWAP with asymmetric offset
+        asymmetric_offset = self.adaptive_manager.get_asymmetric_offset(current_kalman_mean)
         vwap_segment_info_before = self.vwap_zscore.get_segment_info()
-        vwap_value, zscore = self.vwap_zscore.update(bar, kalman_exit_mean=self.current_kalman_exit_mean)
+        vwap_value, zscore = self.vwap_zscore.update(bar, kalman_exit_mean=self.current_kalman_exit_mean, asymmetric_offset=asymmetric_offset)
         self.current_zscore = zscore
         vwap_segment_info_after = self.vwap_zscore.get_segment_info()
 
@@ -222,7 +224,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             if self.current_vix_value is not None:
                 regime = self.get_vix_regime(self.current_vix_value)
 
-                if regime == 3:  # High VIX - close positions
+                if regime == 2:  # Fear regime - close positions
                     self.vwap_zscore.notify_exit_trade_occurred()
                     self.order_types.close_position_by_market_order()
                 else:
@@ -322,19 +324,22 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         return True
 
     def get_vix_regime(self, vix_value: float) -> int:
-        if vix_value < self.vix_chill:
-            return 1  
-        elif self.vix_chill <= vix_value < self.vix_fear:
-            return 2  
+        if vix_value is None:
+            return 1  # Default to normal regime
+        
+        vix_val = float(vix_value) if not isinstance(vix_value, (int, float)) else vix_value
+        
+        if vix_val >= self.vix_fear:
+            return 2  # Fear regime
         else:
-            return 3
+            return 1  # Normal regime
     
     def check_for_long_trades(self, bar: Bar, zscore: float, adaptive_params: dict):
         if self.current_kalman_exit_mean is not None and bar.close >= self.current_kalman_exit_mean:
             return
 
         regime = self.get_vix_regime(self.current_vix_value)
-        if regime == 3:  # High VIX regime - no trades
+        if regime == 2:  # Fear regime - no trades
             return
         
         can_enter = self.can_stack_long(zscore)
@@ -374,7 +379,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             return
     
         regime = self.get_vix_regime(self.current_vix_value)
-        if regime == 3:  # High VIX regime - no trades
+        if regime == 2:  # Fear regime - no trades
             return
         
         can_enter = self.can_stack_short(zscore)
@@ -414,7 +419,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             return
         regime = self.get_vix_regime(self.current_vix_value)
         
-        if regime == 3:  # High VIX - force exit
+        if regime == 2:  # Fear regime - force exit
             self.vwap_zscore.notify_exit_trade_occurred()
             self.order_types.close_position_by_market_order()
             return
@@ -435,7 +440,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             return
         regime = self.get_vix_regime(self.current_vix_value)
         
-        if regime == 3:  # High VIX - force exit
+        if regime == 2:  # Fear regime - force exit
             self.vwap_zscore.notify_exit_trade_occurred()
             self.order_types.close_position_by_market_order()
             return

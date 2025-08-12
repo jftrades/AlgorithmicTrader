@@ -147,10 +147,23 @@ class VWAPZScoreHTFAnchored:
             
         return total_pv / total_volume
 
-    def _calculate_simple_zscore(self, current_price: float, vwap_value: float) -> float:
-        return current_price - vwap_value
+    def _calculate_simple_zscore(self, current_price: float, vwap_value: float, asymmetric_offset: float = 0.0) -> float:
+        """
+        Berechnet simple Z-Score mit asymmetrischem Offset als direkte Z-Score-Units
+        
+        Args:
+            current_price: Aktueller Preis
+            vwap_value: VWAP Wert
+            asymmetric_offset: Direkter Z-Score Offset (z.B. 0.5 = +0.5 Z-Score Units)
+        """
+        base_zscore = current_price - vwap_value
+        # Asymmetrischer Offset wird direkt zu Z-Score addiert
+        return base_zscore + asymmetric_offset
 
-    def _calculate_atr_zscore(self, current_price: float, vwap_value: float, high: float, low: float) -> Optional[float]:
+    def _calculate_atr_zscore(self, current_price: float, vwap_value: float, high: float, low: float, asymmetric_offset: float = 0.0) -> Optional[float]:
+        """
+        Berechnet ATR-normalisierte Z-Score mit asymmetrischem Offset als direkte Z-Score-Units
+        """
         atr_window = self.zscore_config.get('atr', {}).get('atr_window', 14)
         
         if self.segment_atr_history:
@@ -170,11 +183,18 @@ class VWAPZScoreHTFAnchored:
         if atr == 0:
             return 0.0
             
-        return (current_price - vwap_value) / atr
+        # Basis Z-Score (ATR-normalisiert) berechnen
+        base_zscore = (current_price - vwap_value) / atr
+        # Asymmetrischer Offset wird direkt zu Z-Score addiert
+        return base_zscore + asymmetric_offset
 
-    def _calculate_std_zscore(self, current_price: float, vwap_value: float) -> Optional[float]:
+    def _calculate_std_zscore(self, current_price: float, vwap_value: float, asymmetric_offset: float = 0.0) -> Optional[float]:
+        """
+        Berechnet Standardabweichungs-normalisierte Z-Score mit asymmetrischem Offset als direkte Z-Score-Units
+        """
         std_window = self.zscore_config.get('std', {}).get('std_window', 20)
         
+        # Basis-Differenz berechnen (ohne Offset für Standardabweichung)
         current_diff = current_price - vwap_value
         self.segment_diff_history.append(current_diff)
         
@@ -187,30 +207,33 @@ class VWAPZScoreHTFAnchored:
         if std_diff == 0:
             return 0.0
             
-        return current_diff / std_diff
+        # Basis Z-Score (Standardabweichungs-normalisiert) berechnen
+        base_zscore = current_diff / std_diff
+        # Asymmetrischer Offset wird direkt zu Z-Score addiert
+        return base_zscore + asymmetric_offset
 
-    def _calculate_segment_zscore(self, current_price: float, vwap_value: float, high: float = None, low: float = None) -> Optional[float]:
+    def _calculate_segment_zscore(self, current_price: float, vwap_value: float, high: float = None, low: float = None, asymmetric_offset: float = 0.0) -> Optional[float]:
         if self.current_segment['bars_in_segment'] < self.min_bars_for_zscore:
             return None
             
         if self.zscore_method == 'simple':
-            return self._calculate_simple_zscore(current_price, vwap_value)
+            return self._calculate_simple_zscore(current_price, vwap_value, asymmetric_offset)
         elif self.zscore_method == 'atr':
             if high is None or low is None:
                 return None
-            atr_zscore = self._calculate_atr_zscore(current_price, vwap_value, high, low)
+            atr_zscore = self._calculate_atr_zscore(current_price, vwap_value, high, low, asymmetric_offset)
             if atr_zscore is None:
-                return self._calculate_simple_zscore(current_price, vwap_value)
+                return self._calculate_simple_zscore(current_price, vwap_value, asymmetric_offset)
             return atr_zscore
         elif self.zscore_method == 'std':
-            std_zscore = self._calculate_std_zscore(current_price, vwap_value)
+            std_zscore = self._calculate_std_zscore(current_price, vwap_value, asymmetric_offset)
             if std_zscore is None:
-                return self._calculate_simple_zscore(current_price, vwap_value)
+                return self._calculate_simple_zscore(current_price, vwap_value, asymmetric_offset)
             return std_zscore
         else:
-            return self._calculate_simple_zscore(current_price, vwap_value)
+            return self._calculate_simple_zscore(current_price, vwap_value, asymmetric_offset)
 
-    def update(self, bar, kalman_exit_mean: float = None) -> Tuple[Optional[float], Optional[float]]:
+    def update(self, bar, kalman_exit_mean: float = None, asymmetric_offset: float = 0.0) -> Tuple[Optional[float], Optional[float]]:
         price = float(bar.close)
         volume = float(bar.volume)
         high = float(bar.high)
@@ -267,7 +290,7 @@ class VWAPZScoreHTFAnchored:
 
         zscore = None
         if vwap_value is not None:
-            zscore = self._calculate_segment_zscore(adj_price, vwap_value, adj_high, adj_low)
+            zscore = self._calculate_segment_zscore(adj_price, vwap_value, adj_high, adj_low, asymmetric_offset)
 
         self.last_close = price
         self.total_bar_count += 1

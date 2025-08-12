@@ -274,6 +274,41 @@ class AdaptiveParameterManager:
         
         return base_value + trend_adjustment + vol_adjustment
     
+    def get_asymmetric_offset(self, base_mean: float = None) -> float:
+
+        offset_config = self.adaptive_factors.get('asymmetric_offset', {})
+        if not offset_config.get('enabled', False):
+            return 0.0
+        
+        trend_factor = self.get_trend_factor()
+        trend_strength = abs(trend_factor)
+        
+        # Parameter aus Config - jetzt als direkte Z-Score Units interpretiert
+        max_offset_zscore = offset_config.get('max_offset_pct', 0.5)  # Jetzt Z-Score Units statt Prozent
+        min_strength = offset_config.get('min_trend_strength', 0.1)
+        strength_threshold = offset_config.get('strength_threshold', 0.5)
+        
+        if trend_strength < min_strength:
+            return 0.0
+        
+        # Optionale Volatilitäts-Skalierung
+        if self.atr_calculator and offset_config.get('scale_by_volatility', False):
+            vol_scaling = 0.5 + (self.current_atr_percentile - 0.5) * offset_config.get('vol_sensitivity', 0.3)
+        else:
+            vol_scaling = 1.0
+        
+        # Z-Score Offset berechnen
+        if trend_strength >= strength_threshold:
+            zscore_offset_magnitude = max_offset_zscore * vol_scaling
+        else:
+            normalized_strength = (trend_strength - min_strength) / (strength_threshold - min_strength)
+            zscore_offset_magnitude = max_offset_zscore * normalized_strength * vol_scaling
+        
+        # Finaler Z-Score Offset: Trend-Richtung * Magnitude
+        zscore_offset = np.sign(trend_factor) * zscore_offset_magnitude
+        
+        return zscore_offset
+    
     def get_debug_info(self) -> dict:
         debug_info = {
             'kalman_enabled': self.adaptive_factors.get('kalman', {}).get('enabled', False),
@@ -305,14 +340,12 @@ class AdaptiveParameterManager:
     def log_trade_state(self, trade_type: str, price: float, zscore: float, entry_reason: str, 
                        stack_info: str, regime: int, adaptive_params: dict, 
                        long_positions: int, short_positions: int, allow_stacking: bool):
-        """Comprehensive trade logging with all relevant parameters"""
         
-        # Get current factors
         trend_factor = self.get_trend_factor()
         vol_factor = self.get_volatility_factor()
         _, slope_factor, atr_factor, combined_factor = self.get_adaptive_parameters()
+        asymmetric_offset = self.get_asymmetric_offset(self.current_kalman_mean)
         
-        # Get thresholds from adaptive params
         elastic_base = adaptive_params['elastic_entry']
         long_threshold = elastic_base['zscore_long_threshold']
         short_threshold = elastic_base['base_zscore_short_threshold']
@@ -321,6 +354,10 @@ class AdaptiveParameterManager:
         print(f"\n=== {trade_type.upper()} TRADE: {stack_info} ===")
         print(f"Price: ${price:.2f} | ZScore: {zscore:.3f} | Reason: {entry_reason} | VIX Regime: {regime}")
         print(f"Slope: {self.current_slope:.6f} | Trend Factor: {trend_factor:.3f} | Vol Factor: {vol_factor:.3f}")
+        
+        mean_str = f"{self.current_kalman_mean:.2f}" if self.current_kalman_mean is not None else "N/A"
+        print(f"Asymmetric Offset: {asymmetric_offset:.6f} | Mean: {mean_str}")
+        
         print(f"Factors - Slope: {slope_factor:.3f} | ATR: {atr_factor:.3f} | Combined: {combined_factor:.3f}")
         print(f"Thresholds - Long: {long_threshold:.2f} | Short: {short_threshold:.2f} | Recovery: {recovery_delta:.2f}")
         print(f"Position State - Long: {long_positions} | Short: {short_positions} | Stacking: {allow_stacking}")
@@ -329,7 +366,6 @@ class AdaptiveParameterManager:
             recent = self.slope_monitor.slope_values[-3:]
             print(f"Recent Slopes: {[f'{s:.4f}' for s in recent]}")
         
-        # Show ATR info if available
         if self.atr_calculator:
             print(f"ATR Info - Current: {self.atr_calculator.current_atr:.4f} | Percentile: {self.current_atr_percentile:.3f}")
         
