@@ -95,7 +95,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.elastic_entry = ElasticReversionZScoreEntry(
             vwap_zscore_indicator=self.vwap_zscore,
             z_min_threshold=adaptive_elastic_params['zscore_long_threshold'],
-            z_max_threshold=adaptive_elastic_params['base_zscore_short_threshold'],
+            z_max_threshold=adaptive_elastic_params['zscore_short_threshold'],
             recovery_delta=adaptive_elastic_params['recovery_delta'],
             reset_neutral_zone_long=1.0,
             reset_neutral_zone_short=-1.0,
@@ -181,7 +181,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         )
         
         adjusted_short_threshold = self.adaptive_manager.get_linear_adjustment(
-            base_value=elastic_base['base_zscore_short_threshold'],
+            base_value=elastic_base['zscore_short_threshold'],
             trend_sensitivity=-trend_sensitivity,
             vol_sensitivity=vol_sensitivity
         )

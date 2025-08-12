@@ -156,7 +156,20 @@ class VWAPZScoreHTFAnchored:
             vwap_value: VWAP Wert
             asymmetric_offset: Direkter Z-Score Offset (z.B. 0.5 = +0.5 Z-Score Units)
         """
-        base_zscore = current_price - vwap_value
+        # Standardabweichung der Preise im aktuellen Segment berechnen
+        if len(self.current_segment['price_volume_data']) < 10:
+            # Fallback: einfache Prozent-Differenz als Pseudo-Z-Score
+            base_zscore = ((current_price - vwap_value) / vwap_value) * 100
+        else:
+            # Echte Z-Score Berechnung mit Standardabweichung
+            prices = [price for price, _, _, _ in self.current_segment['price_volume_data']]
+            std_price = np.std(prices)
+            
+            if std_price == 0:
+                base_zscore = 0.0
+            else:
+                base_zscore = (current_price - vwap_value) / std_price
+        
         # Asymmetrischer Offset wird direkt zu Z-Score addiert
         return base_zscore + asymmetric_offset
 

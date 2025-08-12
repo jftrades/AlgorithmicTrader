@@ -184,10 +184,21 @@ class AdaptiveParameterManager:
         slope_config = self.adaptive_factors['slope']
         sensitivity = slope_config['sensitivity']
         
-        normalized_slope = (slope + sensitivity) / (2 * sensitivity)
-        normalized_slope = max(0.0, min(1.0, normalized_slope))
+        # Slope-Werte sind typischerweise sehr klein (-0.2 bis +0.2)
+        # Besser: abs(slope) verwenden und an reale Slope-Range anpassen
+        abs_slope = abs(slope)
         
-        scale_factor = slope_config['min'] + normalized_slope * (slope_config['max'] - slope_config['min'])
+        # Normalisierung: 0 bis sensitivity entspricht 0 bis 1
+        normalized_slope = min(abs_slope / sensitivity, 1.0)
+        
+        # Für positive/negative Slopes unterschiedlich behandeln
+        if slope >= 0:
+            # Positive Slopes: von 1.0 bis max
+            scale_factor = 1.0 + normalized_slope * (slope_config['max'] - 1.0)
+        else:
+            # Negative Slopes: von 1.0 bis min  
+            scale_factor = 1.0 - normalized_slope * (1.0 - slope_config['min'])
+            
         return scale_factor
     
     def calculate_atr_factor(self) -> float:
@@ -213,7 +224,7 @@ class AdaptiveParameterManager:
         elastic_base = self.base_params['elastic_entry']
         adaptive_params['elastic_entry'] = {
             'zscore_long_threshold': elastic_base['zscore_long_threshold'] * combined_factor,
-            'base_zscore_short_threshold': elastic_base['base_zscore_short_threshold'] * combined_factor,
+            'zscore_short_threshold': elastic_base['zscore_short_threshold'] * combined_factor,
             'recovery_delta': elastic_base['recovery_delta'] * combined_factor,
             'additional_zscore_min_gain': elastic_base['additional_zscore_min_gain'] * combined_factor,
             'recovery_delta_reentry': elastic_base['recovery_delta_reentry'] * combined_factor,
@@ -250,8 +261,9 @@ class AdaptiveParameterManager:
             return 0.0
             
         slope_config = self.adaptive_factors.get('slope', {})
-        sensitivity = slope_config.get('sensitivity', 10)
+        sensitivity = slope_config.get('sensitivity', 0.1)  # Angepasst an echte Slope-Range
         
+        # Trend-Faktor zwischen -1 und +1, basierend auf echten Slope-Werten
         normalized_slope = slope_to_use / sensitivity
         
         trend_factor = max(-1.0, min(1.0, normalized_slope))
@@ -348,7 +360,7 @@ class AdaptiveParameterManager:
         
         elastic_base = adaptive_params['elastic_entry']
         long_threshold = elastic_base['zscore_long_threshold']
-        short_threshold = elastic_base['base_zscore_short_threshold']
+        short_threshold = elastic_base['zscore_short_threshold']
         recovery_delta = elastic_base['recovery_delta']
         
         print(f"\n=== {trade_type.upper()} TRADE: {stack_info} ===")

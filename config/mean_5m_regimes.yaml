@@ -3,8 +3,8 @@ symbol: "SPY"
 venue: "ARCA"
 instrument_id: "SPY.ARCA"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
-start_date: "2023-01-01T00:00:00Z"
-end_date: "2023-12-01T23:59:59Z"
+start_date: "2024-01-01T00:00:00Z"
+end_date: "2024-12-01T23:59:59Z"
 
 # BAAsis - Params (hier drunter sind die Starteinstellungen)
 base_parameters:
@@ -20,7 +20,7 @@ base_parameters:
 
   elastic_entry:
     zscore_long_threshold: -2.0
-    base_zscore_short_threshold: 2.0
+    zscore_short_threshold: 2.0
     recovery_delta: 1.0
     allow_multiple_recoveries: true
     recovery_cooldown_bars: 5
@@ -45,35 +45,35 @@ adaptive_factors:
   
   slope: # the stats we are changing below are the outer borders for the multiplication, which will be scaled linearlly
     enabled: true
-    min: 0.7
-    max: 1.3
-    sensitivity: 10 # the higher the sensitivity, the faster we reach our min/max
+    min: 0.5
+    max: 2.0
+    sensitivity: 0.1 # WICHTIG: An echte Slope-Range angepasst (statt 5)
   
   atr: # the ATR weighting only depends on the atr precentile window -> only enable to see if ATR is not redundant
-    enabled: false
+    enabled: true
     window: 14
     percentile_window: 200 # how many of the last ATR-values are being used for perecentile- calculation
     outlier_threshold: 3.0 # Sigma - threshold (based on winsorizing) -> prevents distortion from big gaps, jumps...
-    min: 0.7 
-    max: 1.3 
+    min: 0.4 
+    max: 2.5 
   
   combination: # if set to true - we don´t just multiply atr and the slope, but combine them logarithmically
     use_log_space: true
-    min_combined_factor: 0.3 # 1 is the base - factor
-    max_combined_factor: 3.0
+    min_combined_factor: 0.2 # 1 is the base - factor
+    max_combined_factor: 5.0
 
   asymmetric_offset:
-    enabled: true
-    max_offset_pct: 3 # (z.B. 1.5 = max 1.5 Z-Score Verschiebung linear mit Trend)
-    min_trend_strength: 0.001 # mindest trend/slope kalman
-    strength_threshold: 0.1 # max trend/slope kalman
-    scale_by_volatility: false
-    vol_sensitivity: 0.3  
+    enabled: false
+    max_offset_pct: 0.5 
+    min_trend_strength: 0.005  # Sehr niedrig für kleine Slopes
+    strength_threshold: 0.1   # Niedrigere Schwelle für echte Slope-Range
+    scale_by_volatility: true
+    vol_sensitivity: 0.5  
     
   linear_adjustments:
-    trend_sensitivity: 0.3
-    vol_sensitivity: 0.4
-    max_trend_strength: 0.8
+    trend_sensitivity: 0.6
+    vol_sensitivity: 0.8
+    max_trend_strength: 0.6
   
   slope_monitor:
     enabled: true
