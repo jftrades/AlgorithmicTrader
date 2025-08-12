@@ -80,12 +80,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         
         self.current_vix_value = None
         
-        # Neuer Kalman für Exit-Z-Score - use adaptive parameters
         adaptive_params, _, _, _ = self.adaptive_manager.get_adaptive_parameters()
         self.kalman_exit = KalmanFilterRegressionWithZScore(
             process_var=adaptive_params['kalman_exit_process_var'],
             measurement_var=adaptive_params['kalman_exit_measurement_var'],
-            window=10,  # Fixed window size
+            window=10,
             zscore_window=adaptive_params['kalman_exit_zscore_window']
         )
         self.current_kalman_exit_mean = None
@@ -167,13 +166,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.adaptive_manager.update_atr(float(bar.high), float(bar.low), float(self.prev_close) if self.prev_close else None)
         adaptive_params, slope_factor, atr_factor, combined_factor = self.adaptive_manager.get_adaptive_parameters()
         
-        # Get sensitivity settings from config
         linear_config = self.adaptive_manager.adaptive_factors.get('linear_adjustments', {})
         trend_sensitivity = linear_config.get('trend_sensitivity', 0.3)
         vol_sensitivity = linear_config.get('vol_sensitivity', 0.4)
         max_trend_strength = linear_config.get('max_trend_strength', 0.8)
         
-        # Direct linear adjustments - no intermediate states!
         elastic_base = adaptive_params['elastic_entry']
         
         adjusted_long_threshold = self.adaptive_manager.get_linear_adjustment(
@@ -184,24 +181,22 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         
         adjusted_short_threshold = self.adaptive_manager.get_linear_adjustment(
             base_value=elastic_base['base_zscore_short_threshold'],
-            trend_sensitivity=-trend_sensitivity,  # Inverse for short
+            trend_sensitivity=-trend_sensitivity,
             vol_sensitivity=vol_sensitivity
         )
         
         adjusted_recovery_delta = self.adaptive_manager.get_linear_adjustment(
             base_value=elastic_base['recovery_delta'],
-            trend_sensitivity=0,  # Keep recovery delta neutral to trend
-            vol_sensitivity=vol_sensitivity * 0.5  # Only adjust slightly for volatility
+            trend_sensitivity=0,
+            vol_sensitivity=vol_sensitivity * 0.5
         )
         
-        # Update elastic entry with dynamically adjusted parameters
         self.elastic_entry.update_parameters(
             z_min_threshold=adjusted_long_threshold,
             z_max_threshold=adjusted_short_threshold,
             recovery_delta=adjusted_recovery_delta
         )
         
-        # Update stacking parameters
         self.additional_zscore_min_gain = elastic_base['additional_zscore_min_gain']
         self.recovery_delta_reentry = elastic_base['recovery_delta_reentry']
             

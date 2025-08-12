@@ -50,8 +50,15 @@ adaptive_factors:
   atr: 
     enabled: true
     window: 14
+    percentile_window: 200
+    outlier_threshold: 3.0
     min: 0.7
     max: 1.5
+  
+  combination:
+    use_log_space: true
+    min_combined_factor: 0.3
+    max_combined_factor: 3.0
   
   slope_monitor:
     enabled: true
