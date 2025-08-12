@@ -61,6 +61,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.current_zscore = None
         self.collector = BacktestDataCollector()
         
+        # Dashboard indicators
+        self.current_kalman_mean = None
+        self.current_combined_factor = None
+        
         self.adaptive_manager = AdaptiveParameterManager(
             base_params=config.base_parameters,
             adaptive_factors=config.adaptive_factors
@@ -136,15 +140,17 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         )
         self.order_types = OrderTypes(self)
 
+        self.collector.initialise_logging_indicator("kalman_mean", 0)
         self.collector.initialise_logging_indicator("vwap", 0)
-        self.collector.initialise_logging_indicator("kalman_exit_mean", 1)
-        self.collector.initialise_logging_indicator("vwap_zscore", 2)
-        self.collector.initialise_logging_indicator("kalman_exit_zscore", 3)
-        self.collector.initialise_logging_indicator("vix", 4)
-        self.collector.initialise_logging_indicator("position", 5)
-        self.collector.initialise_logging_indicator("realized_pnl", 6)
-        self.collector.initialise_logging_indicator("unrealized_pnl", 7)
-        self.collector.initialise_logging_indicator("equity", 8)
+        self.collector.initialise_logging_indicator("combined_factor", 1)
+        self.collector.initialise_logging_indicator("kalman_exit_mean", 2)
+        self.collector.initialise_logging_indicator("vwap_zscore", 3)
+        self.collector.initialise_logging_indicator("kalman_exit_zscore", 4)
+        self.collector.initialise_logging_indicator("vix", 5)
+        self.collector.initialise_logging_indicator("position", 6)
+        self.collector.initialise_logging_indicator("realized_pnl", 7)
+        self.collector.initialise_logging_indicator("unrealized_pnl", 8)
+        self.collector.initialise_logging_indicator("equity", 9)
 
 
     def get_position(self):
@@ -161,11 +167,13 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.current_vix_value = None
 
         current_kalman_mean, current_kalman_slope = self.adaptive_manager.update_slope(float(bar.close))
+        self.current_kalman_mean = current_kalman_mean
 
         self.current_kalman_exit_mean, self.current_kalman_exit_slope, self.current_kalman_exit_zscore = self.kalman_exit.update(float(bar.close))
         
         self.adaptive_manager.update_atr(float(bar.high), float(bar.low), float(self.prev_close) if self.prev_close else None)
         adaptive_params, slope_factor, atr_factor, combined_factor = self.adaptive_manager.get_adaptive_parameters()
+        self.current_combined_factor = combined_factor
         
         linear_config = self.adaptive_manager.adaptive_factors.get('linear_adjustments', {})
         trend_sensitivity = linear_config.get('trend_sensitivity', 0.3)
@@ -480,15 +488,17 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         vwap_value = self.vwap_zscore.current_vwap_value
         kalman_exit_mean = self.current_kalman_exit_mean if self.kalman_exit.initialized else None
 
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vix", value=self.current_vix_value)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="equity", value=equity)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_mean", value=self.current_kalman_mean)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="combined_factor", value=self.current_combined_factor)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap", value=vwap_value)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap_zscore", value=self.current_zscore)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_exit_mean", value=kalman_exit_mean)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap_zscore", value=self.current_zscore)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_exit_zscore", value=self.current_kalman_exit_zscore)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vix", value=self.current_vix_value)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="equity", value=equity)
 
         logging_message = self.collector.save_data()
         self.log.info(logging_message, color=LogColor.GREEN)
@@ -518,15 +528,17 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         vwap_value = self.vwap_zscore.current_vwap_value
         kalman_exit_mean = self.current_kalman_exit_mean if self.kalman_exit.initialized else None
 
-        self.collector.add_indicator(timestamp=bar.ts_event, name="vix", value=self.current_vix_value)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_mean", value=self.current_kalman_mean)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="combined_factor", value=self.current_combined_factor)
         self.collector.add_indicator(timestamp=bar.ts_event, name="vwap", value=vwap_value)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_exit_mean", value=kalman_exit_mean)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_zscore", value=self.current_zscore)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_exit_zscore", value=self.current_kalman_exit_zscore)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="vix", value=self.current_vix_value)
         self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl else None)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="equity", value=equity)
         self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_zscore", value=self.current_zscore)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_exit_mean", value=kalman_exit_mean)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_exit_zscore", value=self.current_kalman_exit_zscore)
 
 

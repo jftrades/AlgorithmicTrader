@@ -4,13 +4,13 @@ venue: "ARCA"
 instrument_id: "SPY.ARCA"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
 start_date: "2024-01-01T00:00:00Z"
-end_date: "2024-12-01T23:59:59Z"
+end_date: "2024-03-01T23:59:59Z"
 
 # BAAsis - Params (hier drunter sind die Starteinstellungen)
 base_parameters:
-  kalman_exit_process_var: 0.0000001
+  kalman_exit_process_var: 0.00000001
   kalman_exit_measurement_var: 0.001
-  kalman_exit_zscore_window: 20
+  kalman_exit_zscore_window: 10
 
   vwap:
     vwap_anchor_on_kalman_cross: true 
@@ -19,13 +19,13 @@ base_parameters:
     vwap_reset_grace_period: 40
 
   elastic_entry:
-    zscore_long_threshold: -2.0
-    zscore_short_threshold: 2.0
+    zscore_long_threshold: -2.8
+    zscore_short_threshold: 2.8
     recovery_delta: 1.0
     allow_multiple_recoveries: true
     recovery_cooldown_bars: 5
     alllow_stacking: true
-    max_stacked_positions: 3
+    max_stacked_positions: 2
     additional_zscore_min_gain: 1.5
     recovery_delta_reentry: 1.0
     stacking_bar_cooldown: 20
@@ -40,40 +40,40 @@ base_parameters:
 adaptive_factors:
   kalman: 
     enabled: true
-    process_var: 0.000001
+    process_var: 0.00000001
     measurement_var: 0.001 
   
   slope: # the stats we are changing below are the outer borders for the multiplication, which will be scaled linearlly
     enabled: true
-    min: 0.5
+    min: 0.4
     max: 2.0
-    sensitivity: 0.1 # WICHTIG: An echte Slope-Range angepasst (statt 5)
+    sensitivity: 0.4
   
   atr: # the ATR weighting only depends on the atr precentile window -> only enable to see if ATR is not redundant
     enabled: true
     window: 14
-    percentile_window: 200 # how many of the last ATR-values are being used for perecentile- calculation
+    percentile_window: 100 # how many of the last ATR-values are being used for perecentile- calculation
     outlier_threshold: 3.0 # Sigma - threshold (based on winsorizing) -> prevents distortion from big gaps, jumps...
-    min: 0.4 
-    max: 2.5 
+    min: 0.5
+    max: 2.0
   
   combination: # if set to true - we don´t just multiply atr and the slope, but combine them logarithmically
     use_log_space: true
-    min_combined_factor: 0.2 # 1 is the base - factor
-    max_combined_factor: 5.0
+    min_combined_factor: 0.5 # 1 is the base - factor
+    max_combined_factor: 2.5
 
   asymmetric_offset:
-    enabled: false
-    max_offset_pct: 0.5 
-    min_trend_strength: 0.005  # Sehr niedrig für kleine Slopes
-    strength_threshold: 0.1   # Niedrigere Schwelle für echte Slope-Range
+    enabled: true
+    max_offset_pct: 3 
+    min_trend_strength: 0.001  # Sehr niedrig für kleine Slopes
+    strength_threshold: 0.5   # Niedrigere Schwelle für echte Slope-Range
     scale_by_volatility: true
     vol_sensitivity: 0.5  
     
   linear_adjustments:
-    trend_sensitivity: 0.6
-    vol_sensitivity: 0.8
-    max_trend_strength: 0.6
+    trend_sensitivity: 0.5
+    vol_sensitivity: 0.5
+    max_trend_strength: 0.5
   
   slope_monitor:
     enabled: true
