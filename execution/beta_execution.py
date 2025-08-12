@@ -5,9 +5,8 @@ from pathlib import Path
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.backtest.config import BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig, BacktestRunConfig
 from nautilus_trader.trading.config import ImportableStrategyConfig
-from tools.help_funcs.help_funcs_execution import (
-    run_backtest, extract_metrics, visualize_existing_run, load_and_split_params, show_quantstats_report_from_equity_csv
-)
+from tools.help_funcs.help_funcs_execution import (run_backtest, extract_metrics, visualize_existing_run, show_quantstats_report_from_equity_csv)
+from tools.help_funcs.yaml_loader import load_and_split_params
 import shutil
 import yaml
 import copy
@@ -17,29 +16,22 @@ import webbrowser
 
 # Parameter laden und aufteilen
 yaml_path = str(Path(__file__).resolve().parents[1] / "config" / "beta.yaml")
-params, param_grid, keys, values, static_params = load_and_split_params(yaml_path)
+params, param_grid, keys, values, static_params, all_instrument_ids, all_bar_types = load_and_split_params(yaml_path)
 
 start_date = params["start_date"]
 end_date = params["end_date"]
+venue = params["venue"]
+print(params)
 
-# Parameter
-symbol = Symbol(params["symbol"])
-venue = Venue(params["venue"])
-instrument_id = InstrumentId(symbol, venue)
-instrument_id_str = params["instrument_id"]
-bar_type = params["bar_type"]
-risk_percent = params["risk_percent"]
-max_leverage = params["max_leverage"]
-min_account_balance = params["min_account_balance"]
+#----------------
 
 catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 
-# DataConfig
 data_config = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:Bar",
     catalog_path=catalog_path,
-    bar_types=[bar_type],
-    instrument_ids=[instrument_id_str]
+    bar_types=all_bar_types,
+    instrument_ids=all_instrument_ids,
 )
 
 # VenueConfig 
@@ -56,10 +48,38 @@ results_dir.mkdir(parents=True, exist_ok=True)
 tmp_runs_dir = results_dir.parent / "_tmp_runs"
 tmp_runs_dir.mkdir(parents=True, exist_ok=True)
 
+def _gather_collectors(results_root: Path):
+    """Liest alle Collector-Ordner (Verzeichnisse direkt unter results_root)."""
+    collectors = []
+    for p in results_root.iterdir():
+        if p.is_dir() and not p.name.startswith("run_") and p.name != "_tmp_runs":
+            collectors.append(p)
+    return collectors
+
+def _copy_collectors_into_run(collectors, run_dir: Path):
+    """Kopiert jeden Collector-Ordner direkt in das Run-Verzeichnis."""
+    for c in collectors:
+        dst = run_dir / c.name
+        shutil.copytree(c, dst, dirs_exist_ok=True)
+
+def _find_equity_csv(run_dir: Path):
+    """Sucht indicators/equity.csv im Collector 'general' oder erstem Collector."""
+    general_path = run_dir / "general" / "indicators" / "equity.csv"
+    if general_path.exists():
+        return general_path
+    # Fallback: erster Collector mit equity.csv
+    for c in run_dir.iterdir():
+        if c.is_dir() and c.name.startswith("run") is False:
+            candidate = c / "indicators" / "equity.csv"
+            if candidate.exists():
+                return candidate
+    return None
+
 def run_and_collect(i, combination, keys, static_params, params, results_dir, tmp_runs_dir, data_config, venue_config, start_date, end_date):
     run_params = dict(zip(keys, combination))
     config_params = {**run_params, **static_params}
-    run_id = f"run_{i}_{uuid.uuid4().hex[:6]}"
+
+    run_id = f"run{i}"  # <--- vereinfacht
     tmp_run_dir = tmp_runs_dir / run_id
     tmp_run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -85,21 +105,14 @@ def run_and_collect(i, combination, keys, static_params, params, results_dir, tm
     metrics = extract_metrics(result, run_params, run_id)
     pd.DataFrame([metrics]).to_csv(tmp_run_dir / "performance_metrics.csv", index=False)
 
-    # Copy run data
-    indicators_src = results_dir / "indicators"
-    indicators_dst = tmp_run_dir / "indicators"
-    if indicators_src.exists():
-        shutil.copytree(indicators_src, indicators_dst, dirs_exist_ok=True)
-    for fname in ["bars.csv", "trades.csv"]:
-        src = results_dir / fname
-        dst = tmp_run_dir / fname
-        if src.exists():
-            shutil.copy2(src, dst)
+    # Collector-Verarbeitung
+    collectors = _gather_collectors(results_dir)
+    _copy_collectors_into_run(collectors, tmp_run_dir)
 
-    # QuantStats report (nur wenn visualise_qs true)
-    equity_path = tmp_run_dir / "indicators" / "equity.csv"
+    # Optional: QuantStats
+    equity_path = _find_equity_csv(tmp_run_dir)
     qs_report_path = tmp_run_dir / "quantstats_report.html"
-    if params.get("visualise_qs", False) and equity_path.exists():
+    if params.get("visualise_qs", False) and equity_path:
         show_quantstats_report_from_equity_csv(
             equity_csv=equity_path,
             benchmark_symbol="BTC-USD",
@@ -117,29 +130,24 @@ def move_and_cleanup(run_dirs, results_dir, tmp_runs_dir):
             shutil.rmtree(final_run_dir)
         if tmp_run_dir.exists():
             shutil.move(str(tmp_run_dir), str(final_run_dir))
+    # Entferne Collector-Rohordner (wurden kopiert)
+    for p in list(results_dir.iterdir()):
+        if p.is_dir() and p.name.startswith("run") is False:
+            shutil.rmtree(p, ignore_errors=True)
     if tmp_runs_dir.exists():
         shutil.rmtree(tmp_runs_dir, ignore_errors=True)
-    # Remove central files
-    for fname in ["indicators", "bars.csv", "trades.csv"]:
-        fpath = results_dir / fname
-        if fpath.exists():
-            if fpath.is_dir():
-                shutil.rmtree(fpath)
-            else:
-                fpath.unlink()
-    print("Aufräumen abgeschlossen. Nur Run-Ordner und all_backtest_results.csv bleiben erhalten.")
+    print("Aufräumen abgeschlossen. Run-Ordner enthalten jetzt eigenständige Collector-Daten.")
 
 def visualize_best_run(df, results_dir, sharpe_col, params):
+    # Suche best run via run{i}
     if sharpe_col in df.columns:
         best_idx = df[sharpe_col].astype(float).idxmax()
-        run_prefix = f"run_{best_idx}_"
-        candidates = [f for f in os.listdir(results_dir) if f.startswith(run_prefix) and os.path.isdir(results_dir / f)]
-        if candidates:
-            best_run_dir = results_dir / candidates[0]
-            print(f"Starte Visualisierung für besten Run-Ordner: {best_run_dir} (Sharpe: {df.loc[best_idx, sharpe_col]})")
-            equity_path = best_run_dir / "indicators" / "equity.csv"
-            qs_report_path = best_run_dir / "quantstats_report.html"
-            if params.get("visualise_qs", False) and equity_path.exists():
+        run_dir = results_dir / f"run{best_idx}"
+        if run_dir.exists():
+            print(f"Starte Visualisierung für {run_dir} (Sharpe: {df.loc[best_idx, sharpe_col]})")
+            equity_path = _find_equity_csv(run_dir)
+            qs_report_path = run_dir / "quantstats_report.html"
+            if params.get("visualise_qs", False) and equity_path:
                 show_quantstats_report_from_equity_csv(
                     equity_csv=equity_path,
                     benchmark_symbol="BTC-USD",
@@ -147,9 +155,9 @@ def visualize_best_run(df, results_dir, sharpe_col, params):
                 )
                 if qs_report_path.exists():
                     webbrowser.open_new_tab(str(qs_report_path.resolve()))
-            visualize_existing_run(best_run_dir)
+            visualize_existing_run(run_dir)
         else:
-            print(f"FEHLER: Kein passender Run-Ordner mit Prefix {run_prefix} gefunden!")
+            print(f"FEHLER: Run-Verzeichnis {run_dir} nicht gefunden.")
     else:
         print(f"Spalte '{sharpe_col}' nicht gefunden, keine Visualisierung gestartet.")
 

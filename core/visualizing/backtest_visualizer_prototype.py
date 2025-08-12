@@ -1,9 +1,10 @@
 import pandas as pd
 import os
 from nautilus_trader.model.enums import OrderSide
+from  tools.help_funcs.help_funcs_strategy import extract_interval_from_bar_type
 
 class TradeInstance:
-    def __init__(self, order, bar_index=None):
+    def __init__(self, order):
         # SL/TP, type, action aus Tags extrahieren
         sl = None
         tp = None
@@ -48,7 +49,7 @@ class TradeInstance:
 
         self.price_desired = None
         self.fee = None
-        self.bar_index = bar_index  # NEU: Bar-Index für Visualisierung
+        self.bar_index = None  # Index entfernt, nur Timeframe-basierte Darstellung
 
 class IndicatorInstance:
     def __init__(self, name, plot_number=0):
@@ -57,50 +58,52 @@ class IndicatorInstance:
 
 
 class BacktestDataCollector:
-    def __init__(self): 
-        self.bars = []  # OHLC mit timestamp
-        self.trades = []  # dicts: timestamp, tradesize, buy_inprice, tp, sl, long
-        self.indicators = {}  # name -> list of dicts: timestamp, value
-        self.indicator_plot_number = {}  # name -> plot_number -- 0 -> in (bar) chart, 1 -> metrik plot 1 etc...
+    def __init__(self, name): 
+        self.name = name
+        # Bars pro Timeframe
+        self.bars = {}              # timeframe -> List[bar_dict]
+        # Entfernt: _all_bars_flat / _global_bar_index
+        self.trades = []
+        self.indicators = {}
+        self.indicator_plot_number = {}
         self.initialise_result_path()
 
     def initialise_result_path(self):
         import shutil
         from pathlib import Path
-        # Gehe von core/visualizing/ auf AlgorithmicTrader/
         base_dir = Path(__file__).resolve().parents[2]
-        self.path = base_dir / "data" / "DATA_STORAGE" / "results"
+        self._results_root = base_dir / "data" / "DATA_STORAGE" / "results"
+        self.path = self._results_root / self.name  # Ordner pro Collector
+        # Nur eigenen Ordner neu erstellen
         if self.path.exists() and self.path.is_dir():
             shutil.rmtree(self.path)
-        os.makedirs(self.path, exist_ok=True)
+        (self.path / "indicators").mkdir(parents=True, exist_ok=True)
  
     def initialise_logging_indicator(self, name, plot_number): #indicator -> [indicator_name, plot_number]
         self.indicators[name] = []
         self.indicator_plot_number[name] = plot_number
 
-    def add_bar(self, timestamp, open_, high, low, close):
-        bar_index = len(self.bars)  # Bar-Nummer als Index
-        self.bars.append({
+    def add_bar(self, timestamp, open_, high, low, close, bar_type):
+        timeframe = extract_interval_from_bar_type(str(bar_type))
+        if timeframe not in self.bars:
+            self.bars[timeframe] = []
+        bar_dict = {
             'timestamp': timestamp,
             'open': open_,
             'high': high,
             'low': low,
             'close': close,
-            'bar_index': bar_index  # NEU
-
-        })
+        }
+        self.bars[timeframe].append(bar_dict)
 
     def add_indicator(self, name, timestamp, value):
-        bar_index = len(self.bars) - 1 if self.bars else 0
         plot_number = self.indicator_plot_number.get(name, 0)
         if name not in self.indicators:
             self.indicators[name] = []
         self.indicators[name].append({
             'timestamp': timestamp,
             'value': value,
-            'bar_index': bar_index,
-            'plot_number': plot_number,
-            'plot_id': plot_number  # Alias für Dashboard-Kompatibilität
+            'plot_id': plot_number,
         })
 
     def add_trade_details(self, order_filled, parent_id):
@@ -138,16 +141,7 @@ class BacktestDataCollector:
         
     # In BacktestDataCollector:
     def add_trade(self, new_order):
-        # Ermittle passenden Bar-Index zum Trade-Timestamp
-        if self.bars:
-            import pandas as pd
-            timestamps = pd.to_datetime([bar['timestamp'] for bar in self.bars])
-            trade_time = pd.to_datetime(new_order.ts_last)
-            idx = (abs(timestamps - trade_time)).argmin()
-            bar_index = self.bars[idx]['bar_index']
-        else:
-            bar_index = 0
-        trade = TradeInstance(new_order, bar_index=bar_index)
+        trade = TradeInstance(new_order)
         self.trades.append(trade)
 
         # order.id                -> OrderId-Objekt (eindeutige Order-ID)
@@ -167,43 +161,62 @@ class BacktestDataCollector:
         # order.type              -> OrderType (MARKET, LIMIT, etc.)
         
     def bars_to_csv(self):
-        pd.DataFrame(self.bars).to_csv(self.path / "bars.csv", index=False)
+        if not self.bars:
+            return []
+        saved = []
+        for tf, bar_list in self.bars.items():
+            if not bar_list:
+                continue
+            df = pd.DataFrame(bar_list)  # enthält jetzt timeframe-Spalte
+            file_path = self.path / f"bars-{tf}.csv"
+            df.to_csv(file_path, index=False)
+            saved.append(file_path.name)
+        return saved
 
     def indicators_to_csv(self):
-        (self.path / "indicators").mkdir(exist_ok=True)
+        saved = []
+        if not self.indicators:
+            return saved
+        indicators_dir = self.path / "indicators"
+        indicators_dir.mkdir(exist_ok=True)
         for name, data in self.indicators.items():
-            plot_number = self.indicator_plot_number.get(name, 0)
+            if not data:
+                continue
             df = pd.DataFrame(data)
-            # Ensure plot_id is present and cast to int
             if "plot_id" not in df.columns:
-                df["plot_id"] = plot_number
-            df["plot_id"] = df["plot_id"].astype(int)
-            df["plot_number"] = plot_number
-            # Debug logging for plot_id export
-            print(f"Exporting indicator '{name}' with plot_id: {plot_number} (unique plot_ids in df: {df['plot_id'].unique()})")
-            # Save CSV
-            df.to_csv(self.path / "indicators" / f"{name}.csv", index=False)
-            df["plot_id"] = plot_number  # Alias für Dashboard-Kompatibilität
-            df.to_csv(self.path / "indicators" / f"{name}.csv", index=False)
+                plot_number = self.indicator_plot_number.get(name, 0)
+                df["plot_id"] = int(plot_number)
+            file_path = indicators_dir / f"{name}.csv"
+            df.to_csv(file_path, index=False)
+            saved.append(f"indicators/{file_path.name}")
+        return saved
 
     def trades_to_csv(self):
-        # Convert TradeInstance objects to dicts for DataFrame
-        trades_dicts = []
-        for trade in self.trades:
-            d = vars(trade).copy()
-            # Remove any non-serializable fields if needed
-            trades_dicts.append(d)
-        pd.DataFrame(trades_dicts).to_csv(self.path / "trades.csv", index=False)
+        if not self.trades:
+            return None
+        trades_dicts = [vars(trade).copy() for trade in self.trades]
+        file_path = self.path / "trades.csv"
+        pd.DataFrame(trades_dicts).to_csv(file_path, index=False)
+        return file_path.name
 
     def save_data(self):
         logging_message = ""
         try:
-            self.bars_to_csv()
-            self.indicators_to_csv()
-            self.trades_to_csv()
-            logging_message = f"All data saved successfully to {self.path}"
+            bars_files = self.bars_to_csv()
+            ind_files = self.indicators_to_csv()
+            trades_file = self.trades_to_csv()
+            parts = []
+            if bars_files:
+                parts.append(f"bars={bars_files}")
+            if ind_files:
+                parts.append(f"indicators={ind_files}")
+            if trades_file:
+                parts.append(f"trades={trades_file}")
+            if not parts:
+                parts.append("no data")
+            logging_message = f"[{self.name}] saved -> {'; '.join(parts)} in {self.path}"
         except Exception as e:
-            logging_message = f"Error while saving CSV files: {e}"
+            logging_message = f"[{self.name}] Error while saving CSV files: {e}"
         return logging_message
     
     #def load_data(self, path):
