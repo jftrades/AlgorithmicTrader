@@ -221,13 +221,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.bars_since_last_long_entry += 1
         self.bars_since_last_short_entry += 1
 
-        # Log adaptive factors periodically
-        if self.bar_counter % 50 == 0:
-            trend_factor = self.adaptive_manager.get_trend_factor()
-            vol_factor = self.adaptive_manager.get_volatility_factor()
-            self.log.info(f"Adaptive Factors - Trend: {trend_factor:.3f}, Vol: {vol_factor:.3f} | "
-                         f"Long Threshold: {adjusted_long_threshold:.2f}, Short Threshold: {adjusted_short_threshold:.2f}")
-
         # Trading logic
         bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
         if bar_time >= datetime.time(15, 40) and bar_time <= datetime.time(21, 50):
@@ -365,6 +358,14 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         
         if long_signal:
             entry_reason = debug_info.get('long_entry_reason', 'Recovery signal')
+            stack_info = f"Stack {self.long_positions_since_cross + 1}/{self.max_stacked_positions}" if self.long_positions_since_cross > 0 else "Initial"
+            
+            # Log trade state
+            self.adaptive_manager.log_trade_state(
+                "LONG", float(bar.close), zscore, entry_reason, stack_info, regime, 
+                adaptive_params, self.long_positions_since_cross, self.short_positions_since_cross, 
+                self.allow_stacking
+            )
             
             self.order_types.submit_long_market_order(qty, price=bar.close)
             self.long_positions_since_cross += 1
@@ -372,16 +373,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             # Track entry ZScore for stacking
             self.long_entry_zscores.append(zscore)
             self.bars_since_last_long_entry = 0
-            
-            stack_info = f"Stack {self.long_positions_since_cross}/{self.max_stacked_positions}" if self.long_positions_since_cross > 1 else "Initial"
-            
-            trend_factor = self.adaptive_manager.get_trend_factor()
-            vol_factor = self.adaptive_manager.get_volatility_factor()
-            
-            self.log.info(
-                f"Long Entry [VIX{regime}/T:{trend_factor:.2f}/V:{vol_factor:.2f}] {stack_info}: {entry_reason} | ZScore: {zscore:.2f} | Risk: {long_risk_factor:.3f}", 
-                color=LogColor.GREEN
-            )
 
     def check_for_short_trades(self, bar: Bar, zscore: float, adaptive_params: dict):
         if self.current_kalman_exit_mean is not None and bar.close <= self.current_kalman_exit_mean:
@@ -407,6 +398,14 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         
         if short_signal:
             entry_reason = debug_info.get('short_entry_reason', 'Recovery signal')
+            stack_info = f"Stack {self.short_positions_since_cross + 1}/{self.max_stacked_positions}" if self.short_positions_since_cross > 0 else "Initial"
+            
+            # Log trade state
+            self.adaptive_manager.log_trade_state(
+                "SHORT", float(bar.close), zscore, entry_reason, stack_info, regime, 
+                adaptive_params, self.long_positions_since_cross, self.short_positions_since_cross, 
+                self.allow_stacking
+            )
             
             self.order_types.submit_short_market_order(qty, price=bar.close)
             self.short_positions_since_cross += 1
@@ -414,16 +413,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             # Track entry ZScore for stacking
             self.short_entry_zscores.append(zscore)
             self.bars_since_last_short_entry = 0
-            
-            stack_info = f"Stack {self.short_positions_since_cross}/{self.max_stacked_positions}" if self.short_positions_since_cross > 1 else "Initial"
-            
-            trend_factor = self.adaptive_manager.get_trend_factor()
-            vol_factor = self.adaptive_manager.get_volatility_factor()
-            
-            self.log.info(
-                f"Short Entry [VIX{regime}/T:{trend_factor:.2f}/V:{vol_factor:.2f}] {stack_info}: {entry_reason} | ZScore: {zscore:.2f} | Risk: {short_risk_factor:.3f}", 
-                color=LogColor.MAGENTA
-            )
 
     def check_for_long_exit(self, bar, adaptive_params: dict):
         if self.current_vix_value is None:

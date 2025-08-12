@@ -50,12 +50,6 @@ class AdaptiveParameterManager:
                 self.current_slope = slope
                 if self.slope_monitor is not None:
                     self.slope_monitor.add_slope(slope)
-                if hasattr(self, '_debug_counter'):
-                    self._debug_counter += 1
-                else:
-                    self._debug_counter = 1
-                if self._debug_counter % 100 == 0:
-                    print(f"DEBUG: Slope={slope:.6f}, Mean={mean:.2f}, Price={price:.2f}")
             return mean, slope
         return None, None
     
@@ -213,3 +207,30 @@ class AdaptiveParameterManager:
             self.slope_monitor.print_distribution()
         else:
             print("Slope monitor is disabled.")
+    
+    def log_trade_state(self, trade_type: str, price: float, zscore: float, entry_reason: str, 
+                       stack_info: str, regime: int, adaptive_params: dict, 
+                       long_positions: int, short_positions: int, allow_stacking: bool):
+        
+        # Get current factors
+        trend_factor = self.get_trend_factor()
+        vol_factor = self.get_volatility_factor()
+        _, slope_factor, atr_factor, combined_factor = self.get_adaptive_parameters()
+        
+        # Get thresholds from adaptive params
+        elastic_base = adaptive_params['elastic_entry']
+        long_threshold = elastic_base['zscore_long_threshold']
+        short_threshold = elastic_base['base_zscore_short_threshold']
+        recovery_delta = elastic_base['recovery_delta']
+        
+        print(f"\n=== {trade_type.upper()} TRADE: {stack_info} ===")
+        print(f"Price: ${price:.2f} | ZScore: {zscore:.3f} | Reason: {entry_reason} | VIX Regime: {regime}")
+        print(f"Slope: {self.current_slope:.6f} | Trend Factor: {trend_factor:.3f} | Vol Factor: {vol_factor:.3f}")
+        print(f"Factors - Slope: {slope_factor:.3f} | ATR: {atr_factor:.3f} | Combined: {combined_factor:.3f}")
+        print(f"Thresholds - Long: {long_threshold:.2f} | Short: {short_threshold:.2f} | Recovery: {recovery_delta:.2f}")
+        print(f"Position State - Long: {long_positions} | Short: {short_positions} | Stacking: {allow_stacking}")
+        
+        if self.slope_monitor and self.slope_monitor.slope_values:
+            recent = self.slope_monitor.slope_values[-3:]
+            print(f"Recent Slopes: {[f'{s:.4f}' for s in recent]}")
+        print("="*70)
