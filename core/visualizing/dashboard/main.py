@@ -88,11 +88,12 @@ def create_app():
         runs_df = repo.load_validated_runs()
         print(f"[INFO] Loaded {len(runs_df)} validated runs")
         
-        # Besten Run automatisch laden
-        best_run_index = get_best_run_index(runs_df)
-        print(f"[INFO] Auto-loading best run: run{best_run_index}")
+        # Neu: besten Run über run_id statt run_index
+        best_run_row = runs_df.iloc[0]
+        best_run_id = str(best_run_row['run_id'])
+        print(f"[INFO] Auto-loading best run by run_id: {best_run_id}")
         
-        dash_data = repo.load_specific_run(best_run_index)
+        dash_data = repo.load_specific_run(best_run_id)
         
         # Layout mit Slide-Menu erstellen
         app.layout = build_layout(

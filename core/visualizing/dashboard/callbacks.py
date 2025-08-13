@@ -205,29 +205,22 @@ def register_callbacks(app, repo, dash_data=None):
         prevent_initial_call=True
     )
     def select_run_from_table(selected_rows, table_data):
-        # Dieser Callback funktioniert nur wenn runs-table existiert (normaler Modus)
         if not selected_rows or not table_data:
             raise PreventUpdate
-        
         selected_row = table_data[selected_rows[0]]
-        run_index = int(selected_row['run_index'])
-        
+        # Neu: nutze run_id direkt
+        run_id = selected_row.get('run_id')
+        if not run_id:
+            raise PreventUpdate
         try:
-            # Spezifischen Run laden
-            run_data = repo.load_specific_run(run_index)
-            
-            # State aktualisieren
+            run_data = repo.load_specific_run(run_id)  # jetzt über run_id
             state["collectors"] = run_data.collectors or {}
             state["selected_collector"] = run_data.selected or (next(iter(state["collectors"]), None))
             state["selected_trade_index"] = None
-            
-            # Dropdown-Optionen aktualisieren
             new_options = [{'label': k, 'value': k} for k in state["collectors"].keys()]
             new_value = state["selected_collector"]
-            
-            return new_options, new_value, run_index
-            
-        except Exception as e:
+            return new_options, new_value, run_id
+        except Exception:
             raise PreventUpdate
 
     @app.callback(

@@ -69,32 +69,48 @@ class ResultsRepository:
         """Lädt und validiert alle Runs mit strikter Prüfung"""
         return self.run_validator.validate_and_load()
     
-    def load_specific_run(self, run_index: int) -> DashboardData:
-        """Lädt einen spezifischen Run basierend auf run_index (0, 1, 2, ...)"""
-        run_dir = self.results_root / f"run{run_index}"
-        
-        if not run_dir.exists():
-            raise FileNotFoundError(f"CRITICAL: Run directory not found: {run_dir}")
-        
+    def load_specific_run(self, run_identifier) -> DashboardData:
+        """Lädt einen spezifischen Run.
+        run_identifier:
+          - str: wird als run_id interpretiert (Ordnername == run_id)
+          - int: legacy -> erwartet Ordner 'run{index}'
+        """
+        # Neu: zuerst versuchen wir eine direkte run_id (str)
+        run_dir = None
+        run_id = None
+        if isinstance(run_identifier, str):
+            candidate = self.results_root / run_identifier
+            if candidate.exists() and candidate.is_dir():
+                run_dir = candidate
+                run_id = run_identifier
+        # Fallback: integer Index (altes Schema run0, run1, ...)
+        if run_dir is None and isinstance(run_identifier, int):
+            candidate = self.results_root / f"run{run_identifier}"
+            if candidate.exists() and candidate.is_dir():
+                run_dir = candidate
+                run_id = candidate.name  # run0 ...
+        if run_dir is None:
+            raise FileNotFoundError(f"CRITICAL: Run directory not found for identifier: {run_identifier}")
+
         # Config validieren
         config_path = run_dir / "run_config.yaml"
         if not config_path.exists():
             raise FileNotFoundError(f"CRITICAL: run_config.yaml not found in {run_dir}")
-        
+
         collectors = {}
         selected = None
-        
-        # Collectors aus diesem spezifischen Run laden
+
+        # Collectors laden
         for sub in run_dir.iterdir():
             if not sub.is_dir() or sub.name.lower() == "general":
                 continue
             cdata = self._load_collector(sub)
             if cdata:
                 collectors[sub.name] = cdata
-        
+
         if collectors:
             selected = next(iter(collectors.keys()))
-        
+
         # all_backtest_results laden (global)
         all_results_df = None
         abr = self.results_root / "all_backtest_results.csv"
@@ -103,7 +119,7 @@ class ResultsRepository:
                 all_results_df = pd.read_csv(abr)
             except Exception as e:
                 print(f"[repo] Failed to read {abr}: {e}")
-        
+
         return DashboardData(collectors, selected, all_results_df)
 
     def _load_collector(self, folder: Path):
