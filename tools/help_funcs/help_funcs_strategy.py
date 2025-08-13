@@ -13,22 +13,45 @@ def create_tags(type=None, action=None, sl=None, tp=None):
         tags.append(f"ACTION:{action}")
     return tags
 
-def extract_interval_from_bar_type(bar_type_str: str) -> str:
+def extract_interval_from_bar_type(bar_type_str: str, instrument_id: str) -> str:
     """
-    Extrahiert den Schritt+Aggregation-Teil (z.B. '5-MINUTE' oder '1-HOUR')
-    aus einem NautilusTrader BarType-String.
-    
-    Beispiele:
-    'BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL' -> '5-MINUTE'
-    '6EH4.XCME-1-HOUR-LAST-INTERNAL@5-MINUTE-INTERNAL' -> '1-HOUR'
+    Liefert kompaktes Intervall:
+      5-MINUTE -> 5M
+      1-HOUR   -> 1h
+    Vorgehen:
+      1. Entfernt führendes '<instrument_id>-' falls vorhanden.
+      2. Trennt am '@' (nur linken Teil nutzen).
+      3. Splittet Rest per '-'.
+      4. Nimmt erste beiden Tokens = step, unit.
+      5. Mappt unit auf Kurzform.
     """
-    # Linke Seite vom evtl. @ nehmen
-    left_part = bar_type_str.split("@")[0]
-    # In Segmente splitten
+    if not bar_type_str:
+        raise ValueError("bar_type_str leer.")
+    # 1) Linke Seite vor '@'
+    left_part = bar_type_str.split("@", 1)[0]
+    # 2) Instrument-Prefix entfernen falls exakt passend
+    prefix = f"{instrument_id}-"
+    if left_part.startswith(prefix):
+        left_part = left_part[len(prefix):]
     parts = left_part.split("-")
-    if len(parts) >= 4:
-        # Index 1 = step, Index 2 = aggregation
-        return f"{parts[1]}-{parts[2]}"
-    else:
-        raise ValueError(f"BarType-String hat unerwartetes Format: {bar_type_str}")
+    if len(parts) < 2:
+        raise ValueError(f"Unerwartetes BarType-Format (zu wenige Segmente): {bar_type_str}")
+    step = parts[0]
+    unit = parts[1].upper()
+
+    # 3) Mapping für Kurzformen
+    unit_map = {
+        "SECOND": "s",
+        "SECONDS": "s",
+        "MINUTE": "M",
+        "MINUTES": "M",
+        "HOUR": "h",
+        "HOURS": "h",
+        "DAY": "D",
+        "DAYS": "D",
+        "WEEK": "W",
+        "WEEKS": "W",
+    }
+    suffix = unit_map.get(unit, unit[0])  # Fallback: erster Buchstabe
+    return f"{step}{suffix}"
 

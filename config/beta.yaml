@@ -1,19 +1,24 @@
 # ===========================
 # Globale Parameter
 # ===========================
-symbol: "BTCUSDT-PERP"
+
 venue: "BINANCE"
 
 # Instrumente
 instruments:
-  - instrument_id: "BTCUSDT-PERP.BINANCE"
+  - instrument_id: "ERAUSDT-PERP.BINANCE"
     bar_types: 
-      - "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
+      - "ERAUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
     trade_size_usdt: "100"
+  - instrument_id: "PUMPUSDT-PERP.BINANCE"
+    bar_types: 
+      - PUMPUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL
+    trade_size_usdt: "100"
+
 
 # Backtest-Zeitraum
 start_date: "2024-10-01T00:00:00Z"
-end_date: "2024-10-31T00:00:00Z"
+end_date: "2025-10-31T00:00:00Z"
 
 # Account/Venue-Parameter
 starting_account_balance: "100000 USDT"
@@ -37,5 +42,5 @@ visualise_qs: false
 
 # RSI-Strategie
 rsi_period: [10]
-rsi_overbought: [0.75]
-rsi_oversold: [0.25]
+rsi_overbought: [0.75,0.6]
+rsi_oversold: [0.25,0.4]

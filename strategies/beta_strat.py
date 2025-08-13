@@ -71,6 +71,7 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
                     converted_bar_types.append(bt)
                 else:
                     converted_bar_types.append(BarType.from_str(bt))
+                    
             if not converted_bar_types:
                 raise ValueError(f"{inst_id}: Keine gültigen bar_types nach Konvertierung.")
             
@@ -98,6 +99,7 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         for inst_id, ctx in self.instrument_dict.items():
             for bar_type in ctx["bar_types"]:
                 #if isinstance(bar_type, BarType):
+                self.log.info(str(bar_type), color=LogColor.GREEN)
                 self.subscribe_bars(bar_type)
                 #else:
                     #raise ValueError(f"BarType (String) muss vorher in BarType konvertiert werden: {bar_type}")

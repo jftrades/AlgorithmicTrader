@@ -46,14 +46,38 @@ venue_config = BacktestVenueConfig(
 results_dir = Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "results"
 results_dir.mkdir(parents=True, exist_ok=True)
 tmp_runs_dir = results_dir.parent / "_tmp_runs"
+
+def _clear_directory(path: Path):
+    """Löscht sämtliche Inhalte eines Verzeichnisses ohne das Verzeichnis selbst zu entfernen."""
+    if not path.exists():
+        return
+    for child in path.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            try:
+                child.unlink()
+            except Exception:
+                pass
+
+# Frischer Zustand zu Beginn (entfernt alte runs und alte Collector-Ordner)
+_clear_directory(results_dir)
+if tmp_runs_dir.exists():
+    shutil.rmtree(tmp_runs_dir, ignore_errors=True)
 tmp_runs_dir.mkdir(parents=True, exist_ok=True)
 
 def _gather_collectors(results_root: Path):
-    """Liest alle Collector-Ordner (Verzeichnisse direkt unter results_root)."""
+    """Nur aktuelle Collector-Ordner auswählen (keine run*-Verzeichnisse, kein _tmp_runs)."""
     collectors = []
     for p in results_root.iterdir():
-        if p.is_dir() and not p.name.startswith("run_") and p.name != "_tmp_runs":
-            collectors.append(p)
+        if not p.is_dir():
+            continue
+        name = p.name
+        if name.startswith("run"):      # ausschließen: run0, run1, ...
+            continue
+        if name == "_tmp_runs":
+            continue
+        collectors.append(p)
     return collectors
 
 def _copy_collectors_into_run(collectors, run_dir: Path):

@@ -10,10 +10,10 @@ import shutil
 # Parameter hier anpassen
 symbol = "BTCUSDT-PERP"
 start_date = "2024-10-01"
-end_date = "2024-10-04"
+end_date = "2024-10-31"
 base_data_dir = str(Path(__file__).resolve().parents[1] / "DATA_STORAGE")
-datatype = "tick"  # oder "tick"
-interval = "5min"    # nur für Bars relevant
+datatype = "bar"  # oder "tick"
+interval = "15m"    # nur für Bars relevant
 
 class CombinedCryptoDataDownloader:
     def __init__(self, symbol, start_date, end_date, base_data_dir, datatype="tick", interval="1h"):
@@ -61,7 +61,12 @@ class CombinedCryptoDataDownloader:
                 base_data_dir=self.base_data_dir
             )
             bar_downloader.run()
-            processed_dir = str(Path(self.base_data_dir) / f"processed_bar_data_{self.start_date}_to_{self.end_date}" / "csv")
+            
+            # Fix: Verwende das gleiche Format wie BarDownloader
+            start_str = self.start_date.strftime("%Y-%m-%d_%H%M%S") if hasattr(self.start_date, "strftime") else f"{self.start_date}_000000"
+            end_str = self.end_date.strftime("%Y-%m-%d_%H%M%S") if hasattr(self.end_date, "strftime") else f"{self.end_date}_000000"
+            processed_dir = str(Path(self.base_data_dir) / f"processed_bar_data_{start_str}_to_{end_str}" / "csv")
+            
             csv_path = find_csv_file(self.symbol_for_binance, processed_dir)
             catalog_root_path = f"{self.base_data_dir}/data_catalog_wrangled"
 
@@ -107,8 +112,8 @@ class CombinedCryptoDataDownloader:
             )
             bar_transformer.run()
             try:
-                shutil.rmtree(Path(self.base_data_dir) / f"processed_bar_data_{self.start_date}_to_{self.end_date}")
-                print(f"[INFO] Bar-Ordner gelöscht: {Path(self.base_data_dir) / f'processed_bar_data_{self.start_date}_to_{self.end_date}'}")
+                shutil.rmtree(Path(self.base_data_dir) / f"processed_bar_data_{start_str}_to_{end_str}")
+                print(f"[INFO] Bar-Ordner gelöscht: {Path(self.base_data_dir) / f'processed_bar_data_{start_str}_to_{end_str}'}")
             except Exception as e:
                 print(f"[WARN] Bar-Ordner konnte nicht gelöscht werden: {e}")
         else:

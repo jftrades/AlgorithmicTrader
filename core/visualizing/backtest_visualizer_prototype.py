@@ -84,7 +84,7 @@ class BacktestDataCollector:
         self.indicator_plot_number[name] = plot_number
 
     def add_bar(self, timestamp, open_, high, low, close, bar_type):
-        timeframe = extract_interval_from_bar_type(str(bar_type))
+        timeframe = extract_interval_from_bar_type(str(bar_type), str(bar_type.instrument_id))
         if timeframe not in self.bars:
             self.bars[timeframe] = []
         bar_dict = {

@@ -15,7 +15,7 @@ import json
 
 # Nautilus Kern Importe
 from nautilus_trader.backtest.node import BacktestNode
-from core.visualizing.dashboard import TradingDashboard
+from core.visualizing.dashboard1 import TradingDashboard
 
 def run_backtest(run_config):
     node = BacktestNode([run_config])  # Übergib eine Liste!
@@ -55,7 +55,7 @@ def extract_metrics(result, run_params, run_id):
         result_obj = result[0]
         # Standard-Infos
         metrics.update(run_params)
-        metrics["run_id"] = getattr(result_obj, "run_id", None)
+        metrics["run_id"] = run_id
         metrics["backtest_start"] = getattr(result_obj, "backtest_start", None)
         metrics["backtest_end"] = getattr(result_obj, "backtest_end", None)
         metrics["elapsed_time"] = getattr(result_obj, "elapsed_time", None)
