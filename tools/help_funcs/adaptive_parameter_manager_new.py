@@ -138,23 +138,15 @@ class AdaptiveParameterManager:
         return None, self.current_atr_percentile
     
     def _robust_factor_combination(self, slope_factor: float, atr_factor: float) -> float:
-        """Robust combination of factors with log-space calculation and clipping"""
-        # Configuration for robust combination
         combination_config = self.adaptive_factors.get('combination', {})
-        use_log_space = combination_config.get('use_log_space', True)
         min_combined = combination_config.get('min_combined_factor', 0.3)
         max_combined = combination_config.get('max_combined_factor', 3.0)
         
-        if use_log_space:
-            # Log-space combination for better handling of extreme values
-            log_slope = np.log(max(0.01, slope_factor))
-            log_atr = np.log(max(0.01, atr_factor))
-            log_combined = log_slope + log_atr
-            combined_factor = np.exp(log_combined)
-        else:
-            combined_factor = slope_factor * atr_factor
+        slope_weight = 0.7
+        atr_weight = 0.3
         
-        # Robust clipping to prevent extreme leverage
+        combined_factor = (slope_factor * slope_weight) + (atr_factor * atr_weight)
+        
         combined_factor = np.clip(combined_factor, min_combined, max_combined)
         
         return combined_factor
@@ -166,21 +158,11 @@ class AdaptiveParameterManager:
         slope_config = self.adaptive_factors['slope']
         sensitivity = slope_config['sensitivity']
         
-        # Slope-Werte sind typischerweise sehr klein (-0.2 bis +0.2)
-        # Besser: abs(slope) verwenden und an reale Slope-Range anpassen
         abs_slope = abs(slope)
-        
-        # Normalisierung: 0 bis sensitivity entspricht 0 bis 1
         normalized_slope = min(abs_slope / sensitivity, 1.0)
         
-        # Für positive/negative Slopes unterschiedlich behandeln
-        if slope >= 0:
-            # Positive Slopes: von 1.0 bis max
-            scale_factor = 1.0 + normalized_slope * (slope_config['max'] - 1.0)
-        else:
-            # Negative Slopes: von 1.0 bis min  
-            scale_factor = 1.0 - normalized_slope * (1.0 - slope_config['min'])
-            
+        scale_factor = slope_config['min'] + normalized_slope * (slope_config['max'] - slope_config['min'])
+        
         return scale_factor
     
     def calculate_atr_factor(self) -> float:
@@ -189,7 +171,24 @@ class AdaptiveParameterManager:
             
         atr_config = self.adaptive_factors['atr']
         
-        scale_factor = atr_config['min'] + self.current_atr_percentile * (atr_config['max'] - atr_config['min'])
+        if self.atr_calculator is None or len(self.atr_calculator.atr_history) < 20:
+            return 1.0
+        
+        atr_history = list(self.atr_calculator.atr_history)
+        atr_mean = np.mean(atr_history)
+        atr_std = np.std(atr_history)
+        
+        if atr_std == 0:
+            return 1.0
+        
+        current_atr = self.atr_calculator.current_atr
+        atr_zscore = (current_atr - atr_mean) / atr_std
+        
+        volatility_strength = 1 / (1 + np.exp(-abs(atr_zscore)))
+        volatility_strength = (volatility_strength - 0.5) * 2
+        
+        scale_factor = atr_config['min'] + volatility_strength * (atr_config['max'] - atr_config['min'])
+        
         return scale_factor
     
     def get_adaptive_parameters(self, slope: float = None) -> tuple:
@@ -255,8 +254,23 @@ class AdaptiveParameterManager:
     def get_volatility_factor(self) -> float:
         if not self.adaptive_factors.get('atr', {}).get('enabled', False):
             return 0.5
-            
-        return self.current_atr_percentile
+        
+        if self.atr_calculator is None or len(self.atr_calculator.atr_history) < 20:
+            return 0.5
+        
+        atr_history = list(self.atr_calculator.atr_history)
+        atr_mean = np.mean(atr_history)
+        atr_std = np.std(atr_history)
+        
+        if atr_std == 0:
+            return 0.5
+        
+        current_atr = self.atr_calculator.current_atr
+        atr_zscore = (current_atr - atr_mean) / atr_std
+        
+        volatility_strength = 1 / (1 + np.exp(-abs(atr_zscore)))
+        
+        return volatility_strength
     
     def get_linear_adjustment(self, base_value: float, trend_sensitivity: float = 0.3, vol_sensitivity: float = 0.4) -> float:
         trend_factor = self.get_trend_factor()
@@ -361,6 +375,13 @@ class AdaptiveParameterManager:
             print(f"Recent Slopes: {[f'{s:.4f}' for s in recent]}")
         
         if self.atr_calculator:
-            print(f"ATR Info - Current: {self.atr_calculator.current_atr:.4f} | Percentile: {self.current_atr_percentile:.3f}")
+            atr_history = list(self.atr_calculator.atr_history)
+            if len(atr_history) >= 20:
+                atr_mean = np.mean(atr_history)
+                atr_std = np.std(atr_history)
+                atr_zscore = (self.atr_calculator.current_atr - atr_mean) / atr_std if atr_std > 0 else 0
+                print(f"ATR Info - Current: {self.atr_calculator.current_atr:.4f} | Z-Score: {atr_zscore:.3f}")
+            else:
+                print(f"ATR Info - Current: {self.atr_calculator.current_atr:.4f} | Insufficient data")
         
         print("="*70)
