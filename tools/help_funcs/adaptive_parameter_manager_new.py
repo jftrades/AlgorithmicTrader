@@ -191,6 +191,29 @@ class AdaptiveParameterManager:
         
         return scale_factor
     
+    def get_adaptive_exit_thresholds(self, entry_combined_factor: float = None) -> tuple:
+        adaptive_exit_config = self.base_params.get('adaptive_exit', {})
+        
+        if not adaptive_exit_config.get('enabled', False):
+            long_exit = self.base_params.get('kalman_zscore_exit_long', -0.01)
+            short_exit = self.base_params.get('kalman_zscore_exit_short', 0.9)
+            return long_exit, short_exit
+        
+        extension_threshold = adaptive_exit_config.get('extension_threshold', 1.3)
+        long_base = adaptive_exit_config.get('long_base_exit', -0.01)
+        long_max = adaptive_exit_config.get('long_max_extension', 1.0)
+        short_base = adaptive_exit_config.get('short_base_exit', -0.01)
+        short_max = adaptive_exit_config.get('short_max_extension', -1.0)
+        
+        if entry_combined_factor is None or entry_combined_factor < extension_threshold:
+            return long_base, short_base
+        
+        extension_factor = min((entry_combined_factor - 1.0) / (extension_threshold - 1.0), 1.0)
+        long_exit = long_base + extension_factor * (long_max - long_base)
+        short_exit = short_base + extension_factor * (short_max - short_base)
+        
+        return long_exit, short_exit
+    
     def get_adaptive_parameters(self, slope: float = None) -> tuple:
         slope_to_use = slope if slope is not None else self.current_slope
         
@@ -216,8 +239,12 @@ class AdaptiveParameterManager:
             'max_stacked_positions': elastic_base.get('max_stacked_positions', 3),
         }
         
-        adaptive_params['kalman_zscore_exit_long'] = self.base_params['kalman_zscore_exit_long'] * combined_factor
-        adaptive_params['kalman_zscore_exit_short'] = self.base_params['kalman_zscore_exit_short'] * combined_factor
+        adaptive_exit_config = self.base_params.get('adaptive_exit', {})
+        if adaptive_exit_config.get('enabled', False):
+            adaptive_params['adaptive_exit'] = adaptive_exit_config
+        else:
+            adaptive_params['kalman_zscore_exit_long'] = self.base_params.get('kalman_zscore_exit_long', -0.01) * combined_factor
+            adaptive_params['kalman_zscore_exit_short'] = self.base_params.get('kalman_zscore_exit_short', 0.9) * combined_factor
         adaptive_params['long_risk_factor'] = self.base_params['long_risk_factor'] * combined_factor
         adaptive_params['short_risk_factor'] = self.base_params['short_risk_factor'] * combined_factor
         

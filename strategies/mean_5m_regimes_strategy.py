@@ -64,6 +64,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         # Dashboard indicators
         self.current_kalman_mean = None
         self.current_combined_factor = None
+        self.entry_combined_factor = None
         
         self.adaptive_manager = AdaptiveParameterManager(
             base_params=config.base_parameters,
@@ -372,6 +373,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             
             self.order_types.submit_long_market_order(qty, price=bar.close)
             self.long_positions_since_cross += 1
+            self.entry_combined_factor = self.current_combined_factor
             
             # Track entry ZScore for stacking
             self.long_entry_zscores.append(zscore)
@@ -412,6 +414,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             
             self.order_types.submit_short_market_order(qty, price=bar.close)
             self.short_positions_since_cross += 1
+            self.entry_combined_factor = self.current_combined_factor
             
             # Track entry ZScore for stacking
             self.short_entry_zscores.append(zscore)
@@ -422,42 +425,38 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             return
         regime = self.get_vix_regime(self.current_vix_value)
         
-        if regime == 2:  # Fear regime - force exit
+        if regime == 2:
             self.vwap_zscore.notify_exit_trade_occurred()
             self.order_types.close_position_by_market_order()
             return
 
         net_pos = self.portfolio.net_position(self.instrument_id)
-        kalman_zscore_exit_threshold = adaptive_params['kalman_zscore_exit_long']
         
-        if (net_pos is not None and net_pos > 0
-            and self.current_kalman_zscore is not None
-            and kalman_zscore_exit_threshold is not None
-            and self.current_kalman_zscore >= kalman_zscore_exit_threshold):
+        if net_pos is not None and net_pos > 0 and self.current_kalman_zscore is not None:
+            long_exit, _ = self.adaptive_manager.get_adaptive_exit_thresholds(self.entry_combined_factor)
             
-            self.vwap_zscore.notify_exit_trade_occurred()
-            self.order_types.close_position_by_market_order()
+            if self.current_kalman_zscore >= long_exit:
+                self.vwap_zscore.notify_exit_trade_occurred()
+                self.order_types.close_position_by_market_order()
 
     def check_for_short_exit(self, bar, adaptive_params: dict):
         if self.current_vix_value is None:
             return
         regime = self.get_vix_regime(self.current_vix_value)
         
-        if regime == 2:  # Fear regime - force exit
+        if regime == 2:
             self.vwap_zscore.notify_exit_trade_occurred()
             self.order_types.close_position_by_market_order()
             return
         
         net_pos = self.portfolio.net_position(self.instrument_id)
-        kalman_zscore_exit_threshold = adaptive_params['kalman_zscore_exit_short']
         
-        if (net_pos is not None and net_pos < 0
-            and self.current_kalman_zscore is not None
-            and kalman_zscore_exit_threshold is not None
-            and self.current_kalman_zscore <= kalman_zscore_exit_threshold):
+        if net_pos is not None and net_pos < 0 and self.current_kalman_zscore is not None:
+            _, short_exit = self.adaptive_manager.get_adaptive_exit_thresholds(self.entry_combined_factor)
             
-            self.vwap_zscore.notify_exit_trade_occurred()
-            self.order_types.close_position_by_market_order()
+            if self.current_kalman_zscore <= short_exit:
+                self.vwap_zscore.notify_exit_trade_occurred()
+                self.order_types.close_position_by_market_order()
 
     def on_position_event(self, event: PositionEvent) -> None:
         pass
