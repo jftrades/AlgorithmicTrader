@@ -3,13 +3,15 @@ symbol: "SPY"
 venue: "ARCA"
 instrument_id: "SPY.ARCA"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
-start_date: "2023-01-01T00:00:00Z"
-end_date: "2024-12-01T23:59:59Z"
+start_date: "2023-10-01T00:00:00Z"
+end_date: "2024-02-01T23:59:59Z"
+
+only_trade_rth: true
 
 # BAAsis - Params (hier drunter sind die Starteinstellungen)
 base_parameters:
-  kalman_process_var: 0.0000001
-  kalman_measurement_var: 0.05  
+  kalman_process_var: 0.00001
+  kalman_measurement_var: 0.04
   kalman_zscore_window: 15
 
   vwap:
@@ -19,24 +21,24 @@ base_parameters:
     vwap_reset_grace_period: 40
 
   elastic_entry:
-    zscore_long_threshold: -4.5
-    zscore_short_threshold: 4.5
-    recovery_delta: 1.5
+    zscore_long_threshold: -2.0
+    zscore_short_threshold: 2.0
+    recovery_delta: 0.8
     allow_multiple_recoveries: true
     recovery_cooldown_bars: 2
     alllow_stacking: true
     max_stacked_positions: 3
-    additional_zscore_min_gain: 2.2
-    recovery_delta_reentry: 1.2
+    additional_zscore_min_gain: 2.0
+    recovery_delta_reentry: 1.0
     stacking_bar_cooldown: 20
   
   adaptive_exit:
     enabled: true
-    extension_threshold: 1.1
+    extension_threshold: 1.0
     long_base_exit: 0.1
-    long_max_extension: 1.5
+    long_max_extension: 1.0
     short_base_exit: 0.01
-    short_max_extension: 1.5
+    short_max_extension: 1.0
 
   long_risk_factor: 1.0
   short_risk_factor: 1.0
@@ -51,22 +53,22 @@ adaptive_factors:
   
   atr:
     enabled: true
-    window: 20
+    window: 14
     percentile_window: 200
     outlier_threshold: 2.0
-    min: 0.7
-    max: 1.4
+    min: 0.5
+    max: 2.0
   
   combination:
     use_log_space: true
-    min_combined_factor: 0.3
+    min_combined_factor: 0.3  
     max_combined_factor: 2.5
 
   asymmetric_offset:
     enabled: true
-    max_offset_pct: 1.8
-    min_trend_strength: 0.02
-    strength_threshold: 0.15
+    max_offset_pct: 2.0
+    min_trend_strength: 0.01
+    strength_threshold: 0.05
     scale_by_volatility: true
     vol_sensitivity: 0.4
     

@@ -42,6 +42,7 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     vix_fear_threshold: float = 25.0
     close_positions_on_stop: bool = True
     invest_percent: float = 0.10
+    only_trade_rth: bool = True
 
 class Mean5mregimesStrategy(BaseStrategy, Strategy):
     def __init__(self, config:Mean5mregimesStrategyConfig):
@@ -126,6 +127,13 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.vix_end = config.end_date  
         self.vix_fear = config.vix_fear_threshold
         self.vix = VIX(start=self.vix_start, end=self.vix_end, fear_threshold=self.vix_fear)
+        
+        # RTH configuration
+        self.only_trade_rth = config.only_trade_rth
+        self.rth_start_hour = 15
+        self.rth_start_minute = 40
+        self.rth_end_hour = 21
+        self.rth_end_minute = 50
 
     def on_start(self) -> None:
         self.instrument = self.cache.instrument(self.instrument_id)
@@ -155,6 +163,16 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
 
     def get_position(self):
         return self.base_get_position()
+
+    def is_rth_time(self, bar: Bar) -> bool:
+        if not self.only_trade_rth:
+            return True
+            
+        bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
+        rth_start = datetime.time(self.rth_start_hour, self.rth_start_minute)
+        rth_end = datetime.time(self.rth_end_hour, self.rth_end_minute)
+        
+        return rth_start <= bar_time <= rth_end
 
     def on_bar(self, bar: Bar) -> None:
         zscore = None
@@ -224,9 +242,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.bars_since_last_long_entry += 1
         self.bars_since_last_short_entry += 1
 
-        # Trading logic
-        bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
-        if bar_time >= datetime.time(15, 40) and bar_time <= datetime.time(21, 50):
+        # Trading logic - nur während RTH handeln
+        if self.is_rth_time(bar):
             if self.current_vix_value is not None:
                 regime = self.get_vix_regime(self.current_vix_value)
 
