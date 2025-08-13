@@ -8,8 +8,7 @@ from .components import (
     get_default_trade_details,
     get_default_trade_details_with_message,
     create_trade_details_content,
-    create_metrics_table,
-    create_all_results_table,
+    create_metrics_table
 )
 
 def register_callbacks(app, repo, dash_data=None):
@@ -236,18 +235,16 @@ def register_callbacks(app, repo, dash_data=None):
             Output("price-chart", "figure"),
             Output("indicators-container", "children"),
             Output("metrics-display", "children"),
-            Output("trade-details-panel", "children"),
-            Output("all-results-table", "children"),
+            Output("trade-details-panel", "children")
         ],
         [
             Input("collector-dropdown", "value"),
             Input("refresh-btn", "n_clicks"),
-            Input("price-chart", "clickData"),
-            Input("filter-sharpe-active", "data"),
+            Input("price-chart", "clickData")
         ],
         prevent_initial_call=False,
     )
-    def unified(sel_value, _n_clicks, clickData, filter_active):
+    def unified(sel_value, _n_clicks, clickData):
         if sel_value and sel_value in state["collectors"]:
             state["selected_collector"] = sel_value
             state["selected_trade_index"] = None
@@ -304,17 +301,4 @@ def register_callbacks(app, repo, dash_data=None):
                 pass
         metrics_div = create_metrics_table(metrics, nautilus_result)
 
-        # All results (Repo-Hook; sonst Cache)
-        all_df = None
-        if hasattr(repo, "load_all_results"):
-            try:
-                all_df = repo.load_all_results()
-            except Exception:
-                all_df = None
-        
-        if all_df is None:
-            all_df = all_results_cache
-        
-        all_table = create_all_results_table(all_df, filter_active)
-        
-        return price_fig, ind_children, metrics_div, trade_details, all_table
+        return price_fig, ind_children, metrics_div, trade_details

@@ -62,7 +62,6 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False):
     # Slide Menu Container (ohne Button)
     slide_menu_content = []
     if runs_df is not None:
-        from core.visualizing.dashboard.slide_menu import SlideMenuComponent
         menu_component = SlideMenuComponent()
         sidebar = menu_component.create_sidebar(runs_df, menu_open, is_fullscreen=False)
         # Extrahiere nur die Sidebar-Inhalte
@@ -154,14 +153,14 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False):
     })
 
     collector_dropdown = html.Div([
-        html.H4("Collector / Instrument", style={
+        html.H4("Instrument", style={
             'color':'#2c3e50','marginBottom':'8px','fontFamily':'Inter, system-ui',
             'fontWeight':'600','fontSize':'16px'
         }),
         dcc.Dropdown(
             id='collector-dropdown',
             options=[{'label': k, 'value': k} for k in collectors],
-            value=selected, placeholder="Select collector...",
+            value=selected, placeholder="Select instrument...",
             style={'fontFamily':'Inter, system-ui'}
         )
     ], style={
@@ -229,16 +228,6 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False):
         })
     ], style={'margin':'15px 20px'})
 
-    all_results = html.Div([
-        html.H3("All Backtest Results", style={
-            'color':'#2c3e50','marginBottom':'20px',
-            'fontFamily':'Inter, system-ui, sans-serif','fontWeight':'600',
-            'fontSize':'20px','letterSpacing':'-0.01em'
-        }),
-        html.Div(id='all-results-table'),
-        dcc.Store(id='filter-sharpe-active', data=False)
-    ], style={'margin':'15px 20px'})
-
     refresh = html.Div([
         html.Button('Update Dashboard', id='refresh-btn', n_clicks=0,
             style={
@@ -254,7 +243,7 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False):
 
     main_content = html.Div([
         header, collector_dropdown, trade_details_panel, price_block,
-        indicators_container, metrics_block, all_results, refresh
+        indicators_container, metrics_block, refresh   # all_results entfernt
     ], id="main-content", style=main_style)
 
     return html.Div([
