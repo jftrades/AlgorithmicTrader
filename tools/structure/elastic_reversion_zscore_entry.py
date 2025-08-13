@@ -99,21 +99,35 @@ class ElasticReversionZScoreEntry:
         self._handle_neutral_zone_reset(zscore)
         
     def _update_extremes_since_cross(self, zscore: float) -> None:
+        # Update Long Extreme
         if self.z_extreme_long_since_cross is None or zscore < self.z_extreme_long_since_cross:
             self.z_extreme_long_since_cross = zscore
             self.bars_since_long_extreme = 0
-            self.long_recovery_triggered = False
+            # WICHTIG: Bei neuem Extrem Reset der Recovery-Flags für neue Recovery-Möglichkeiten
+            if self.allow_multiple_recoveries:
+                self.long_recovery_triggered = False
             
+        # Update Short Extreme    
         if self.z_extreme_short_since_cross is None or zscore > self.z_extreme_short_since_cross:
             self.z_extreme_short_since_cross = zscore
             self.bars_since_short_extreme = 0
-            self.short_recovery_triggered = False
+            # WICHTIG: Bei neuem Extrem Reset der Recovery-Flags für neue Recovery-Möglichkeiten
+            if self.allow_multiple_recoveries:
+                self.short_recovery_triggered = False
             
     def _handle_neutral_zone_reset(self, zscore: float) -> None:
         if (self.reset_neutral_zone_short <= zscore <= self.reset_neutral_zone_long):
             if self.bars_since_last_long_signal >= self.recovery_cooldown_bars:
                 self.long_recovery_triggered = False
                 
+            if self.bars_since_last_short_signal >= self.recovery_cooldown_bars:
+                self.short_recovery_triggered = False
+        
+        # Zusätzlicher Fix: Erlaube multiple recoveries wenn erlaubt
+        if self.allow_multiple_recoveries:
+            # Reset recovery flags nach Cooldown, auch ohne Neutral Zone
+            if self.bars_since_last_long_signal >= self.recovery_cooldown_bars:
+                self.long_recovery_triggered = False
             if self.bars_since_last_short_signal >= self.recovery_cooldown_bars:
                 self.short_recovery_triggered = False
 
@@ -140,27 +154,45 @@ class ElasticReversionZScoreEntry:
             }
         }
         
+        # Long Entry Logic
         if (self.z_extreme_long_since_cross is not None and 
             self.z_extreme_long_since_cross <= self.z_min_threshold and  
-            current_zscore >= (self.z_extreme_long_since_cross + self.recovery_delta) and  
-            not self.long_recovery_triggered and
-            self.bars_since_last_long_signal >= self.recovery_cooldown_bars):
+            current_zscore >= (self.z_extreme_long_since_cross + self.recovery_delta)):
             
-            long_signal = True
-            self.long_recovery_triggered = True
-            self.bars_since_last_long_signal = 0
-            debug_info['long_entry_reason'] = f"Recovery from {self.z_extreme_long_since_cross:.2f} to {current_zscore:.2f}"
+            # Prüfe ob Recovery erlaubt ist
+            recovery_allowed = False
+            if not self.long_recovery_triggered:
+                # Erste Recovery ist immer erlaubt
+                recovery_allowed = True
+            elif self.allow_multiple_recoveries and self.bars_since_last_long_signal >= self.recovery_cooldown_bars:
+                # Multiple recoveries sind erlaubt nach Cooldown
+                recovery_allowed = True
             
+            if recovery_allowed:
+                long_signal = True
+                self.long_recovery_triggered = True
+                self.bars_since_last_long_signal = 0
+                debug_info['long_entry_reason'] = f"Recovery from {self.z_extreme_long_since_cross:.2f} to {current_zscore:.2f}"
+            
+        # Short Entry Logic  
         if (self.z_extreme_short_since_cross is not None and
             self.z_extreme_short_since_cross >= self.z_max_threshold and  
-            current_zscore <= (self.z_extreme_short_since_cross - self.recovery_delta) and  
-            not self.short_recovery_triggered and
-            self.bars_since_last_short_signal >= self.recovery_cooldown_bars):
+            current_zscore <= (self.z_extreme_short_since_cross - self.recovery_delta)):
             
-            short_signal = True
-            self.short_recovery_triggered = True
-            self.bars_since_last_short_signal = 0
-            debug_info['short_entry_reason'] = f"Recovery from {self.z_extreme_short_since_cross:.2f} to {current_zscore:.2f}"
+            # Prüfe ob Recovery erlaubt ist
+            recovery_allowed = False
+            if not self.short_recovery_triggered:
+                # Erste Recovery ist immer erlaubt
+                recovery_allowed = True
+            elif self.allow_multiple_recoveries and self.bars_since_last_short_signal >= self.recovery_cooldown_bars:
+                # Multiple recoveries sind erlaubt nach Cooldown
+                recovery_allowed = True
+            
+            if recovery_allowed:
+                short_signal = True
+                self.short_recovery_triggered = True
+                self.bars_since_last_short_signal = 0
+                debug_info['short_entry_reason'] = f"Recovery from {self.z_extreme_short_since_cross:.2f} to {current_zscore:.2f}"
                 
         return long_signal, short_signal, debug_info
     

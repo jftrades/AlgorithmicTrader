@@ -194,7 +194,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         linear_config = self.adaptive_manager.adaptive_factors.get('linear_adjustments', {})
         trend_sensitivity = linear_config.get('trend_sensitivity', 0.3)
         vol_sensitivity = linear_config.get('vol_sensitivity', 0.4)
-        max_trend_strength = linear_config.get('max_trend_strength', 0.8)
         
         elastic_base = adaptive_params['elastic_entry']
         
@@ -227,15 +226,14 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             
         # Update VWAP with asymmetric offset
         asymmetric_offset = self.adaptive_manager.get_asymmetric_offset(self.current_kalman_mean)
-        vwap_segment_info_before = self.vwap_zscore.get_segment_info()
-        vwap_value, zscore = self.vwap_zscore.update(bar, kalman_exit_mean=self.current_kalman_mean, asymmetric_offset=asymmetric_offset)
+        vwap_value, zscore = self.vwap_zscore.update(bar, kalman_exit_mean=None, asymmetric_offset=asymmetric_offset)
         self.current_zscore = zscore
-        vwap_segment_info_after = self.vwap_zscore.get_segment_info()
 
+        # Use the VWAP Z-Score for entries (not Kalman Z-Score)
         if zscore is not None:
             self.elastic_entry.update_state(zscore)
 
-        self._check_vwap_cross_for_stacking(bar, vwap_segment_info_before, vwap_segment_info_after)
+        self._check_kalman_cross_for_stacking(bar)
         self.bar_counter += 1
 
         # Update entry tracking counters
@@ -248,19 +246,18 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                 regime = self.get_vix_regime(self.current_vix_value)
 
                 if regime == 2:  # Fear regime - close positions
+                    self.vwap_zscore.set_kalman_exit_mean(self.current_kalman_mean)
                     self.vwap_zscore.notify_exit_trade_occurred()
                     self.order_types.close_position_by_market_order()
                 else:
                     if self.current_kalman_mean is not None and zscore is not None:
-                        trend_strength = abs(self.adaptive_manager.get_trend_factor())
-                        if trend_strength < max_trend_strength:
-                            self.current_long_risk_factor = adaptive_params['long_risk_factor']
-                            self.current_short_risk_factor = adaptive_params['short_risk_factor']
-                            
-                            if bar.close < self.current_kalman_mean:
-                                self.check_for_long_trades(bar, zscore, adaptive_params)
-                            elif bar.close > self.current_kalman_mean:
-                                self.check_for_short_trades(bar, zscore, adaptive_params)
+                        self.current_long_risk_factor = adaptive_params['long_risk_factor']
+                        self.current_short_risk_factor = adaptive_params['short_risk_factor']
+                        
+                        if bar.close < self.current_kalman_mean:
+                            self.check_for_long_trades(bar, zscore, adaptive_params)
+                        elif bar.close > self.current_kalman_mean:
+                            self.check_for_short_trades(bar, zscore, adaptive_params)
 
         self.check_for_long_exit(bar, adaptive_params)
         self.check_for_short_exit(bar, adaptive_params)
@@ -272,11 +269,15 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         pos = self.portfolio.net_position(self.instrument_id)
         return abs(int(pos)) if pos is not None else 0
     
-    def _check_vwap_cross_for_stacking(self, bar, vwap_segment_info_before, vwap_segment_info_after):
-        start_before = vwap_segment_info_before.get('segment_start_bar', 0)
-        start_after = vwap_segment_info_after.get('segment_start_bar', 0)
+    def _check_kalman_cross_for_stacking(self, bar):
+        if self.current_kalman_mean is None:
+            return
+            
+        current_above = bar.close > self.current_kalman_mean
+        current_direction = "up" if current_above else "down"
         
-        if start_before != start_after:
+        # Check if direction changed (Kalman cross detected)
+        if self.last_kalman_cross_direction is not None and self.last_kalman_cross_direction != current_direction:
             # Reset Position Tracking
             self.long_positions_since_cross = 0
             self.short_positions_since_cross = 0
@@ -287,14 +288,16 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.bars_since_last_long_entry = 0
             self.bars_since_last_short_entry = 0
             
+            # Reset Elastic Entry System
             self.elastic_entry.reset_on_cross()
             
-            if self.current_kalman_mean is not None:
-                current_above = bar.close > self.current_kalman_mean
-                self.last_kalman_cross_direction = "up" if current_above else "down"
-                
-                anchor_reason = vwap_segment_info_after.get('anchor_reason', 'unknown')
-                self.log.info(f"VWAP anchor reset: {anchor_reason} | Stacking counters reset", color=LogColor.BLUE)
+            # Reset VWAP when significant Kalman cross occurs
+            self.vwap_zscore.set_kalman_exit_mean(self.current_kalman_mean)
+            self.vwap_zscore.notify_exit_trade_occurred()
+            
+            self.log.info(f"Kalman cross detected: {self.last_kalman_cross_direction} -> {current_direction} | VWAP reset", color=LogColor.BLUE)
+        
+        self.last_kalman_cross_direction = current_direction
     
     def can_stack_long(self, current_zscore: float) -> bool:
         # Erste Position ist immer erlaubt, auch wenn Stacking deaktiviert ist
@@ -443,6 +446,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         regime = self.get_vix_regime(self.current_vix_value)
         
         if regime == 2:
+            self.vwap_zscore.set_kalman_exit_mean(self.current_kalman_mean)
             self.vwap_zscore.notify_exit_trade_occurred()
             self.order_types.close_position_by_market_order()
             return
@@ -453,6 +457,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             long_exit, _ = self.adaptive_manager.get_adaptive_exit_thresholds(self.entry_combined_factor)
             
             if self.current_kalman_zscore >= long_exit:
+                self.vwap_zscore.set_kalman_exit_mean(self.current_kalman_mean)
                 self.vwap_zscore.notify_exit_trade_occurred()
                 self.order_types.close_position_by_market_order()
 
@@ -462,6 +467,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         regime = self.get_vix_regime(self.current_vix_value)
         
         if regime == 2:
+            self.vwap_zscore.set_kalman_exit_mean(self.current_kalman_mean)
             self.vwap_zscore.notify_exit_trade_occurred()
             self.order_types.close_position_by_market_order()
             return
@@ -472,6 +478,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             _, short_exit = self.adaptive_manager.get_adaptive_exit_thresholds(self.entry_combined_factor)
             
             if self.current_kalman_zscore <= short_exit:
+                self.vwap_zscore.set_kalman_exit_mean(self.current_kalman_mean)
                 self.vwap_zscore.notify_exit_trade_occurred()
                 self.order_types.close_position_by_market_order()
 
