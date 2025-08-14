@@ -27,9 +27,10 @@ def build_price_chart(bars_df, indicators_df, trades_df, selected_trade_index):
             pass
     # Trades
     if trades_df is not None and not trades_df.empty:
-        _add_trade_markers(fig, trades_df, selected_trade_index)
+        # Linien zuerst, Marker danach!
         if selected_trade_index is not None:
             add_trade_visualization(fig, trades_df, bars_df, selected_trade_index)
+        _add_trade_markers(fig, trades_df, selected_trade_index)
 
     fig.update_layout(
         xaxis_title="Time", yaxis_title="Price (USDT)", template="plotly_white",
@@ -64,8 +65,13 @@ def _add_trade_markers(fig, trades, selected_idx):
                 y=st.get('open_price_actual', st.get('price_actual', 0)),
                 mode='markers',
                 name=f'{name} (Selected)',
-                marker=dict(symbol=sym, size=20, color=color,
-                            line=dict(color='#000', width=3)),
+                marker=dict(
+                    symbol=sym,
+                    size=18,
+                    color=color,
+                    # Kein schwarzer Rand mehr, nur ggf. ein minimaler weißer Rand für Klarheit
+                    line=dict(color='#fff', width=1)
+                ),
                 showlegend=False,
                 customdata=st.index.tolist(),
                 hovertemplate=f'<b>{name} (Selected)</b><br>%{{x}}<br>Price: %{{y:.4f}}<extra></extra>'
@@ -86,25 +92,48 @@ def add_trade_visualization(fig, trades_df, bars_df, trade_idx):
     if entry_price == 0 or exit_price == 0:
         return
 
+    # Chart-Grenzen bestimmen (volle Breite)
+    if bars_df is not None and not bars_df.empty:
+        x_min = bars_df['timestamp'].iloc[0]
+        x_max = bars_df['timestamp'].iloc[-1]
+    else:
+        x_min = entry_time
+        x_max = exit_time
+
+    # Kräftige schwarze horizontale Linien für Entry/Exit (gestrichelt)
     fig.add_trace(go.Scatter(
-        x=[entry_time, exit_time],
-        y=[entry_price, exit_price],
+        x=[x_min, x_max],
+        y=[entry_price, entry_price],
         mode='lines',
-        line=dict(color='#ffc107', width=3, dash='dash'),
-        name='Trade Path',
-        showlegend=False
+        line=dict(color='rgba(0,0,0,0.50)', width=1, dash='dash'),
+        name='Entry Price',
+        showlegend=False,
+        opacity=1,
+        hoverinfo='skip'
+    ))
+    fig.add_trace(go.Scatter(
+        x=[x_min, x_max],
+        y=[exit_price, exit_price],
+        mode='lines',
+        line=dict(color='rgba(0,0,0,0.50)', width=1, dash='dash'),
+        name='Exit Price',
+        showlegend=False,
+        opacity=1,
+        hoverinfo='skip'
     ))
 
     sl, tp = trade.get('sl'), trade.get('tp')
     for level, name, color in [(sl, 'SL', '#dc3545'), (tp, 'TP', '#28a745')]:
         if pd.notna(level) and level > 0:
             fig.add_trace(go.Scatter(
-                x=[entry_time, exit_time],
+                x=[x_min, x_max],
                 y=[level, level],
                 mode='lines',
                 line=dict(color=color, width=2, dash='dot'),
                 name=name,
-                showlegend=False
+                showlegend=False,
+                opacity=0.5,
+                hoverinfo='skip'
             ))
 
 def build_indicator_figure(indicators_list):
