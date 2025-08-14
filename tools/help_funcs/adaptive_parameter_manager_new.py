@@ -230,6 +230,8 @@ class AdaptiveParameterManager:
             'zscore_long_threshold': elastic_base['zscore_long_threshold'] * combined_factor,
             'zscore_short_threshold': elastic_base['zscore_short_threshold'] * combined_factor,
             'recovery_delta': elastic_base['recovery_delta'] * combined_factor,
+            'long_min_distance_from_kalman': elastic_base['long_min_distance_from_kalman'] * combined_factor,
+            'short_min_distance_from_kalman': elastic_base['short_min_distance_from_kalman'] * combined_factor,
             'additional_zscore_min_gain': elastic_base['additional_zscore_min_gain'] * combined_factor,
             'recovery_delta_reentry': elastic_base['recovery_delta_reentry'] * combined_factor,
             'allow_multiple_recoveries': elastic_base['allow_multiple_recoveries'],

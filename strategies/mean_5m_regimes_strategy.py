@@ -363,6 +363,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if self.current_kalman_mean is not None and bar.close >= self.current_kalman_mean:
             return
 
+        # Check minimum distance from Kalman using Kalman Z-Score
+        long_min_distance = adaptive_params['elastic_entry']['long_min_distance_from_kalman']
+        if self.current_kalman_zscore is not None and self.current_kalman_zscore > long_min_distance:
+            return  # Not far enough from Kalman mean for long entries
+
         regime = self.get_vix_regime(self.current_vix_value)
         if regime == 2:  # Fear regime - no trades
             return
@@ -404,6 +409,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if self.current_kalman_mean is not None and bar.close <= self.current_kalman_mean:
             return
     
+        # Check minimum distance from Kalman using Kalman Z-Score
+        short_min_distance = adaptive_params['elastic_entry']['short_min_distance_from_kalman']
+        if self.current_kalman_zscore is not None and self.current_kalman_zscore < short_min_distance:
+            return  # Not far enough from Kalman mean for short entries
+
         regime = self.get_vix_regime(self.current_vix_value)
         if regime == 2:  # Fear regime - no trades
             return
