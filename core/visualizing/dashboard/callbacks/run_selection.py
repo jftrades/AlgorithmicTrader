@@ -1,4 +1,4 @@
-from dash import Input, Output, State
+from dash import Input, Output, State, no_update
 from dash.exceptions import PreventUpdate
 
 def register_run_selection_callbacks(app, repo, state):
@@ -14,9 +14,10 @@ def register_run_selection_callbacks(app, repo, state):
         ],
         Input("runs-table", "selected_rows"),
         State("runs-table", "data"),
+        State("collector-dropdown", "value"),  # <- added to preserve selection
         prevent_initial_call=True
     )
-    def select_runs(selected_rows, table_data):
+    def select_runs(selected_rows, table_data, current_selection):
         if not selected_rows or not table_data:
             raise PreventUpdate
         run_ids = []
@@ -47,6 +48,21 @@ def register_run_selection_callbacks(app, repo, state):
         state["selected_trade_index"] = None
 
         options = [{'label': k, 'value': k} for k in state["collectors"]]
-        # Dropdown multi=True: Wert als Liste
-        value = [state["selected_collector"]] if state["selected_collector"] else []
+
+        # Normalize current_selection (can be None, str, or list)
+        if isinstance(current_selection, str):
+            current_selection = [current_selection]
+        elif not isinstance(current_selection, list):
+            current_selection = []
+
+        # Keep only still-valid selections
+        valid_values = {opt['value'] for opt in options}
+        preserved = [v for v in current_selection if v in valid_values]
+
+        if preserved:
+            value = preserved  # keep user multi-selection
+        else:
+            # fallback default
+            value = [state.get("selected_collector")] if state.get("selected_collector") else []
+
         return options, value, run_ids
