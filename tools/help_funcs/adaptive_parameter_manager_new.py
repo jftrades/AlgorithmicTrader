@@ -236,7 +236,8 @@ class AdaptiveParameterManager:
             'recovery_cooldown_bars': elastic_base['recovery_cooldown_bars'],
             'stacking_bar_cooldown': elastic_base['stacking_bar_cooldown'],
             'alllow_stacking': elastic_base.get('alllow_stacking', True),
-            'max_stacked_positions': elastic_base.get('max_stacked_positions', 3),
+            'max_long_stacked_positions': elastic_base.get('max_long_stacked_positions', 3),
+            'max_short_stacked_positions': elastic_base.get('max_short_stacked_positions', 3),
         }
         
         adaptive_exit_config = self.base_params.get('adaptive_exit', {})

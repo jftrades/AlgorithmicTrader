@@ -109,7 +109,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         )
 
         self.allow_stacking = adaptive_elastic_params.get('alllow_stacking', False)
-        self.max_stacked_positions = adaptive_elastic_params.get('max_stacked_positions', 3)
+        self.max_long_stacked_positions = adaptive_elastic_params.get('max_long_stacked_positions', 3)
+        self.max_short_stacked_positions = adaptive_elastic_params.get('max_short_stacked_positions', 3)
         self.additional_zscore_min_gain = adaptive_elastic_params.get('additional_zscore_min_gain', 0.5)
         self.recovery_delta_reentry = adaptive_elastic_params.get('recovery_delta_reentry', 0.3)
         self.stacking_bar_cooldown = adaptive_elastic_params.get('stacking_bar_cooldown', 10)
@@ -308,7 +309,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not self.allow_stacking:
             return False
         
-        if self.long_positions_since_cross >= self.max_stacked_positions:
+        if self.long_positions_since_cross >= self.max_long_stacked_positions:
             return False
                     
         if self.bars_since_last_long_entry < self.stacking_bar_cooldown:
@@ -332,7 +333,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not self.allow_stacking:
             return False
         
-        if self.short_positions_since_cross >= self.max_stacked_positions:
+        if self.short_positions_since_cross >= self.max_short_stacked_positions:
             return False
             
         if self.bars_since_last_short_entry < self.stacking_bar_cooldown:
@@ -382,7 +383,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         
         if long_signal:
             entry_reason = debug_info.get('long_entry_reason', 'Recovery signal')
-            stack_info = f"Stack {self.long_positions_since_cross + 1}/{self.max_stacked_positions}" if self.long_positions_since_cross > 0 else "Initial"
+            stack_info = f"Stack {self.long_positions_since_cross + 1}/{self.max_long_stacked_positions}" if self.long_positions_since_cross > 0 else "Initial"
             
             # Log trade state
             self.adaptive_manager.log_trade_state(
@@ -423,7 +424,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         
         if short_signal:
             entry_reason = debug_info.get('short_entry_reason', 'Recovery signal')
-            stack_info = f"Stack {self.short_positions_since_cross + 1}/{self.max_stacked_positions}" if self.short_positions_since_cross > 0 else "Initial"
+            stack_info = f"Stack {self.short_positions_since_cross + 1}/{self.max_short_stacked_positions}" if self.short_positions_since_cross > 0 else "Initial"
             
             # Log trade state
             self.adaptive_manager.log_trade_state(
