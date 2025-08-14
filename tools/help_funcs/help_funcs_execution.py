@@ -56,20 +56,21 @@ def extract_metrics(result, run_params, run_id):
         # Standard-Infos
         metrics.update(run_params)
         metrics["run_id"] = run_id
+        metrics["run_started"] = getattr(result_obj, "run_started", None)
+        metrics["run_finished"] = getattr(result_obj, "run_finished", None)
         metrics["backtest_start"] = getattr(result_obj, "backtest_start", None)
         metrics["backtest_end"] = getattr(result_obj, "backtest_end", None)
         metrics["elapsed_time"] = getattr(result_obj, "elapsed_time", None)
-        metrics["iterations"] = getattr(result_obj, "iterations", None)
-        metrics["total_events"] = getattr(result_obj, "total_events", None)
         metrics["total_orders"] = getattr(result_obj, "total_orders", None)
         metrics["total_positions"] = getattr(result_obj, "total_positions", None)
+        
         # PnL/Return-Metriken (z.B. nur USDT)
         if hasattr(result_obj, "stats_pnls") and "USDT" in result_obj.stats_pnls:
             for k, v in result_obj.stats_pnls["USDT"].items():
                 metrics[f"USDT_{k}"] = v
         if hasattr(result_obj, "stats_returns"):
             for k, v in result_obj.stats_returns.items():
-                metrics[f"RET_{k}"] = v
+                metrics[f"{k}"] = v
     else:
         # Fallback: nur Parameter speichern
         metrics.update(run_params)

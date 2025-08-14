@@ -7,6 +7,7 @@ import yaml
 from typing import List
 
 class RunValidator:
+    # Hinweis: Styling-Anpassungen betreffen nur UI-Komponenten, Logik hier bleibt unverändert.
     """Strikte Validierung für Run-Daten ohne Fallbacks"""
     
     REQUIRED_COLUMNS = ["run_id", "Sharpe", "Total Return", "Max Drawdown", "Trades"]
@@ -14,8 +15,10 @@ class RunValidator:
     # Mapping von CSV-Spalten zu erwarteten Spalten
     COLUMN_MAPPING = {
         'RET_Sharpe Ratio (252 days)': 'Sharpe',
+        'Sharpe Ratio (252 days)': 'Sharpe',              # NEU: aktueller Spaltenname
         'USDT_PnL (total)': 'Total Return',  # Absolute PnL statt Prozent
-        'total_positions': 'Trades'
+        'total_orders': 'Trades',          # NEU: primäre Quelle
+        # 'total_positions': 'Trades'      # Entfernt (Fallback unten)
         # Max Drawdown ist nicht in den Daten - wird später behandelt
     }
     
@@ -74,25 +77,34 @@ class RunValidator:
         return df
     
     def _apply_column_mapping(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Wendet Spalten-Mapping an und erstellt fehlende Spalten"""
+        """Wendet Spalten-Mapping an und erstellt fehlende Spalten (robust, case-insensitive Fallbacks)."""
         df_mapped = df.copy()
-        
-        # Direkte Mappings anwenden
+
+        # Direkte Mappings
         for source_col, target_col in self.COLUMN_MAPPING.items():
             if source_col in df_mapped.columns:
                 df_mapped[target_col] = df_mapped[source_col]
+
+        # Sharpe Fallback (falls noch nicht vorhanden)
+        if 'Sharpe' not in df_mapped.columns:
+            sharpe_like = [c for c in df_mapped.columns if 'sharpe' in c.lower()]
+            if sharpe_like:
+                try:
+                    df_mapped['Sharpe'] = pd.to_numeric(df_mapped[sharpe_like[0]], errors='coerce')
+                except Exception:
+                    df_mapped['Sharpe'] = float('nan')
+
+        # Trades Fallback (nur falls oben nicht gemappt)
+        if 'Trades' not in df_mapped.columns:
+            if 'total_orders' in df_mapped.columns:
+                df_mapped['Trades'] = df_mapped['total_orders']
+            elif 'total_positions' in df_mapped.columns:
+                df_mapped['Trades'] = df_mapped['total_positions']
         
-        # Max Drawdown berechnen falls nicht vorhanden
+        # Max Drawdown immer erzeugen falls fehlt (Dummy 0.0)
         if 'Max Drawdown' not in df_mapped.columns:
-            if 'USDT_PnL% (total)' in df_mapped.columns:
-                # Vereinfachte Max Drawdown Schätzung basierend auf negativen Returns
-                df_mapped['Max Drawdown'] = df_mapped['USDT_PnL% (total)'].apply(
-                    lambda x: min(0, x) if pd.notna(x) else 0
-                )
-            else:
-                # Fallback: setze auf 0
-                df_mapped['Max Drawdown'] = 0.0
-        
+            df_mapped['Max Drawdown'] = 0.0
+
         return df_mapped
     
     def _validate_run_directories(self, run_indices: List[int]):

@@ -41,6 +41,6 @@ visualise_qs: false
 # ===========================
 
 # RSI-Strategie
-rsi_period: [10]
+rsi_period: [10,20]
 rsi_overbought: [0.75,0.6]
 rsi_oversold: [0.25,0.4]
