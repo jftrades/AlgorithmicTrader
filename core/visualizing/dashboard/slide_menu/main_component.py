@@ -3,9 +3,10 @@ Hauptkomponente für das Slide-Menu
 Orchestriert die verschiedenen Subkomponenten
 """
 import pandas as pd
-from dash import html
+from dash import html, dcc  # NEU: dcc Import hinzugefügt
 from .table_components import RunTableBuilder
 from .chart_components import EquityChartsBuilder
+from .yaml_viewer import YamlViewer  # NEU
 
 class SlideMenuComponent:
     """UI-Komponente für das ausklappbare Slide-Menu"""
@@ -18,14 +19,36 @@ class SlideMenuComponent:
         # Subkomponenten
         self.table_builder = RunTableBuilder()
         self.charts_builder = EquityChartsBuilder()
+        self.viewer = YamlViewer()  # NEU
     
     def create_sidebar(self, runs_df: pd.DataFrame, is_open: bool = False, is_fullscreen: bool = False, 
-                      selected_run_indices: list = None, checkbox_states: dict = None) -> html.Div:
+                      selected_run_indices: list = None, checkbox_states: dict = None, app=None) -> html.Div:
         """Erstellt NUR die Sidebar-Inhalte (ohne Toggle-Button)"""
         
+        # YAML-Viewer-Callbacks automatisch registrieren wie beim Param Analyzer
+        if app is not None:
+            self.viewer.register_callbacks(app)
+        
+        sidebar_content = []
+
+        # YAML-Button und ggf. Dropdown (nur im Fullscreen-Modus)
+        yaml_controls = html.Div()
+        yaml_store = None
+        if is_fullscreen:
+            viewer_components = self.viewer.build_components(runs_df, selected_run_indices or [], app=app)
+            yaml_controls = viewer_components["controls"]
+            # Store kommt jetzt aus dem Haupt-Layout, nicht mehr hier erstellen
+        else:
+            # NEU: Auch im normalen Modus einen leeren Store erstellen für Callback-Konsistenz
+            yaml_store = dcc.Store(id="run-yaml-store", data={})
+
+        # Header Layout (jetzt mit YAML-Button/Dropdown)
+        header = self._create_header(runs_df, is_fullscreen, yaml_controls if is_fullscreen else None)
+        sidebar_content.append(header)
+
         # Run-Tabelle erstellen
         run_table = self.table_builder.create_table(runs_df, is_fullscreen, checkbox_states)
-        
+
         # Equity Curves für Fullscreen-Modus
         equity_charts = html.Div()
         if is_fullscreen:
@@ -34,16 +57,16 @@ class SlideMenuComponent:
         # Fullscreen Toggle Button
         fullscreen_button = self._create_fullscreen_button(is_fullscreen)
         
-        # Header Layout
-        header = self._create_header(runs_df, is_fullscreen)
-        
         # Hauptinhalt Container
         main_content = self._create_main_content(run_table, equity_charts, fullscreen_button, is_fullscreen)
-        
-        # Sidebar Container - NUR Inhalte (für direktes Einfügen in Layout)
-        sidebar_content = [header, main_content]
-        
-        # Gebe nur die Inhalte zurück (für Layout-Integration)
+
+        sidebar_content.append(main_content)
+        # Store NICHT mehr hinzufügen - kommt aus Haupt-Layout
+        # if yaml_store:
+        #     sidebar_content.append(yaml_store)
+        if is_fullscreen:
+            sidebar_content.append(self.viewer.get_modal())
+
         return html.Div([html.Div(), html.Div(sidebar_content)])
     
     def _fmt_ns_timestamp(self, val):
@@ -106,7 +129,7 @@ class SlideMenuComponent:
             }
         )
     
-    def _create_header(self, runs_df: pd.DataFrame, is_fullscreen: bool) -> html.Div:
+    def _create_header(self, runs_df: pd.DataFrame, is_fullscreen: bool, yaml_controls=None) -> html.Div:
         """Erstellt Header mit zentrierter Überschrift"""
         # NEU: Info-Bar Daten aus erster Zeile
         info_bar = html.Div()
@@ -205,8 +228,24 @@ class SlideMenuComponent:
             'boxShadow': '0 2px 6px -2px rgba(0,0,0,0.06)'
         }
 
+        # YAML-Button/Dropdown absolut ganz rechts oben im Header platzieren
+        yaml_controls_div = None
+        if yaml_controls is not None:
+            yaml_controls_div = html.Div(
+                yaml_controls,
+                style={
+                    'position': 'absolute',
+                    'top': '10px',
+                    'right': '18px',
+                    'zIndex': 30,
+                }
+            )
+
         return html.Div([
-            info_bar,
+            html.Div([
+                info_bar,
+                yaml_controls_div
+            ], style={'position': 'relative'}),
             html.Div([
                 html.H2("Backtest Runs", style={
                     'color': '#1a1a1a',  # vorher #2e1065

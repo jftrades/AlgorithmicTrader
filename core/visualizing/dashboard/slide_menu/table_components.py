@@ -276,6 +276,8 @@ class RunTableBuilder:
                     val_out = str(val)
                 cells.append(html.Td(val_out, style={'textAlign': 'center', 'fontSize': '11px'}))
 
+            # Entferne YAML-Button aus der Tabelle
+
             # Row styling - hervorheben wenn ausgewählt
             is_selected = checkbox_states and run_index in checkbox_states and checkbox_states[run_index]
             row_style = {
@@ -326,5 +328,7 @@ class RunTableBuilder:
             if pcol in ['run_index', 'run_id']:
                 continue
             header_cells.append(html.Th(pcol, style={'textAlign': 'center'}))
+
+        # Entferne YAML-Button Header
 
         return header_cells

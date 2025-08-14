@@ -1,16 +1,14 @@
 from dash import Input, Output, dcc, State, callback_context, dash, ALL
-from dash import html  # <-- hinzugefügt (NameError fix)
-from dash.exceptions import PreventUpdate  # re-added
+from dash import html
+from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 import pandas as pd
 
-from .charts import build_price_chart, build_indicator_figure
 from .components import (
-    get_default_trade_details,
-    get_default_trade_details_with_message,
-    create_trade_details_content,
     create_metrics_table
 )
+
+from .callbacks.charts import register_chart_callbacks  # NEU: orchestrierter Chart-Callback
 
 def register_callbacks(app, repo, dash_data=None):
     # State vorbereiten – KEIN zweites repo.load_dashboard() hier!
@@ -35,6 +33,9 @@ def register_callbacks(app, repo, dash_data=None):
         state["collectors"] = {}
         state["selected_collector"] = None
         all_results_cache = None
+
+    # NEU: Registrierung der ausgelagerten Chart-Callbacks (Multi-Run + Multi-Instrument)
+    register_chart_callbacks(app, repo, state)
 
     # KOMBINIERTER Callback für Menu Toggle UND Fullscreen - alle Styles zusammen
     @app.callback(
@@ -328,126 +329,3 @@ def register_callbacks(app, repo, dash_data=None):
         new_options = [{'label': k, 'value': k} for k in state["collectors"].keys()]
         new_value = state["selected_collector"]
         return new_options, new_value, run_id
-
-    @app.callback(
-        Output("price-chart-mode", "data"),
-        Input("price-chart", "restyleData"),
-        State("price-chart-mode", "data"),
-        prevent_initial_call=True
-    )
-    def update_chart_mode(restyle_data, current_mode):
-        """
-        This callback ONLY updates the chart mode store when the OHLC/GRAPH buttons are clicked.
-        It works by checking if the visibility of the first two traces (0=OHLC, 1=GRAPH) has changed.
-        """
-        if not restyle_data or 'visible' not in restyle_data[0]:
-            raise PreventUpdate
-
-        change = restyle_data[0]
-        indices = restyle_data[1] if len(restyle_data) > 1 else []
-        
-        # Create a map of which trace index had its visibility changed
-        vis_map = {idx: change['visible'][i] for i, idx in enumerate(indices)}
-
-        # We only care about changes to trace 0 (OHLC) or trace 1 (GRAPH)
-        if 0 not in vis_map and 1 not in vis_map:
-            raise PreventUpdate
-
-        # Determine the new state of both traces. If one wasn't in the restyle_data,
-        # its visibility is the opposite of the one that was.
-        ohlc_visible = vis_map.get(0, not vis_map.get(1, True))
-        graph_visible = vis_map.get(1, not vis_map.get(0, True))
-
-        if graph_visible and not ohlc_visible:
-            new_mode = "GRAPH"
-        else: # Default to OHLC if graph isn't exclusively visible
-            new_mode = "OHLC"
-
-        if new_mode == current_mode:
-            raise PreventUpdate
-        
-        return new_mode
-
-    @app.callback(
-        [
-            Output("price-chart", "figure"),
-            Output("indicators-container", "children"),
-            Output("metrics-display", "children"),
-            Output("trade-details-panel", "children")
-        ],
-        [
-            Input("collector-dropdown", "value"),
-            Input("refresh-btn", "n_clicks"),
-            Input("price-chart", "clickData")
-        ],
-        State("price-chart-mode", "data"),
-        prevent_initial_call=False,
-    )
-    def unified(sel_value, _n_clicks, clickData, chart_mode):
-        # NEU: Falls Dropdown multi=True liefert Liste -> ersten Eintrag nehmen
-        if isinstance(sel_value, list):
-            sel_value = sel_value[0] if sel_value else None
-
-        # Collector nur dann neu setzen (und Trade-Auswahl resetten), wenn er sich wirklich geändert hat
-        if sel_value and sel_value in state["collectors"] and sel_value != state["selected_collector"]:
-            state["selected_collector"] = sel_value
-            state["selected_trade_index"] = None
-        elif state["selected_collector"] is None and state["collectors"]:
-            state["selected_collector"] = next(iter(state["collectors"]))
-
-        c = state["collectors"].get(state["selected_collector"])
-        bars = c.get("bars_df") if isinstance(c, dict) else None
-        trades = c.get("trades_df") if isinstance(c, dict) else None
-        indicators = c.get("indicators_df", {}) if isinstance(c, dict) else {}
-
-        # Trade-Klick
-        trade_details = get_default_trade_details()
-        if clickData and isinstance(trades, pd.DataFrame) and not trades.empty:
-            pt = next((p for p in clickData.get("points", []) if "customdata" in p), None)
-            if pt is not None:
-                idx = pt["customdata"]
-                if idx in trades.index:
-                    state["selected_trade_index"] = idx
-                    trade_details = create_trade_details_content(trades.loc[idx])
-            else:
-                trade_details = get_default_trade_details_with_message()
-
-        # Chart - persistenter Modus beibehalten
-        try:
-            price_fig = build_price_chart(
-                bars, indicators, trades, state["selected_trade_index"], 
-                display_mode=(chart_mode or "OHLC")
-            )
-            # Konsistente uirevision ohne Modus-Reset
-            price_fig.update_layout(uirevision="persistent-chart")
-        except Exception as e:
-            price_fig = go.Figure().update_layout(title=f"Chart error: {e}")
-
-        # Indicator-Subplots
-        groups = {}
-        for name, df in (indicators or {}).items():
-            if isinstance(df, pd.DataFrame) and not df.empty:
-                pid = int(df["plot_id"].iloc[0]) if "plot_id" in df.columns else 0
-                if pid > 0:
-                    groups.setdefault(pid, []).append((name, df))
-        ind_children = [
-            dcc.Graph(
-                id=f"indicators-plot-{pid}",
-                figure=build_indicator_figure(lst),
-                style={"height": "300px", "marginBottom": "10px"},
-            )
-            for pid, lst in sorted(groups.items())
-        ]
-
-        # Metrics (optional Repo-Hook)
-        metrics, nautilus_result = {}, []
-        if hasattr(repo, "load_metrics"):
-            try:
-                loaded = repo.load_metrics(state["selected_collector"])
-                if loaded:
-                    metrics, nautilus_result = loaded
-            except Exception:
-                pass
-        metrics_div = create_metrics_table(metrics, nautilus_result)
-
-        return price_fig, ind_children, metrics_div, trade_details

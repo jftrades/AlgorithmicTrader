@@ -9,7 +9,6 @@ if str(ROOT) not in sys.path:
 from core.visualizing.dashboard.layout import build_layout
 from core.visualizing.dashboard.callbacks import register_callbacks
 from core.visualizing.dashboard.data_repository import ResultsRepository
-from core.visualizing.dashboard.slide_menu import get_best_run_index
 
 RESULTS_DIR = ROOT / "data" / "DATA_STORAGE" / "results"
 
@@ -110,6 +109,13 @@ def create_app():
         # Harter Abbruch bei Validierungsfehlern
         print(f"[CRITICAL ERROR] {e}")
         raise SystemExit(f"Dashboard startup failed: {e}")
+
+    # --- Entferne explizite YAML-Callback-Registrierung ---
+    # slide_menu_component = getattr(app.layout, "slide_menu_component", None)
+    # if slide_menu_component is not None:
+    #     slide_menu_component.viewer.register_callbacks(app)
+    # else:
+    #     print("[WARN] SlideMenuComponent instance not found for YAML callback registration.")
 
     register_callbacks(app, repo, dash_data)
     return app

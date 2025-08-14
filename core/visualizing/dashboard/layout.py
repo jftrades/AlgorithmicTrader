@@ -62,8 +62,10 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False):
     # Slide Menu Container (ohne Button)
     slide_menu_content = []
     if runs_df is not None:
-        menu_component = SlideMenuComponent()
-        sidebar = menu_component.create_sidebar(runs_df, menu_open, is_fullscreen=False)
+        # NEU: Importiere die globale Instanz aus menu.py
+        from core.visualizing.dashboard.callbacks.menu import slide_menu_component
+        print(f"[LAYOUT] Using global slide_menu_component instance {id(slide_menu_component)}")
+        sidebar = slide_menu_component.create_sidebar(runs_df, menu_open, is_fullscreen=False)
         # Extrahiere nur die Sidebar-Inhalte
         if hasattr(sidebar, 'children') and len(sidebar.children) > 1:
             slide_menu_content = sidebar.children[1].children
@@ -276,7 +278,9 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False):
         # Hidden stores für Menu-State
         dcc.Store(id='menu-open-store', data=menu_open),
         dcc.Store(id='menu-fullscreen-store', data=False),
-        dcc.Store(id='selected-run-store', data=None)
+        dcc.Store(id='selected-run-store', data=None),
+        # NEU: YAML-Store immer im Layout
+        dcc.Store(id='run-yaml-store', data={}),
     ], style={
         # Globale Styles direkt hier
         'fontFamily': 'Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif'

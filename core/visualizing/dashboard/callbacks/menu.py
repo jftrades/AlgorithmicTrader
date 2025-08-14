@@ -1,7 +1,15 @@
 from dash import Input, Output, State, ALL, callback_context, html
 from dash.exceptions import PreventUpdate
 
+from core.visualizing.dashboard.slide_menu import SlideMenuComponent
+
+# Erzeuge die SlideMenuComponent-Instanz EINMAL global!
+slide_menu_component = SlideMenuComponent()
+
 def register_menu_callbacks(app, repo, state):
+    # NEU: Registriere YAML-Callbacks sofort bei der ersten Callback-Registrierung
+    slide_menu_component.viewer.register_callbacks(app)
+    
     @app.callback(
         [
             Output("slide-menu", "style"),
@@ -63,12 +71,13 @@ def register_menu_callbacks(app, repo, state):
             'borderRight': '1px solid rgba(226,232,240,0.8)' if not is_fullscreen else 'none'
         }
 
-        from core.visualizing.dashboard.slide_menu import SlideMenuComponent
         try:
             runs_df = repo.load_validated_runs()
-            component = SlideMenuComponent()
             selected_indices = selected_run_indices if (is_fullscreen and selected_run_indices) else None
-            sidebar = component.create_sidebar(runs_df, is_open, is_fullscreen, selected_indices, current_checkbox_states)
+            # Verwende die globale Instanz!
+            sidebar = slide_menu_component.create_sidebar(
+                runs_df, is_open, is_fullscreen, selected_indices, current_checkbox_states, app=app
+            )
             if hasattr(sidebar, 'children') and len(sidebar.children) > 1:
                 slide_children = sidebar.children[1].children
             else:
