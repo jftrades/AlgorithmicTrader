@@ -11,6 +11,14 @@ from core.visualizing.dashboard.components import (
     create_metrics_table
 )
 from core.visualizing.dashboard.colors import get_color_map
+from core.visualizing.dashboard.multi_run_manager import (
+    gather_multi_run_data,
+    short_run_label,
+    run_color_for_index
+)
+
+# NEU: deutlicherer Offset-Faktor für Multi-Run Marker (vorher effektiv 0.0008)
+MULTI_RUN_MARKER_OFFSET_FACTOR = 0.004  # bei Bedarf weiter anheben
 
 """
 Dash callback registration for price / indicator / metrics / trade details.
@@ -136,6 +144,13 @@ def register_chart_callbacks(app, repo, state):
         multi_mode = len(sel_values) > 1
         color_map = get_color_map(sel_values)
 
+        # NEU: Multi-Run Modus Erkennung
+        active_runs = state.get("active_runs", []) or []
+        multi_run_mode = len(active_runs) > 1
+        # Für Multi-Run nur den ersten Collector nutzen (Bars identisch Vorgabe)
+        if multi_run_mode and sel_values:
+            sel_values = sel_values[:1]
+
         # Trade-Klick verarbeiten
         trade_details = get_default_trade_details()
         if clickData:
@@ -183,6 +198,180 @@ def register_chart_callbacks(app, repo, state):
                         # Index unverträglich (z.B. immer noch Liste) -> ignorieren
                         trade_details = get_default_trade_details_with_message()
             # else kein customdata -> Hinweis
+
+        # --- Multi-Run Overlays (ein Instrument, mehrere Runs) ---
+        if multi_run_mode and sel_values:
+            collector = sel_values[0]
+            bars_df, indicators_per_run, trades_per_run = gather_multi_run_data(
+                state["runs_cache"], active_runs, collector
+            )
+
+            # NEU (angepasst): Preis-Range für vertikale Offsets (stärkerer Faktor)
+            price_span = 0.0
+            if isinstance(bars_df, pd.DataFrame) and not bars_df.empty:
+                try:
+                    price_span = (bars_df["high"].max() - bars_df["low"].min()) or 0.0
+                except Exception:
+                    price_span = 0.0
+            # vorher: price_span * 0.0008 -> jetzt deutlich größer + Fallback auf Mittelpreis
+            if price_span > 0:
+                base_offset_unit = price_span * MULTI_RUN_MARKER_OFFSET_FACTOR
+            else:
+                try:
+                    avg_price = float(bars_df["close"].mean())
+                except Exception:
+                    avg_price = 1.0
+                base_offset_unit = avg_price * (MULTI_RUN_MARKER_OFFSET_FACTOR * 0.5)
+
+            # Optional: Mindestoffset erzwingen (verhindert Null bei sehr engem Markt)
+            if base_offset_unit == 0:
+                base_offset_unit = 1e-6
+
+            # Basis-Preisfigur aus erster Run
+            try:
+                price_fig = build_price_chart(
+                    bars_df,
+                    {},
+                    None,
+                    None,
+                    display_mode=(chart_mode or "OHLC")
+                )
+                price_fig.update_layout(uirevision="linked-range")
+                if x_range:
+                    price_fig.update_xaxes(range=x_range, autorange=False)
+            except Exception as e:
+                price_fig = go.Figure().update_layout(title=f"Chart error: {e}")
+
+            # Vorhandene Auswahl (kann Tuple sein)
+            selected_tuple = state.get("selected_trade_index") if isinstance(state.get("selected_trade_index"), tuple) else None
+
+            # Trades pro Run overlayn (mit Offset + customdata [run_id, index])
+            run_count = len(active_runs)
+            for ridx, rid in enumerate(active_runs):
+                trades_df = trades_per_run.get(rid)
+                if not isinstance(trades_df, pd.DataFrame) or trades_df.empty:
+                    continue
+                buy_color, short_color, _base_ind = run_color_for_index(ridx)
+                offset = base_offset_unit * (ridx - (run_count - 1) / 2.0)
+
+                def add_group(action, symbol, color):
+                    sub = trades_df[trades_df["action"] == action]
+                    if sub.empty:
+                        return
+                    first_index = sub.index[0]  # NEU: Referenz für Legend
+                    for idx in sub.index:
+                        # Optional NEU: zusätzlichen kleinen intra-run Offset um BUY/SHORT bei *gleichem* Timestamp minimal zu staffeln
+                        # (keine Änderung wenn nicht nötig, lässt sich leicht entfernen)
+                        row = sub.loc[idx]
+                        timestamp_local_offset = 0.0
+                        # z.B. BUY leicht höher, SHORT leicht tiefer (symmetrisch um Offset-Layer)
+                        if action == "BUY":
+                            timestamp_local_offset = base_offset_unit * 0.15
+                        elif action == "SHORT":
+                            timestamp_local_offset = -base_offset_unit * 0.15
+                        y_val = (row.get("open_price_actual", row.get("price_actual", 0)) + offset + timestamp_local_offset)
+                        is_sel = selected_tuple == (rid, idx)
+                        price_fig.add_trace(go.Scatter(
+                            x=[row["timestamp"]],
+                            y=[y_val],
+                            mode="markers",
+                            name=f"{short_run_label(rid)} {action}" if idx == first_index else None,
+                            marker=dict(
+                                symbol=symbol,
+                                size=18 if is_sel else 12,
+                                color=color,
+                                line=dict(color="#ffffff", width=2 if is_sel else 1)
+                            ),
+                            customdata=[[rid, idx]],
+                            hovertemplate=(
+                                f"<b>{short_run_label(rid)} {action}"
+                                f"{' (Selected)' if is_sel else ''}</b><br>%{{x}}"
+                                f"<br>Price: %{{y:.4f}}<extra></extra>"
+                            ),
+                            showlegend=bool(idx == first_index)  # NEU: explizit Python bool
+                        ))
+
+                add_group("BUY", "triangle-up", buy_color)
+                add_group("SHORT", "triangle-down", short_color)
+
+            # Trade-Selektion inkl. Linien
+            trade_details = get_default_trade_details()
+            if clickData:
+                pt = next((p for p in clickData.get("points", []) if "customdata" in p), None)
+                if pt:
+                    cd = pt.get("customdata")
+                    run_id_clicked, trade_idx_clicked = None, None
+                    # customdata Varianten robust parsen
+                    if isinstance(cd, (list, tuple)):
+                        if len(cd) == 2 and not isinstance(cd[0], (list, tuple)):
+                            run_id_clicked, trade_idx_clicked = cd[0], cd[1]
+                        elif len(cd) == 1 and isinstance(cd[0], (list, tuple)) and len(cd[0]) == 2:
+                            run_id_clicked, trade_idx_clicked = cd[0][0], cd[0][1]
+                    if run_id_clicked is not None and trade_idx_clicked is not None:
+                        tdf = trades_per_run.get(run_id_clicked)
+                        if isinstance(tdf, pd.DataFrame) and trade_idx_clicked in tdf.index:
+                            state["selected_trade_index"] = (run_id_clicked, trade_idx_clicked)
+                            trade_details = create_trade_details_content(tdf.loc[trade_idx_clicked])
+                            # Linien hinzufügen (bars_df aus erstem Run)
+                            try:
+                                add_trade_visualization(price_fig, tdf, bars_df, trade_idx_clicked)
+                            except Exception as e:
+                                print(f"[WARN] add_trade_visualization multi-run failed: {e}")
+
+            # Falls bereits Auswahl existiert (ohne neuen Klick) -> Linien zeichnen
+            if selected_tuple and not clickData:
+                sel_run, sel_idx = selected_tuple
+                tdf_sel = trades_per_run.get(sel_run)
+                if isinstance(tdf_sel, pd.DataFrame) and sel_idx in tdf_sel.index:
+                    try:
+                        add_trade_visualization(price_fig, tdf_sel, bars_df, sel_idx)
+                    except Exception as e:
+                        print(f"[WARN] add_trade_visualization multi-run (persist) failed: {e}")
+
+            # Indicators zusammenführen (alle Runs)
+            indicator_children = []
+            plot_groups = {}
+            for ridx, rid in enumerate(active_runs):
+                ind_map = indicators_per_run.get(rid, {}) or {}
+                for name, df in ind_map.items():
+                    if isinstance(df, pd.DataFrame) and not df.empty:
+                        pid = int(df.get("plot_id", [0])[0]) if "plot_id" in df.columns else 0
+                        if pid > 0:
+                            plot_groups.setdefault(pid, []).append((ridx, rid, name, df))
+
+            for pid, lst in sorted(plot_groups.items()):
+                fig_ind = go.Figure()
+                for ridx, rid, name, df in lst:
+                    _, _, base_col = run_color_for_index(ridx)
+                    fig_ind.add_trace(go.Scatter(
+                        x=df["timestamp"],
+                        y=df["value"],
+                        mode="lines",
+                        name=f"{short_run_label(rid)}:{name}",
+                        line=dict(color=base_col, width=2),
+                        hovertemplate=f"<b>{short_run_label(rid)}:{name}</b><br>%{{x}}<br>%{{y:.4f}}<extra></extra>"
+                    ))
+                fig_ind.update_layout(
+                    template="plotly_white",
+                    margin=dict(t=45, b=40, l=50, r=15),
+                    title=dict(
+                        text=f"Run Overlay: Plot {pid}",
+                        x=0.01, y=0.98, xanchor="left", yanchor="top",
+                        font=dict(size=14, color="#4a5568")
+                    ),
+                    hovermode="x unified",
+                    legend=dict(orientation="h", yanchor="top", y=1.0, x=0.0)
+                )
+                if x_range:
+                    fig_ind.update_xaxes(range=x_range, autorange=False)
+                fig_ind.update_layout(uirevision="linked-range")
+                indicator_children.append(
+                    dcc.Graph(id=f"multi-run-indicators-plot-{pid}", figure=fig_ind,
+                              style={"height": "300px", "marginBottom": "10px"})
+                )
+
+            metrics_div = create_metrics_table({}, [])
+            return price_fig, indicator_children, metrics_div, trade_details
 
         # Figure Aufbau
         if not multi_mode:
@@ -357,7 +546,6 @@ def register_chart_callbacks(app, repo, state):
                 hovermode="x unified",
                 margin=dict(t=30, b=50, l=60, r=40),
                 xaxis=dict(rangeslider=dict(visible=False)),
-                title="Price Overlay (OHLC)" if chart_mode == "OHLC" else "Price Overlay (Lines)",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0)
             )
             price_fig.update_layout(uirevision="linked-range")

@@ -2,32 +2,51 @@ from dash import Input, Output, State
 from dash.exceptions import PreventUpdate
 
 def register_run_selection_callbacks(app, repo, state):
+    # Sicherstellen, dass Keys existieren
+    state.setdefault("runs_cache", {})
+    state.setdefault("active_runs", [])
+
     @app.callback(
         [
             Output("collector-dropdown", "options"),
             Output("collector-dropdown", "value"),
-            Output("selected-run-store", "data")
+            Output("selected-run-store", "data")  # jetzt Liste von run_ids
         ],
         Input("runs-table", "selected_rows"),
         State("runs-table", "data"),
         prevent_initial_call=True
     )
-    def select_run_from_table(selected_rows, table_data):
+    def select_runs(selected_rows, table_data):
         if not selected_rows or not table_data:
             raise PreventUpdate
-        selected_row = table_data[selected_rows[0]]
-        run_id = selected_row.get('run_id')
-        if not run_id:
-            print("[ERROR] run_id missing in selected row")
+        run_ids = []
+        for r in selected_rows:
+            if r < len(table_data):
+                rid = table_data[r].get("run_id")
+                if rid:
+                    run_ids.append(str(rid))
+        if not run_ids:
             raise PreventUpdate
-        try:
-            run_data = repo.load_specific_run(run_id)
-        except Exception as e:
-            print(f"[ERROR] load run {run_id}: {e}")
-            raise PreventUpdate
-        state["collectors"] = run_data.collectors or {}
-        state["selected_collector"] = run_data.selected or (next(iter(state["collectors"]), None))
+
+        # Runs laden & cachen
+        first_collectors = {}
+        for i, rid in enumerate(run_ids):
+            if rid not in state["runs_cache"]:
+                try:
+                    state["runs_cache"][rid] = repo.load_specific_run(rid)
+                except Exception as e:
+                    print(f"[ERROR] load run {rid}: {e}")
+                    continue
+            rd = state["runs_cache"][rid]
+            if i == 0:
+                first_collectors = rd.collectors or {}
+                state["collectors"] = first_collectors
+                # Primären Collector neu bestimmen nur wenn nicht gesetzt
+                state["selected_collector"] = rd.selected or (next(iter(first_collectors), None))
+        state["active_runs"] = run_ids
         state["selected_trade_index"] = None
+
         options = [{'label': k, 'value': k} for k in state["collectors"]]
+        # Dropdown multi=True: Wert als Liste
         value = [state["selected_collector"]] if state["selected_collector"] else []
-        return options, value, run_id
+        return options, value, run_ids

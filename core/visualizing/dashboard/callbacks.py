@@ -18,12 +18,18 @@ def register_callbacks(app, repo, dash_data=None):
         "selected_collector": None,
         "selected_trade_index": None,
         "collectors": {},
+        "runs_cache": {},          # NEU
+        "active_runs": []          # NEU
     }
 
     if dash_data is not None:
         state["collectors"] = dash_data.collectors or {}
         state["selected_collector"] = dash_data.selected or (next(iter(state["collectors"]), None))
         all_results_cache = getattr(dash_data, "all_results_df", None)
+        if getattr(dash_data, "run_id", None):
+            rid = str(dash_data.run_id)
+            state["runs_cache"][rid] = dash_data
+            state["active_runs"] = [rid]
     else:
         # Fallback (sollte eig. nicht passieren)
         state["collectors"] = {}
@@ -315,6 +321,10 @@ def register_callbacks(app, repo, dash_data=None):
         state["selected_collector"] = run_data.selected or (next(iter(state["collectors"]), None))
         state["selected_trade_index"] = None
 
+        # --- NEU: Cache & active_runs pflegen ---
+        state["runs_cache"][run_id] = run_data
+        state["active_runs"] = [run_id]
+
         new_options = [{'label': k, 'value': k} for k in state["collectors"].keys()]
         new_value = state["selected_collector"]
         return new_options, new_value, run_id
@@ -374,6 +384,10 @@ def register_callbacks(app, repo, dash_data=None):
         prevent_initial_call=False,
     )
     def unified(sel_value, _n_clicks, clickData, chart_mode):
+        # NEU: Falls Dropdown multi=True liefert Liste -> ersten Eintrag nehmen
+        if isinstance(sel_value, list):
+            sel_value = sel_value[0] if sel_value else None
+
         # Collector nur dann neu setzen (und Trade-Auswahl resetten), wenn er sich wirklich geändert hat
         if sel_value and sel_value in state["collectors"] and sel_value != state["selected_collector"]:
             state["selected_collector"] = sel_value

@@ -169,8 +169,8 @@ class RunTableBuilder:
                 {'if': {'column_id': 'run_id'}, 'display': 'none'}  # wirklich verstecken
             ],
             style_as_list_view=True,
-            row_selectable="single",
-            selected_rows=[0],
+            row_selectable="multi",          # geändert von 'single' -> Multi-Choice aktiv
+            selected_rows=[0],               # initial weiterhin erster Run ausgewählt
             page_size=25
         )
     
