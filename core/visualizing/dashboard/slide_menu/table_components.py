@@ -93,10 +93,14 @@ class RunTableBuilder:
                 'fontFamily': 'Inter, system-ui, sans-serif',
                 'fontSize': '13px',
                 'boxShadow': '0 4px 18px -6px rgba(124,58,237,0.15)',
-                'overflow': 'hidden',              # NEU: clippt Inhalt
+                'overflow': 'visible',              # was 'hidden'
                 'backgroundClip': 'padding-box'    # stabilere Kanten
             })
-        ], id="run-table-fullscreen", style={'marginTop': '4px'})
+        ], id="run-table-fullscreen", style={
+            'marginTop': '4px',
+            'position': 'relative',
+            'zIndex': 1     # NEU: unter Toolbar
+        })
     
     def _create_normal_table(self, runs_df: pd.DataFrame) -> dash_table.DataTable:
         """Erstellt normale DataTable"""

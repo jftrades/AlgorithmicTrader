@@ -7,6 +7,7 @@ from dash import html, dcc  # NEU: dcc Import hinzugefügt
 from .table_components import RunTableBuilder
 from .chart_components import EquityChartsBuilder
 from .yaml_viewer import YamlViewer  # NEU
+from .quantstats_viewer import QuantStatsViewer  # NEU
 
 class SlideMenuComponent:
     """UI-Komponente für das ausklappbare Slide-Menu"""
@@ -20,6 +21,7 @@ class SlideMenuComponent:
         self.table_builder = RunTableBuilder()
         self.charts_builder = EquityChartsBuilder()
         self.viewer = YamlViewer()  # NEU
+        self.quantstats_viewer = QuantStatsViewer()  # NEU
     
     def create_sidebar(self, runs_df: pd.DataFrame, is_open: bool = False, is_fullscreen: bool = False, 
                       selected_run_indices: list = None, checkbox_states: dict = None, app=None) -> html.Div:
@@ -28,22 +30,24 @@ class SlideMenuComponent:
         # YAML-Viewer-Callbacks automatisch registrieren wie beim Param Analyzer
         if app is not None:
             self.viewer.register_callbacks(app)
+            self.quantstats_viewer.register_callbacks(app)  # NEU
         
         sidebar_content = []
 
-        # YAML-Button und ggf. Dropdown (nur im Fullscreen-Modus)
+        # YAML + QuantStats Controls (nur im Fullscreen-Modus)
         yaml_controls = html.Div()
-        yaml_store = None
+        quantstats_controls = html.Div()  # NEU
         if is_fullscreen:
+            # YAML Controls
             viewer_components = self.viewer.build_components(runs_df, selected_run_indices or [], app=app)
             yaml_controls = viewer_components["controls"]
-            # Store kommt jetzt aus dem Haupt-Layout, nicht mehr hier erstellen
-        else:
-            # NEU: Auch im normalen Modus einen leeren Store erstellen für Callback-Konsistenz
-            yaml_store = dcc.Store(id="run-yaml-store", data={})
+            
+            # QuantStats Controls
+            quantstats_components = self.quantstats_viewer.build_components(runs_df, selected_run_indices or [], app=app)
+            quantstats_controls = quantstats_components["controls"]
 
-        # Header Layout (jetzt mit YAML-Button/Dropdown)
-        header = self._create_header(runs_df, is_fullscreen, yaml_controls if is_fullscreen else None)
+        # Header Layout (jetzt mit YAML + QuantStats)
+        header = self._create_header(runs_df, is_fullscreen, yaml_controls, quantstats_controls)
         sidebar_content.append(header)
 
         # Run-Tabelle erstellen
@@ -129,7 +133,7 @@ class SlideMenuComponent:
             }
         )
     
-    def _create_header(self, runs_df: pd.DataFrame, is_fullscreen: bool, yaml_controls=None) -> html.Div:
+    def _create_header(self, runs_df: pd.DataFrame, is_fullscreen: bool, yaml_controls=None, quantstats_controls=None) -> html.Div:
         """Erstellt Header mit zentrierter Überschrift"""
         # NEU: Info-Bar Daten aus erster Zeile
         info_bar = html.Div()
@@ -172,17 +176,17 @@ class SlideMenuComponent:
                     chip('Run Finished', run_finished),
                     chip('Backtest Start', backtest_start),
                     chip('Backtest End', backtest_end),
-                    chip('Backtest Duration', elapsed_time)  # renamed
+                    chip('Backtest Duration', elapsed_time)
                 ], style={
                     'display': 'flex',
                     'flexWrap': 'wrap',
                     'gap': '6px',
                     'justifyContent': 'center',
                     'padding': '8px 14px 12px 14px',
+                    'paddingRight': '220px',   # was 260px
                     'fontFamily': 'Inter, system-ui, sans-serif',
                     'letterSpacing': '0.15px',
-                    'background': 'linear-gradient(100deg,#f5f3ff 0%,#faf5ff 60%,rgba(255,255,255,0.9) 100%)',
-                    'borderBottom': '1px solid rgba(196,181,253,0.6)'
+                    'background': 'linear-gradient(100deg,#f5f3ff 0%,#faf5ff 60%,rgba(255,255,255,0.9) 100%)'
                 })
             else:
                 # NEU: Vertikale, sehr schlanke Liste ohne Kachel-/Box-Styling
@@ -225,27 +229,65 @@ class SlideMenuComponent:
             'backdropFilter': 'blur(20px)',
             'borderBottom': '1px solid rgba(226,232,240,0.9)',
             'position': 'relative',
-            'boxShadow': '0 2px 6px -2px rgba(0,0,0,0.06)'
+            'boxShadow': '0 2px 6px -2px rgba(0,0,0,0.06)',
+            'overflow': 'visible',
+            'zIndex': 18000   # NEU höher als Tabelle
         }
 
-        # YAML-Button/Dropdown absolut ganz rechts oben im Header platzieren
-        yaml_controls_div = None
-        if yaml_controls is not None:
-            yaml_controls_div = html.Div(
-                yaml_controls,
-                style={
-                    'position': 'absolute',
-                    'top': '10px',
-                    'right': '18px',
-                    'zIndex': 30,
-                }
-            )
-
+        # Controls absolut ganz rechts oben im Header platzieren
+        toolbar = None
+        if is_fullscreen:
+            def has_content(block):
+                return bool(block and getattr(block, "children", None) and
+                            not (isinstance(block.style, dict) and block.style.get("height") == "0px"))
+            yc_ok = has_content(yaml_controls)
+            qc_ok = has_content(quantstats_controls)
+            if yc_ok or qc_ok:
+                toolbar_children = []
+                if yc_ok:
+                    toolbar_children.append(html.Div(yaml_controls, style={'display': 'flex'}))
+                if yc_ok and qc_ok:
+                    toolbar_children.append(html.Div(style={
+                        'width': '1px',
+                        'alignSelf': 'stretch',
+                        'background': 'rgba(0,0,0,0.08)',
+                        'margin': '0 6px'
+                    }))
+                if qc_ok:
+                    toolbar_children.append(html.Div(quantstats_controls, style={'display': 'flex'}))
+                toolbar = html.Div(
+                    toolbar_children,
+                    className="run-tools-toolbar",
+                    style={
+                        'position': 'absolute',
+                        'top': '5px',      # was 6px
+                        'right': '16px',
+                        'display': 'flex',
+                        'alignItems': 'center',
+                        'gap': '8px',
+                        'padding': '3px 9px',  # tighter
+                        'background': 'linear-gradient(135deg,rgba(255,255,255,0.92),rgba(248,250,252,0.96))',
+                        'backdropFilter': 'blur(8px)',
+                        'border': '1px solid rgba(226,232,240,0.9)',
+                        'borderRadius': '10px',
+                        'boxShadow': '0 3px 10px -3px rgba(0,0,0,0.14)',
+                        'zIndex': 20000,   # NEU
+                        'overflow': 'visible',
+                        'lineHeight': '1'
+                    }
+                )
         return html.Div([
             html.Div([
                 info_bar,
-                yaml_controls_div
-            ], style={'position': 'relative'}),
+                toolbar
+            ], style={
+                'position': 'relative',
+                'paddingTop': '2px',
+                'paddingBottom': '6px',
+                'borderBottom': '1px solid rgba(196,181,253,0.6)',
+                'marginBottom': '2px',
+                'overflow': 'visible'
+            }),
             html.Div([
                 html.H2("Backtest Runs", style={
                     'color': '#1a1a1a',  # vorher #2e1065

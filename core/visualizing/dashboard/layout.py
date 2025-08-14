@@ -281,6 +281,8 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False):
         dcc.Store(id='selected-run-store', data=None),
         # NEU: YAML-Store immer im Layout
         dcc.Store(id='run-yaml-store', data={}),
+        # NEU: QuantStats Status Store (für Callback-Dummy)
+        dcc.Store(id='quantstats-status', data=""),
     ], style={
         # Globale Styles direkt hier
         'fontFamily': 'Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif'

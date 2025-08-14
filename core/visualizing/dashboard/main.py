@@ -67,6 +67,35 @@ def create_app():
                 ::-webkit-scrollbar-thumb:hover {
                     background: rgba(102, 126, 234, 0.5);
                 }
+
+                .run-tools-toolbar {
+                    position: relative;
+                    z-index: 20000;
+                }
+                .run-tools-toolbar .Select, 
+                .run-tools-toolbar .Select-control {
+                    min-height: 30px !important;  /* was 32 */
+                    height: 30px !important;
+                    border-radius: 7px !important;
+                }
+                .run-tools-toolbar .Select-value-label {
+                    line-height: 28px !important; /* was 30 */
+                    font-size: 10.5px !important;
+                }
+                .run-tools-toolbar .Select-menu-outer,
+                .run-tools-toolbar .Select-menu,
+                .run-tools-toolbar .SelectMenu,
+                .run-tools-toolbar .Select-menu-list {
+                    z-index: 21000 !important;
+                }
+                .run-tools-toolbar .Select-menu-outer {
+                    box-shadow: 0 6px 18px -4px rgba(0,0,0,0.18);
+                    border: 1px solid #e2e8f0;
+                }
+                .dash-table-container {
+                    position: relative;
+                    z-index: 2;
+                }
             </style>
         </head>
         <body>

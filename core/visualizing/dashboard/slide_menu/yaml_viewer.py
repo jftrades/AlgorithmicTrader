@@ -57,35 +57,39 @@ class YamlViewer:
             clearable=False,
             searchable=False,
             style={
-                'minWidth': '200px', 
-                'fontSize': '12px'
+                'minWidth': '140px',
+                'fontSize': '10.5px',
+                'height': '30px',
+                'padding': '0 4px'
             }
         )
         
         button = html.Button(
-            "Show Run YAML", 
+            "Show YAML",
             id="show-run-yaml-btn", 
             n_clicks=0,
             style={
                 'background': 'linear-gradient(90deg,#6366f1 0%,#8b5cf6 100%)',
                 'color': '#fff',
                 'border': 'none',
-                'borderRadius': '10px',
-                'padding': '8px 14px',
+                'borderRadius': '8px',
+                'padding': '0 14px',
                 'cursor': 'pointer',
                 'fontWeight': '600',
-                'fontSize': '12px',
-                'boxShadow': '0 4px 12px -2px rgba(99,102,241,0.4)',
-                'transition': 'all 0.3s ease'
+                'fontSize': '11px',
+                'boxShadow': '0 2px 5px -1px rgba(99,102,241,0.35)',
+                'transition': 'background .25s',
+                'whiteSpace': 'nowrap',
+                'height': '34px',          # was 30px
+                'display': 'flex',
+                'alignItems': 'center'
             }
         )
         
         return html.Div([dropdown, button], style={
             'display': 'flex',
             'alignItems': 'center',
-            'gap': '8px',
-            'zIndex': '10',
-            'maxWidth': '420px'
+            'gap': '6px'
         })
 
     def _build_modal(self):

@@ -7,8 +7,9 @@ from core.visualizing.dashboard.slide_menu import SlideMenuComponent
 slide_menu_component = SlideMenuComponent()
 
 def register_menu_callbacks(app, repo, state):
-    # NEU: Registriere YAML-Callbacks sofort bei der ersten Callback-Registrierung
+    # NEU: Registriere YAML + QuantStats Callbacks sofort
     slide_menu_component.viewer.register_callbacks(app)
+    slide_menu_component.quantstats_viewer.register_callbacks(app)
     
     @app.callback(
         [
@@ -119,7 +120,7 @@ def register_menu_callbacks(app, repo, state):
 
         close_button_style = {
             'position': 'fixed',
-            'bottom': '25px',
+            'bottom': '55px',  # was 25px -> etwas höher
             'right': '25px',
             'zIndex': '1003',
             'background': 'linear-gradient(135deg,#dc3545 0%,#fd7e14 100%)',
