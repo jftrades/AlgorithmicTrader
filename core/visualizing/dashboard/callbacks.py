@@ -320,6 +320,45 @@ def register_callbacks(app, repo, dash_data=None):
         return new_options, new_value, run_id
 
     @app.callback(
+        Output("price-chart-mode", "data"),
+        Input("price-chart", "restyleData"),
+        State("price-chart-mode", "data"),
+        prevent_initial_call=True
+    )
+    def update_chart_mode(restyle_data, current_mode):
+        """
+        This callback ONLY updates the chart mode store when the OHLC/GRAPH buttons are clicked.
+        It works by checking if the visibility of the first two traces (0=OHLC, 1=GRAPH) has changed.
+        """
+        if not restyle_data or 'visible' not in restyle_data[0]:
+            raise PreventUpdate
+
+        change = restyle_data[0]
+        indices = restyle_data[1] if len(restyle_data) > 1 else []
+        
+        # Create a map of which trace index had its visibility changed
+        vis_map = {idx: change['visible'][i] for i, idx in enumerate(indices)}
+
+        # We only care about changes to trace 0 (OHLC) or trace 1 (GRAPH)
+        if 0 not in vis_map and 1 not in vis_map:
+            raise PreventUpdate
+
+        # Determine the new state of both traces. If one wasn't in the restyle_data,
+        # its visibility is the opposite of the one that was.
+        ohlc_visible = vis_map.get(0, not vis_map.get(1, True))
+        graph_visible = vis_map.get(1, not vis_map.get(0, True))
+
+        if graph_visible and not ohlc_visible:
+            new_mode = "GRAPH"
+        else: # Default to OHLC if graph isn't exclusively visible
+            new_mode = "OHLC"
+
+        if new_mode == current_mode:
+            raise PreventUpdate
+        
+        return new_mode
+
+    @app.callback(
         [
             Output("price-chart", "figure"),
             Output("indicators-container", "children"),
@@ -331,10 +370,12 @@ def register_callbacks(app, repo, dash_data=None):
             Input("refresh-btn", "n_clicks"),
             Input("price-chart", "clickData")
         ],
+        State("price-chart-mode", "data"),
         prevent_initial_call=False,
     )
-    def unified(sel_value, _n_clicks, clickData):
-        if sel_value and sel_value in state["collectors"]:
+    def unified(sel_value, _n_clicks, clickData, chart_mode):
+        # Collector nur dann neu setzen (und Trade-Auswahl resetten), wenn er sich wirklich geändert hat
+        if sel_value and sel_value in state["collectors"] and sel_value != state["selected_collector"]:
             state["selected_collector"] = sel_value
             state["selected_trade_index"] = None
         elif state["selected_collector"] is None and state["collectors"]:
@@ -357,9 +398,14 @@ def register_callbacks(app, repo, dash_data=None):
             else:
                 trade_details = get_default_trade_details_with_message()
 
-        # Chart
+        # Chart - persistenter Modus beibehalten
         try:
-            price_fig = build_price_chart(bars, indicators, trades, state["selected_trade_index"])
+            price_fig = build_price_chart(
+                bars, indicators, trades, state["selected_trade_index"], 
+                display_mode=(chart_mode or "OHLC")
+            )
+            # Konsistente uirevision ohne Modus-Reset
+            price_fig.update_layout(uirevision="persistent-chart")
         except Exception as e:
             price_fig = go.Figure().update_layout(title=f"Chart error: {e}")
 

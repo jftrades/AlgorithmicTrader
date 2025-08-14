@@ -1,17 +1,40 @@
 # core/visualizing/dashboard/charts.py
+"""
+Figure builder module.
+Contains pure functions that construct Plotly figures (price + indicator plots).
+Used by the callback modules (e.g. callbacks/charts.py). No Dash callbacks here.
+"""
 import plotly.graph_objects as go
 import pandas as pd
 
-def build_price_chart(bars_df, indicators_df, trades_df, selected_trade_index):
+def build_price_chart(bars_df, indicators_df, trades_df, selected_trade_index, display_mode: str = "OHLC"):
     fig = go.Figure()
     # Bars
+    index_ohlc = None
+    index_close = None
     if bars_df is not None and not bars_df.empty:
         b = bars_df
+        # Candlestick (standard sichtbar)
         fig.add_trace(go.Candlestick(
             x=b['timestamp'], open=b['open'], high=b['high'], low=b['low'], close=b['close'],
             name='OHLC', increasing_line_color='#26a69a', decreasing_line_color='#ef5350',
             increasing_fillcolor='#26a69a', decreasing_fillcolor='#ef5350', showlegend=True
         ))
+        index_ohlc = len(fig.data) - 1
+        # stabile UID für Persistenz
+        fig.data[index_ohlc].uid = "trace_ohlc"
+        # Close-Line (initial unsichtbar)
+        fig.add_trace(go.Scatter(
+            x=b['timestamp'],
+            y=b['close'],
+            mode='lines',
+            name='Close',                       # geändert von 'GRAPH'
+            line=dict(color='#000000', width=1.6), # Farbe jetzt schwarz
+            visible=False,
+            hovertemplate='Time: %{x}<br>Close: %{y:.4f}<extra></extra>'
+        ))
+        index_close = len(fig.data) - 1
+        fig.data[index_close].uid = "trace_graph"
     # Overlay indicators (plot_id == 0)
     for name, df in (indicators_df or {}).items():
         if df is None or df.empty:
@@ -36,7 +59,48 @@ def build_price_chart(bars_df, indicators_df, trades_df, selected_trade_index):
         xaxis_title="Time", yaxis_title="Price (USDT)", template="plotly_white",
         hovermode='closest', margin=dict(t=30, b=50, l=60, r=20),
         xaxis=dict(rangeslider=dict(visible=False))
+        # ENTFERNT: uirevision="price-chart" - wird jetzt dynamisch gesetzt
     )
+    # Toggle Buttons (nur wenn Bars vorhanden)
+    if index_ohlc is not None and index_close is not None:
+        n = len(fig.data)
+        vis_ohlc = [True] * n
+        vis_close = [True] * n
+        vis_ohlc[index_close] = False   # Close-Linie aus in OHLC-Modus
+        vis_close[index_ohlc] = False   # Candlestick aus in Close-Modus
+        # Falls persistenter Modus GRAPH: initial Graph aktiv
+        if display_mode == "GRAPH":
+            fig.data[index_ohlc].visible = False
+            fig.data[index_close].visible = True
+        else:
+            fig.data[index_ohlc].visible = True
+            fig.data[index_close].visible = False
+        # Sichtbarkeiten aller Traces an initial state angleichen (nur zwei ersten unterscheiden sich)
+        for i, tr in enumerate(fig.data):
+            if i < len(vis_ohlc):
+                if display_mode == "GRAPH":
+                    tr.visible = vis_close[i]
+                else:
+                    tr.visible = vis_ohlc[i]
+        fig.update_layout(
+            updatemenus=[dict(
+                type='buttons',
+                direction='right',
+                x=1.0,
+                xanchor='right',
+                y=0.995,          # höher platziert (knapp unter der Modebar-Zone)
+                yanchor='top',
+                pad=dict(r=2, t=2, b=2, l=2),
+                bgcolor='rgba(255,255,255,0.40)',
+                bordercolor='rgba(0,0,0,0.12)',
+                borderwidth=1,
+                font=dict(size=9),
+                buttons=[
+                    dict(label='OHLC',  method='update', args=[{'visible': vis_ohlc}]),
+                    dict(label='Graph', method='update', args=[{'visible': vis_close}])  # Label bleibt 'Graph'
+                ]
+            )]
+        )
     return fig
 
 def _add_trade_markers(fig, trades, selected_idx):

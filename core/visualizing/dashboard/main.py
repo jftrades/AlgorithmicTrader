@@ -1,4 +1,4 @@
-from dash import Dash
+from dash import Dash, dcc
 from pathlib import Path
 import sys
 
@@ -102,6 +102,9 @@ def create_app():
             runs_df=runs_df,
             menu_open=False
         )
+        
+        # Add dcc.Store for price-chart-mode
+        app.layout.children.append(dcc.Store(id="price-chart-mode", data="OHLC"))
         
     except Exception as e:
         # Harter Abbruch bei Validierungsfehlern

@@ -152,21 +152,37 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False):
         'justifyContent':'center','alignItems':'center','minHeight':'85px'
     })
 
+    # Überarbeiteter Block für Instrumente
     collector_dropdown = html.Div([
-        html.H4("Instrument", style={
-            'color':'#2c3e50','marginBottom':'8px','fontFamily':'Inter, system-ui',
-            'fontWeight':'600','fontSize':'16px'
-        }),
+        html.Div([
+            html.Div("Instruments", style={
+                'fontSize': '12px','fontWeight':'600','letterSpacing':'.08em',
+                'color':'#111','textTransform':'uppercase'
+            }),
+            html.Div("Select one or multiple symbols", style={
+                'fontSize':'11px','color':'#555','marginTop':'2px'
+            })
+        ], style={'marginBottom':'8px'}),
         dcc.Dropdown(
-            id='collector-dropdown',
-            options=[{'label': k, 'value': k} for k in collectors],
-            value=selected, placeholder="Select instrument...",
-            style={'fontFamily':'Inter, system-ui'}
-        )
+            id="collector-dropdown",
+            className="instrument-dropdown",
+            options=[{'label': c, 'value': c} for c in collectors],
+            value=[selected] if selected else ([collectors[0]] if collectors else []),
+            multi=True,
+            placeholder="Choose instruments",
+            clearable=False,
+            style={'fontSize':'13px'}
+        ),
+        html.Div(id="instrument-hint", style={
+            'fontSize':'11px','color':'#666','marginTop':'6px','fontStyle':'italic'
+        })
     ], style={
-        'background':'linear-gradient(145deg,#ffffff,#f8f9fa)',
-        'border':'1px solid rgba(222,226,230,0.6)','borderRadius':'16px',
-        'padding':'15px','margin':'15px 20px','boxShadow':'0 4px 12px rgba(0,0,0,0.06)'
+        'background': '#ffffff',
+        'border': '1px solid #d9dde2',          # was: 1px solid #000
+        'borderRadius': '12px',                 # was 10px
+        'padding': '16px 18px 14px 18px',       # slight adjust
+        'margin': '15px 20px',
+        'boxShadow': '0 2px 8px rgba(0,0,0,0.04)'  # softer (was 0 2px 4px ...)
     })
 
     trade_details_panel = html.Div([
@@ -247,7 +263,6 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False):
     ], id="main-content", style=main_style)
 
     return html.Div([
-        # CSS direkt als String in den Head einbinden
         html.Div([
             html.Link(
                 href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap",
