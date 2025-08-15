@@ -1,6 +1,8 @@
 from dash import dcc
+from dash import html
 import plotly.graph_objects as go
 import pandas as pd
+from pathlib import Path  # <-- hinzugefügt
 
 from core.visualizing.dashboard.charts import build_price_chart, add_trade_visualization
 from core.visualizing.dashboard.components import (
@@ -135,10 +137,26 @@ def _normalize_timestamps(series):
     except Exception:
         return pd.to_datetime([], errors="coerce")
 
-def _build_single_instrument_multi_run(state, instrument, active_runs, clickData, chart_mode, x_range):
+def _build_single_instrument_multi_run(state, repo, instrument, active_runs, clickData, chart_mode, x_range):
     bars_df, indicators_per_run, trades_per_run = gather_multi_run_data(
         state["runs_cache"], active_runs, instrument
     )
+    # Build indicators_df for price overlay: collect pid==0 indicators across runs and prefix names
+    indicators_for_price = {}
+    try:
+        for ridx, rid in enumerate(active_runs):
+            imap = indicators_per_run.get(rid, {}) or {}
+            for name, df in imap.items():
+                if not isinstance(df, pd.DataFrame) or df.empty:
+                    continue
+                pid = int(df.get("plot_id", [0])[0]) if "plot_id" in df.columns else 0
+                if pid == 0:
+                    key = f"{short_run_label(rid)}:{name}"
+                    indicators_for_price[key] = df.copy()
+    except Exception:
+        # ignore indicator collection errors
+        pass
+
     # Neu: globale Range bestimmen falls keine externe Range (x_range) gesetzt
     norm_ts = _normalize_timestamps(bars_df["timestamp"]) if isinstance(bars_df, pd.DataFrame) and "timestamp" in bars_df.columns else pd.Series([], dtype="datetime64[ns]")
     if x_range is None and not norm_ts.empty:
@@ -149,7 +167,8 @@ def _build_single_instrument_multi_run(state, instrument, active_runs, clickData
     base_offset_unit = _base_offset(bars_df)
 
     try:
-        price_fig = build_price_chart(bars_df, {}, None, None, display_mode=(chart_mode or "OHLC"))
+        # pass collected pid==0 indicators to the price builder so overlays appear on the main chart
+        price_fig = build_price_chart(bars_df, indicators_for_price, None, None, display_mode=(chart_mode or "OHLC"))
         # Normalisiere X für alle Traces (Candles + evtl. Line) zur exakten Deckungsgleichheit
         if isinstance(bars_df, pd.DataFrame) and "timestamp" in bars_df.columns:
             norm_price_x = _normalize_timestamps(bars_df["timestamp"])
@@ -255,13 +274,67 @@ def _build_single_instrument_multi_run(state, instrument, active_runs, clickData
             except Exception as e:
                 print(f"[WARN] add_trade_visualization persist failed: {e}")
 
+    # Metrics: build nested mapping run_id -> { instrument -> metrics_dict } for this single instrument
+    metrics_children = html.Div("No metrics available", style={'textAlign':'center','color':'#6c757d','padding':'20px'})
+    if active_runs:
+        nested_metrics = {}
+        for rid in active_runs:
+            per_inst = {}
+            metrics = None
+            # disk-first lookup
+            try:
+                results_root = getattr(repo, "results_root", None)
+                if results_root is None:
+                    results_root = Path(__file__).resolve().parents[5] / "data" / "DATA_STORAGE" / "results"
+                run_dir = Path(results_root) / str(rid)
+                trade_metrics_path = run_dir / str(instrument) / "trade_metrics.csv"
+                if trade_metrics_path.exists() and trade_metrics_path.is_file():
+                    try:
+                        dfm = pd.read_csv(trade_metrics_path)
+                        if not dfm.empty:
+                            metrics = dfm.iloc[0].to_dict()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            # fallback to repo.load_metrics(run, instrument) or repo.load_metrics(instrument)
+            if metrics is None and hasattr(repo, "load_metrics"):
+                try:
+                    loaded = None
+                    try:
+                        loaded = repo.load_metrics(rid, instrument)
+                    except TypeError:
+                        try:
+                            loaded = repo.load_metrics(instrument)
+                        except Exception:
+                            loaded = None
+                    if loaded:
+                        if isinstance(loaded, tuple) and isinstance(loaded[0], dict):
+                            metrics, _ = loaded
+                        elif isinstance(loaded, dict):
+                            metrics = loaded
+                        elif hasattr(loaded, "iloc"):
+                            df2 = loaded
+                            if not df2.empty:
+                                metrics = df2.iloc[0].to_dict()
+                except Exception:
+                    pass
+            if metrics:
+                per_inst[str(instrument)] = metrics
+            if per_inst:
+                nested_metrics[str(rid)] = per_inst
+        if nested_metrics:
+            try:
+                metrics_children = create_metrics_table(nested_metrics, [])
+            except Exception:
+                metrics_children = html.Div("No metrics available", style={'textAlign':'center','color':'#6c757d','padding':'20px'})
+
     # Indicator Overlay jetzt mit konsistenter Range
     effective_range = x_range or computed_range
     indicators_children = _indicator_overlay_single(active_runs, indicators_per_run, effective_range)
-    metrics_div = create_metrics_table({}, [])
-    return price_fig, indicators_children, metrics_div, trade_details
+    return price_fig, indicators_children, metrics_children, trade_details
 
-def _build_multi_instrument_multi_run(state, instruments, active_runs, clickData, chart_mode, x_range, color_map):
+def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, clickData, chart_mode, x_range, color_map):
     # Daten sammeln
     multi_data = {}
     for inst in instruments:
@@ -414,6 +487,63 @@ def _build_multi_instrument_multi_run(state, instruments, active_runs, clickData
                 except Exception as e:
                     print(f"[WARN] add_trade_visualization persist multi-inst failed: {e}")
 
+    # Metrics: prefer first active run if available
+    metrics_children = html.Div("No metrics available", style={'textAlign':'center','color':'#6c757d','padding':'20px'})
+    # Build nested metrics map: { run_id: { inst: metrics_dict } }
+    if active_runs:
+        nested_metrics = {}
+        for rid in active_runs:
+            per_inst = {}
+            for inst in instruments:
+                metrics = None
+                # disk-first lookup
+                try:
+                    results_root = getattr(repo, "results_root", None)
+                    if results_root is None:
+                        results_root = Path(__file__).resolve().parents[5] / "data" / "DATA_STORAGE" / "results"
+                    run_dir = Path(results_root) / str(rid)
+                    trade_metrics_path = run_dir / str(inst) / "trade_metrics.csv"
+                    if trade_metrics_path.exists() and trade_metrics_path.is_file():
+                        try:
+                            dfm = pd.read_csv(trade_metrics_path)
+                            if not dfm.empty:
+                                metrics = dfm.iloc[0].to_dict()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                # fallback to repo.load_metrics(run, inst) or repo.load_metrics(inst)
+                if metrics is None and hasattr(repo, "load_metrics"):
+                    try:
+                        loaded = None
+                        try:
+                            loaded = repo.load_metrics(rid, inst)
+                        except TypeError:
+                            try:
+                                loaded = repo.load_metrics(inst)
+                            except Exception:
+                                loaded = None
+                        if loaded:
+                            if isinstance(loaded, tuple) and isinstance(loaded[0], dict):
+                                metrics, _ = loaded
+                            elif isinstance(loaded, dict):
+                                metrics = loaded
+                            elif hasattr(loaded, "iloc"):
+                                df2 = loaded
+                                if not df2.empty:
+                                    metrics = df2.iloc[0].to_dict()
+                    except Exception:
+                        pass
+                if metrics:
+                    per_inst[str(inst)] = metrics
+            if per_inst:
+                nested_metrics[str(rid)] = per_inst
+        if nested_metrics:
+            try:
+                metrics_children = create_metrics_table(nested_metrics, [])
+            except Exception:
+                metrics_children = html.Div("No metrics available", style={'textAlign':'center','color':'#6c757d','padding':'20px'})
+
     # Axis layout
     axis_layout = {}
     for i, inst in enumerate(instruments):
@@ -549,7 +679,7 @@ def _build_multi_instrument_multi_run(state, instruments, active_runs, clickData
                 line=dict(color=color, width=2),
                 hovertemplate=(
                     f"<b>{short_run_label(rid)} | {inst} | {name}</b><br>"
-                    "%{x}<br>%{y:.4f}<extra></extra>"
+                    "%{x}<br>%{y:.4f}}<extra></extra>"
                 )
             ))
         if effective_range:
@@ -595,17 +725,17 @@ def _build_multi_instrument_multi_run(state, instruments, active_runs, clickData
             )
         )
 
-    metrics_div = create_metrics_table({}, [])
-    return price_fig, indicator_children, metrics_div, trade_details
+    return price_fig, indicator_children, metrics_children, trade_details
 
 def build_multi_run_view(state, repo, instruments, active_runs, clickData, chart_mode, x_range, color_map):
     instruments = instruments or []
     active_runs = active_runs or []
     if not instruments:
-        return go.Figure(), [], create_metrics_table({}, []), get_default_trade_details()
+        return go.Figure(), [], html.Div("No metrics available", style={'textAlign':'center','color':'#6c757d','padding':'20px'}), get_default_trade_details()
     if len(instruments) == 1:
         return _build_single_instrument_multi_run(
             state=state,
+            repo=repo,
             instrument=instruments[0],
             active_runs=active_runs,
             clickData=clickData,
@@ -614,6 +744,7 @@ def build_multi_run_view(state, repo, instruments, active_runs, clickData, chart
         )
     return _build_multi_instrument_multi_run(
         state=state,
+        repo=repo,
         instruments=instruments,
         active_runs=active_runs,
         clickData=clickData,
@@ -622,4 +753,4 @@ def build_multi_run_view(state, repo, instruments, active_runs, clickData, chart
         color_map=color_map
     )
 
-# ...existing code (build_multi_run_view etc.)...
+# ...existing code...

@@ -128,7 +128,8 @@ def create_app():
             collectors=list(dash_data.collectors.keys()),
             selected=dash_data.selected,
             runs_df=runs_df,
-            menu_open=False
+            menu_open=False,
+            run_id=best_run_id  # ensure layout knows which run folder to use for metrics
         )
         
         # Add dcc.Store for price-chart-mode

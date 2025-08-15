@@ -3,6 +3,9 @@ from dash import html
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 import pandas as pd
+from pathlib import Path
+import os
+import traceback
 
 from .components import (
     create_metrics_table
@@ -46,7 +49,8 @@ def register_callbacks(app, repo, dash_data=None):
             Output("main-content", "style"),
             Output("menu-open-store", "data"),
             Output("menu-fullscreen-store", "data"),
-            Output("fullscreen-close-btn", "style")
+            Output("fullscreen-close-btn", "style"),
+            Output("selected-run-store", "data")  # NEU: selected runs aus Sidebar weiterreichen
         ],
         [
             Input("menu-toggle-btn", "n_clicks"),
@@ -131,7 +135,7 @@ def register_callbacks(app, repo, dash_data=None):
                 new_slide_menu_content = [html.Div("Error loading menu")]
                 
         except Exception as e:
-            print(f"[ERROR] Failed to recreate slide menu: {e}")
+            # suppressed debug output
             new_slide_menu_content = [html.Div("Error loading menu")]
         
         # Toggle Button Style - IMMER LINKS (25px) - korrigiert
@@ -190,7 +194,22 @@ def register_callbacks(app, repo, dash_data=None):
             'fontSize': '24px',
             'transform': 'scale(1)'
         }
-        
+
+        # --- NEU: aktualisiere shared state mit ausgewählten Runs und lade deren Daten in Cache ---
+        selected_runs_data = selected_run_indices or []
+        if selected_runs_data:
+            # Lade ggf. run-data in state["runs_cache"]
+            for rid in selected_runs_data:
+                if rid not in state.get("runs_cache", {}):
+                    try:
+                        rd = repo.load_specific_run(rid)
+                        state["runs_cache"][rid] = rd
+                    except Exception as e:
+                        # suppressed debug output
+                        pass
+        # set active runs (leer ok)
+        state["active_runs"] = selected_runs_data
+
         return (
             menu_style, 
             new_slide_menu_content, 
@@ -198,7 +217,8 @@ def register_callbacks(app, repo, dash_data=None):
             main_style, 
             is_open, 
             is_fullscreen, 
-            close_button_style
+            close_button_style,
+            selected_runs_data
         )
 
     # --- Parameter Analyzer: open/close + render ---
@@ -290,15 +310,12 @@ def register_callbacks(app, repo, dash_data=None):
                 # ultra fallback
                 return []
 
-    # Callback für normale Run-Auswahl (nur wenn DataTable existiert)
     @app.callback(
-        [
-            Output("collector-dropdown", "options"),
-            Output("collector-dropdown", "value"),
-            Output("selected-run-store", "data")
-        ],
-        [Input("runs-table", "selected_rows")],
-        [State("runs-table", "data")],
+        Output("collector-dropdown", "options"),
+        Output("collector-dropdown", "value"),
+        Output("selected-run-store", "data"),
+        Input("metrics-table", "derived_virtual_selected_rows"),
+        State("metrics-table", "data"),
         prevent_initial_call=True
     )
     def select_run_from_table(selected_rows, table_data):
@@ -307,22 +324,20 @@ def register_callbacks(app, repo, dash_data=None):
         selected_row = table_data[selected_rows[0]]
         run_id = selected_row.get('run_id')
 
-        # Kein Fallback mehr: wenn run_id fehlt -> kein Update (sichtbarer Fehler im Log)
         if not run_id:
-            print("[ERROR] run_id missing in selected row; aborting update.")
+            # missing run_id -> abort
             raise PreventUpdate
 
         try:
             run_data = repo.load_specific_run(run_id)
         except Exception as e:
-            print(f"[ERROR] Failed to load run_id {run_id}: {e}")
+            # suppressed debug output
             raise PreventUpdate
 
         state["collectors"] = run_data.collectors or {}
         state["selected_collector"] = run_data.selected or (next(iter(state["collectors"]), None))
         state["selected_trade_index"] = None
 
-        # --- NEU: Cache & active_runs pflegen ---
         state["runs_cache"][run_id] = run_data
         state["active_runs"] = [run_id]
 

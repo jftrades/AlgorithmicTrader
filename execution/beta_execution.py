@@ -14,6 +14,7 @@ from glob import glob
 import os
 import webbrowser
 
+
 # Parameter laden und aufteilen
 yaml_path = str(Path(__file__).resolve().parents[1] / "config" / "beta.yaml")
 params, param_grid, keys, values, static_params, all_instrument_ids, all_bar_types = load_and_split_params(yaml_path)
@@ -126,6 +127,7 @@ def run_and_collect(i, combination, keys, static_params, params, results_dir, tm
         start=start_date, end=end_date
     )
     result = run_backtest(run_config)
+
     metrics = extract_metrics(result, run_params, run_id)
     pd.DataFrame([metrics]).to_csv(tmp_run_dir / "performance_metrics.csv", index=False)
 

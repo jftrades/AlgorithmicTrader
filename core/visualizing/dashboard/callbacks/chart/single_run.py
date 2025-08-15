@@ -1,6 +1,7 @@
-from dash import dcc
+from dash import dcc, html
 import plotly.graph_objects as go
 import pandas as pd
+from pathlib import Path
 
 from core.visualizing.dashboard.charts import (
     build_price_chart,
@@ -31,7 +32,7 @@ def _handle_trade_click_single(state, trades_df, clickData):
         return create_trade_details_content(trades_df.loc[idx])
     return get_default_trade_details_with_message()
 
-def _single_instrument(state, repo, instrument, chart_mode, x_range, clickData):
+def _single_instrument(state, repo, instrument, chart_mode, x_range, clickData, run_id=None):
     coll = state["collectors"].get(instrument)
     bars, trades_df, indicators = extract_collector_data(coll)
     trade_details = _handle_trade_click_single(state, trades_df, clickData)
@@ -63,18 +64,58 @@ def _single_instrument(state, repo, instrument, chart_mode, x_range, clickData):
                       style={"height": "300px", "marginBottom": "10px"})
         )
 
+    # Metrics: bevorzugt trade_metrics.csv vom angegebenen run (run_id), ansonsten repo.load_metrics als Fallback
     metrics, nautilus = {}, []
-    if instrument and hasattr(repo, "load_metrics"):
+    metrics_children = html.Div("No metrics available", style={'textAlign':'center','color':'#6c757d','padding':'20px'})
+    # 1) Disk-first: results/<run_id>/<instrument>/trade_metrics.csv
+    if run_id and instrument:
         try:
-            loaded = repo.load_metrics(instrument)
-            if loaded:
-                metrics, nautilus = loaded
+            results_root = getattr(repo, "results_root", None)
+            if results_root is None:
+                # Fallback Pfad: this file liegt unter callbacks/chart -> parents[4] Punkte auf project root
+                results_root = Path(__file__).resolve().parents[4] / "data" / "DATA_STORAGE" / "results"
+            run_dir = Path(results_root) / str(run_id)
+            trade_metrics_path = run_dir / str(instrument) / "trade_metrics.csv"
+            if trade_metrics_path.exists() and trade_metrics_path.is_file():
+                try:
+                    df = pd.read_csv(trade_metrics_path)
+                    if not df.empty:
+                        metrics = df.iloc[0].to_dict()
+                        metrics_children = create_metrics_table(metrics, [])
+                except Exception:
+                    pass
         except Exception:
             pass
-    metrics_div = create_metrics_table(metrics, nautilus)
-    return price_fig, indicator_children, metrics_div, trade_details
+    # 2) Fallback: repo.load_metrics (try run-aware signature first)
+    if (not metrics or metrics_children is None or isinstance(metrics_children, html.Div) and "No metrics" in str(metrics_children)) and hasattr(repo, "load_metrics"):
+        try:
+            loaded = None
+            try:
+                loaded = repo.load_metrics(run_id, instrument)
+            except TypeError:
+                try:
+                    loaded = repo.load_metrics(instrument)
+                except Exception:
+                    loaded = None
+            if loaded:
+                if isinstance(loaded, tuple) and isinstance(loaded[0], dict):
+                    metrics, nautilus = loaded
+                elif isinstance(loaded, dict):
+                    metrics = loaded
+                elif hasattr(loaded, "iloc"):
+                    df2 = loaded
+                    if not df2.empty:
+                        metrics = df2.iloc[0].to_dict()
+                try:
+                    metrics_children = create_metrics_table(metrics, nautilus)
+                except Exception:
+                    metrics_children = html.Div("No metrics available", style={'textAlign':'center','color':'#6c757d','padding':'20px'})
+        except Exception:
+            pass
 
-def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, clickData):
+    return price_fig, indicator_children, metrics_children, trade_details
+
+def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, clickData, run_id=None):
     selected_multi = state.get("selected_trade_index") if isinstance(state.get("selected_trade_index"), tuple) else None
 
     price_fig = go.Figure()
@@ -286,6 +327,7 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
             indicator_names.append(f"{inst_}:{name}")
         if not indicator_names:
             continue
+        # Title decision similar to multi-instrument handling
         base_names = [n.split(":", 1)[-1] for n in indicator_names]
         unique_base = list(dict.fromkeys(base_names))
         if len(unique_base) == 1:
@@ -293,7 +335,8 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
         elif len(indicator_names) <= 3:
             title_text = " | ".join(indicator_names)
         else:
-            title_text = f"{indicator_names[0]} + {len(indicator_names)-1} more"
+            title_text = f"{indicator_names[0]} + {len(indicator_names) - 1} more"
+
         fig_ind.update_layout(
             template="plotly_white",
             margin=dict(t=55, b=40, l=50, r=15),
@@ -314,23 +357,103 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
                       style={"height": "300px", "marginBottom": "10px"})
         )
 
-    metrics, nautilus = {}, []
-    primary = instruments[0] if instruments else None
-    if primary and hasattr(repo, "load_metrics"):
-        try:
-            loaded = repo.load_metrics(primary)
-            if loaded:
-                metrics, nautilus = loaded
-        except Exception:
-            pass
-    metrics_div = create_metrics_table(metrics, nautilus)
-    return price_fig, indicator_children, metrics_div, trade_details
+    # Metrics, Primary-Load und finale Rückgabe (korrigiert: metrics_children einfügen)
+    metrics_children = html.Div("No metrics available", style={'textAlign':'center','color':'#6c757d','padding':'20px'})
+    # Wenn mehrere Instrumente ausgewählt: Vergleichstabelle instrument -> metrics (disk-first)
+    if instruments and len(instruments) > 1:
+        metrics_map = {}
+        # try run-aware disk lookup first if run_id provided
+        for inst in instruments:
+            metrics = None
+            nautilus = []
+            # disk-first using provided run_id
+            if run_id:
+                try:
+                    results_root = getattr(repo, "results_root", None)
+                    if results_root is None:
+                        results_root = Path(__file__).resolve().parents[5] / "data" / "DATA_STORAGE" / "results"
+                    run_dir = Path(results_root) / str(run_id)
+                    trade_metrics_path = run_dir / str(inst) / "trade_metrics.csv"
+                    if trade_metrics_path.exists() and trade_metrics_path.is_file():
+                        dfm = pd.read_csv(trade_metrics_path)
+                        if not dfm.empty:
+                            metrics = dfm.iloc[0].to_dict()
+                except Exception:
+                    pass
+            # fallback to repo.load_metrics(run_id, inst) or repo.load_metrics(inst)
+            if metrics is None and hasattr(repo, "load_metrics"):
+                try:
+                    loaded = None
+                    try:
+                        loaded = repo.load_metrics(run_id, inst)
+                    except TypeError:
+                        try:
+                            loaded = repo.load_metrics(inst)
+                        except Exception:
+                            loaded = None
+                    if loaded:
+                        if isinstance(loaded, tuple) and isinstance(loaded[0], dict):
+                            metrics, nautilus = loaded
+                        elif isinstance(loaded, dict):
+                            metrics = loaded
+                        elif hasattr(loaded, "iloc"):
+                            df2 = loaded
+                            if not df2.empty:
+                                metrics = df2.iloc[0].to_dict()
+                except Exception:
+                    pass
+            if metrics:
+                metrics_map[str(inst)] = metrics
+        if metrics_map:
+            metrics_children = create_metrics_table(metrics_map, [])
+    else:
+        # Single-instrument-like behavior (fallback to first instrument / primary)
+        primary = instruments[0] if instruments else None
+        if primary and hasattr(repo, "load_metrics"):
+            try:
+                # try disk-first if run_id provided
+                metrics = None; nautilus = []
+                if run_id:
+                    try:
+                        results_root = getattr(repo, "results_root", None)
+                        if results_root is None:
+                            results_root = Path(__file__).resolve().parents[5] / "data" / "DATA_STORAGE" / "results"
+                        run_dir = Path(results_root) / str(run_id)
+                        tpath = run_dir / str(primary) / "trade_metrics.csv"
+                        if tpath.exists() and tpath.is_file():
+                            dfm = pd.read_csv(tpath)
+                            if not dfm.empty:
+                                metrics = dfm.iloc[0].to_dict()
+                    except Exception:
+                        pass
+                if not metrics:
+                    loaded = repo.load_metrics(primary)
+                    if loaded:
+                        if isinstance(loaded, tuple) and isinstance(loaded[0], dict):
+                            metrics, nautilus = loaded
+                        elif isinstance(loaded, dict):
+                            metrics = loaded
+                        elif hasattr(loaded, "iloc"):
+                            df2 = loaded
+                            if not df2.empty:
+                                metrics = df2.iloc[0].to_dict()
+                if metrics:
+                    metrics_children = create_metrics_table(metrics, nautilus)
+            except Exception:
+                pass
 
-def build_single_run_view(state, repo, instruments, clickData, chart_mode, x_range, color_map):
-    """Dispatcher: Single-Run mit 1 oder mehreren Instrumenten."""
+    return price_fig, indicator_children, metrics_children, trade_details
+
+def build_single_run_view(state, repo, instruments, clickData, chart_mode, x_range, color_map, run_id=None):
+    """Dispatcher: Single-Run mit 1 oder mehreren Instrumenten. Liefert (fig, indicators, metrics, trade_details)."""
     if not instruments:
-        return (go.Figure().update_layout(title="No instrument selected"),
-                [], create_metrics_table({}, []), get_default_trade_details())
+        return (
+            go.Figure().update_layout(title="No instrument selected"),
+            [],
+            html.Div("No metrics available", style={'textAlign':'center','color':'#6c757d','padding':'20px'}),
+            get_default_trade_details()
+        )
+
     if len(instruments) == 1:
         return _single_instrument(
             state=state,
@@ -338,8 +461,11 @@ def build_single_run_view(state, repo, instruments, clickData, chart_mode, x_ran
             instrument=instruments[0],
             chart_mode=chart_mode,
             x_range=x_range,
-            clickData=clickData
+            clickData=clickData,
+            run_id=run_id
         )
+
+    # mehrere Instrumente im Single-Run-Modus (mehrere Instrumente einer Run-Collector-Instanz)
     return _multi_instrument(
         state=state,
         repo=repo,
@@ -347,5 +473,6 @@ def build_single_run_view(state, repo, instruments, clickData, chart_mode, x_ran
         chart_mode=chart_mode,
         x_range=x_range,
         color_map=color_map,
-        clickData=clickData
+        clickData=clickData,
+        run_id=run_id
     )

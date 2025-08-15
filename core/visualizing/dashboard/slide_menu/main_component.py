@@ -349,7 +349,7 @@ class SlideMenuComponent:
             'left': '0',
             'width': '100vw',
             'height': '100vh',
-            'zIndex': '1100',
+            'zIndex': '35000',  # war 1100, jetzt garantiert ganz oben!
             'background': 'linear-gradient(135deg,rgba(17,24,39,0.92),rgba(17,24,39,0.96))',
             'backdropFilter': 'blur(12px)',
             'padding': '40px 48px',

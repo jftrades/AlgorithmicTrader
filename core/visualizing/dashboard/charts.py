@@ -6,6 +6,7 @@ Used by the callback modules (e.g. callbacks/charts.py). No Dash callbacks here.
 """
 import plotly.graph_objects as go
 import pandas as pd
+import traceback
 
 def build_price_chart(bars_df, indicators_df, trades_df, selected_trade_index, display_mode: str = "OHLC"):
     fig = go.Figure()
@@ -36,18 +37,23 @@ def build_price_chart(bars_df, indicators_df, trades_df, selected_trade_index, d
         index_close = len(fig.data) - 1
         fig.data[index_close].uid = "trace_graph"
     # Overlay indicators (plot_id == 0)
-    for name, df in (indicators_df or {}).items():
-        if df is None or df.empty:
-            continue
-        try:
-            pid = int(df['plot_id'].iloc[0])
-            if pid == 0:
-                fig.add_trace(go.Scatter(
-                    x=df['timestamp'], y=df['value'], mode='lines',
-                    name=name.upper(), line=dict(width=2.0)
-                ))
-        except Exception:
-            pass
+    # indicators_df expected as dict[name] -> DataFrame with columns ['timestamp','value','plot_id']
+    try:
+        for name, df in (indicators_df or {}).items():
+            if not isinstance(df, pd.DataFrame) or df.empty:
+                continue
+            try:
+                pid = int(df['plot_id'].iloc[0]) if 'plot_id' in df.columns else 0
+                if pid == 0:
+                    fig.add_trace(go.Scatter(
+                        x=df['timestamp'], y=df['value'], mode='lines',
+                        name=name.upper(), line=dict(width=2.0)
+                    ))
+            except Exception:
+                # ignore indicator errors silently
+                continue
+    except Exception:
+        pass
     # Trades
     if trades_df is not None and not trades_df.empty:
         # Linien zuerst, Marker danach!

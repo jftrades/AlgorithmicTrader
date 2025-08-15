@@ -204,7 +204,8 @@ class QuantStatsViewer:
                 returns, 
                 benchmark=benchmark, 
                 output=output_path,
-                title=f"QuantStats Report - {run_id}"
+                #title=f"QuantStats Report - {run_id}"
+                title=f"QuantStats Report - {3}"
             )
 
             # Im Browser öffnen

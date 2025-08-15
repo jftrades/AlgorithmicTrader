@@ -50,11 +50,18 @@ class BaseStrategy(Strategy):
             f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
 
     def base_on_position_closed(self, position_closed) -> None:
+        pos_id = position_closed.position_id 
+        pos = self.cache.position(pos_id)
+        fees = pos.commissions()
+        total_fee = 0
+        for fee in fees:
+            total_fee += fee.as_double()
         id  = position_closed.instrument_id
         id_ctx = self.get_instrument_context(id)
-        realized_pnl = position_closed.realized_pnl  # Realized PnL
+        realized_pnl = position_closed.realized_pnl.as_double()  # Realized PnL
         id_ctx["realized_pnl"] += float(realized_pnl) if realized_pnl else 0
-        id_ctx["collector"].add_closed_trade(position_closed)
+        #id_ctx["commissions"] += float(position_closed.commission) if position_closed.commission else 0
+        id_ctx["collector"].add_closed_trade(position_closed, total_fee)
 
     def base_on_error(self, error: Exception) -> None:
         self.log.error(f"An error occurred: {error}")
@@ -69,8 +76,10 @@ class BaseStrategy(Strategy):
         seen_venues = set()
         total_balances = 0.0
         for inst_id, data in self.instrument_dict.items():
-            net_pos = self.portfolio.net_position(inst_id)
+            net_pos = self.portfolio.net_exposure(inst_id)    
             if net_pos is not None:
+                if self.portfolio.is_net_short(inst_id):
+                    net_pos = -net_pos
                 total_position += float(net_pos)
             unreal = self.portfolio.unrealized_pnl(inst_id)
             if unreal:

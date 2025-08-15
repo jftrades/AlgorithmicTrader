@@ -21,6 +21,7 @@ from tools.order_management.risk_manager import RiskManager
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 from tools.help_funcs.help_funcs_strategy import create_tags
 from nautilus_trader.common.enums import LogColor
+from  tools.help_funcs.help_funcs_strategy import extract_interval_from_bar_type
 
 # Strategiespezifische Importe
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
@@ -179,15 +180,20 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
     # -------------------------------------------------
     def update_visualizer_data(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         inst_id = bar.bar_type.instrument_id
-        net_position = self.portfolio.net_position(inst_id)
+        #net_position = self.portfolio.net_position(inst_id)
+        net_exp = self.portfolio.net_exposure(inst_id).as_double()
+        if self.portfolio.is_net_short(inst_id):
+            net_exp = -net_exp
+        #self.log.info(str(net_exp), color=LogColor.CYAN)
         unrealized_pnl = self.portfolio.unrealized_pnl(inst_id)
+        realized_pnl = self.portfolio.total_pnl(inst_id)
         venue = inst_id.venue
         account = self.portfolio.account(venue)
         usdt_balance = account.balance_total()
         equity = usdt_balance.as_double() + (float(unrealized_pnl) if unrealized_pnl else 0)
         rsi_value = float(current_instrument["rsi"].value) if current_instrument["rsi"].value is not None else None
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="RSI", value=rsi_value)
-        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
+        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="position", value=net_exp)
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(current_instrument["realized_pnl"]))
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="equity", value=equity)
@@ -201,7 +207,7 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         self.stopped = True
         # Aggregiere pro Instrument
         for inst_id, current_instrument in self.instrument_dict.items():
-            net_position = self.portfolio.net_position(inst_id)
+            net_position = self.portfolio.net_exposure(inst_id).as_double()
             unrealized_pnl = self.portfolio.unrealized_pnl(inst_id)
             realized_pnl_component = float(self.portfolio.realized_pnl(inst_id))
             current_instrument["realized_pnl"] += (float(unrealized_pnl) if unrealized_pnl else 0) + realized_pnl_component
@@ -209,12 +215,17 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
             venue = inst_id.venue
             account = self.portfolio.account(venue)
             usdt_balance = account.balance_total()
-            equity = usdt_balance.as_double()
-            ts_now = self.clock.timestamp_ns()
-            current_instrument["collector"].add_indicator(timestamp=ts_now, name="equity", value=equity)
-            current_instrument["collector"].add_indicator(timestamp=ts_now, name="position", value=net_position if net_position is not None else None)
-            current_instrument["collector"].add_indicator(timestamp=ts_now, name="unrealized_pnl", value=0.0)
-            current_instrument["collector"].add_indicator(timestamp=ts_now, name="realized_pnl", value=float(current_instrument["realized_pnl"]))
+            equity = usdt_balance.as_double() + unrealized_pnl
+            #ts_now = self.clock.timestamp_ns()
+            # timeframe ist z. B. "1m" oder "5m"
+
+            bar_types = current_instrument["bar_types"]
+
+            last_timestamp = max(current_instrument["collector"].bars[extract_interval_from_bar_type(str(bt), str(bt.instrument_id))][-1]["timestamp"] for bt in bar_types)
+            #current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="equity", value=equity)
+            current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="position", value=net_position if net_position is not None else None)
+            current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="unrealized_pnl", value=0.0)
+            current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="realized_pnl", value=float(current_instrument["realized_pnl"]))
             logging_message = f"{inst_id}: " + current_instrument["collector"].save_data()
             self.log.info(logging_message, color=LogColor.GREEN)
             # Legacy aggregat

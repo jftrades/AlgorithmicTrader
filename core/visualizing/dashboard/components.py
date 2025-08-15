@@ -1,6 +1,7 @@
 # core/visualizing/dashboard/components.py
 from dash import html, dcc, dash_table
 import pandas as pd
+import re
 
 
 # --------- Trade-Details: Defaults ---------
@@ -246,7 +247,159 @@ def create_metrics_table(metrics: dict, nautilus_result):
         }
         units.update(special_units)
 
-    # In Kategorien organisieren
+    # Wenn metrics ein Mapping von instrument->metrics_dict ist -> Vergleichstabelle
+    # Neu: unterstützt jetzt auch verschachtelte Maps: run_id -> { instrument -> metrics_dict }
+    if isinstance(metrics, dict) and any(isinstance(v, dict) for v in metrics.values()):
+        # Detect nested mapping: run_id -> {inst -> metrics_dict}
+        first_vals = list(metrics.values())
+        nested = any(isinstance(v, dict) and any(isinstance(x, dict) for x in v.values()) for v in first_vals)
+        if nested:
+            # metrics: { run_id: {inst: metrics_dict, ...}, ...}
+            runs = list(metrics.keys())
+            # collect instrument order (unique across runs)
+            instruments = []
+            for r in runs:
+                for inst in (metrics.get(r) or {}).keys():
+                    if inst not in instruments:
+                        instruments.append(inst)
+            # collect all metric keys across all run/inst combos
+            all_keys = set()
+            for r in runs:
+                for inst, m in (metrics.get(r) or {}).items():
+                    if isinstance(m, dict):
+                        all_keys.update(m.keys())
+            ordered_keys = sorted(all_keys, key=lambda s: str(s).lower())
+
+            def _format_value(k, v):
+                norm = re.sub(r'[^a-z0-9 ]', ' ', str(k).lower()).strip()
+                is_currency = (
+                    'pnl' in norm
+                    or ('avg' in norm and ('win' in norm or 'loss' in norm))
+                    or ('max' in norm and ('win' in norm or 'loss' in norm))
+                    or 'commission' in norm or 'commissions' in norm or ('ø' in str(k).lower())
+                )
+                if v is None or (isinstance(v, float) and pd.isna(v)):
+                    return "N/A"
+                try:
+                    if is_currency:
+                        return f"{float(v):.4f}"
+                    if any(w in norm for w in ['trade', 'trades', 'n_trades', 'long trades', 'short trades', 'total', 'count', 'iterations', 'positions', 'max consecutive']):
+                        return str(int(float(v)))
+                    if 'win rate' in norm or 'winrate' in norm or 'win_rate' in norm:
+                        vv = float(v)
+                        return f"{(vv*100 if vv <= 1 else vv):.1f}%"
+                    f = float(v)
+                    if abs(f - int(f)) < 1e-9:
+                        return f"{int(f)}"
+                    return f"{f:.4f}"
+                except Exception:
+                    return str(v)
+
+            # Build dual-header table: first row = Metric label + run headers (colspan = number of instruments present in that run)
+            # second header row = per-run instrument headers
+            # construct header rows
+            top_header_cells = [html.Th("Metric", style={'textAlign': 'left', 'padding':'8px 12px'})]
+            second_header_cells = [html.Th("", style={'padding':'8px 12px'})]
+            for r in runs:
+                insts_in_run = list((metrics.get(r) or {}).keys())
+                colspan = max(1, len(insts_in_run))
+                top_header_cells.append(html.Th(str(r), colSpan=colspan, style={'textAlign':'center', 'padding':'8px 12px', 'fontWeight':'700'}))
+                # instrument header cells for this run
+                if insts_in_run:
+                    for inst in insts_in_run:
+                        second_header_cells.append(html.Th(str(inst), style={'textAlign':'center', 'padding':'8px 12px'}))
+                else:
+                    # filler cell if no instruments
+                    second_header_cells.append(html.Th("", style={'padding':'8px 12px'}))
+
+            # Build rows
+            rows = []
+            for key in ordered_keys:
+                cells = [html.Td(str(key), style={'padding':'8px 12px', 'fontWeight':'500', 'color':'#2c3e50'})]
+                for r in runs:
+                    insts_in_run = list((metrics.get(r) or {}).keys())
+                    if insts_in_run:
+                        for inst in insts_in_run:
+                            m = (metrics.get(r) or {}).get(inst) or {}
+                            val = m.get(key, m.get(key.lower(), "N/A"))
+                            cells.append(html.Td(_format_value(key, val), style={'padding':'8px 12px', 'textAlign':'center'}))
+                    else:
+                        cells.append(html.Td("N/A", style={'padding':'8px 12px', 'textAlign':'center'}))
+                rows.append(html.Tr(cells))
+
+            table = html.Table([
+                html.Thead([html.Tr(top_header_cells), html.Tr(second_header_cells)]),
+                html.Tbody(rows)
+            ], style={
+                'width': '100%',
+                'backgroundColor': 'white',
+                'border': '1px solid #dee2e6',
+                'borderRadius': '8px',
+                'boxShadow': '0 2px 4px rgba(0,0,0,0.06)',
+            })
+            return html.Div([
+                html.H4("Metrics Comparison (Runs × Instruments)", style={'color': '#2c3e50', 'marginBottom': '12px', 'fontFamily': 'Inter, system-ui, sans-serif', 'fontWeight': '600'}),
+                table
+            ], style={'padding': '8px'})
+        # fallback: old single-level instrument->metrics rendering continues below
+        instruments = list(metrics.keys())
+        all_keys = set()
+        for m in metrics.values():
+            if isinstance(m, dict):
+                all_keys.update(m.keys())
+        ordered_keys = sorted(all_keys, key=lambda s: str(s).lower())
+        def _format_value(k, v):
+            norm = re.sub(r'[^a-z0-9 ]', ' ', str(k).lower()).strip()
+            is_currency = (
+                'pnl' in norm
+                or ('avg' in norm and ('win' in norm or 'loss' in norm))
+                or ('max' in norm and ('win' in norm or 'loss' in norm))
+                or 'commission' in norm or 'commissions' in norm or ('ø' in str(k).lower())
+            )
+            if v is None or (isinstance(v, float) and pd.isna(v)):
+                return "N/A"
+            try:
+                if is_currency:
+                    return f"{float(v):.4f}"
+                if any(w in norm for w in ['trade', 'trades', 'n_trades', 'long trades', 'short trades', 'total', 'count', 'iterations', 'positions', 'max consecutive']):
+                    return str(int(float(v)))
+                if 'win rate' in norm or 'winrate' in norm or 'win_rate' in norm:
+                    vv = float(v)
+                    return f"{(vv*100 if vv <= 1 else vv):.1f}%"
+                f = float(v)
+                if abs(f - int(f)) < 1e-9:
+                    return f"{int(f)}"
+                return f"{f:.4f}"
+            except Exception:
+                return str(v)
+
+        header = [html.Th("Metric", style={'textAlign': 'left', 'padding':'8px 12px'})] + [
+            html.Th(str(inst), style={'textAlign': 'center', 'padding':'8px 12px'}) for inst in instruments
+        ]
+        rows = []
+        for key in ordered_keys:
+            cells = [html.Td(str(key), style={'padding':'8px 12px', 'fontWeight':'500', 'color':'#2c3e50'})]
+            for inst in instruments:
+                mv = metrics.get(inst) or {}
+                val = mv.get(key, mv.get(key.lower(), "N/A"))
+                cells.append(html.Td(_format_value(key, val), style={'padding':'8px 12px', 'textAlign':'center'}))
+            rows.append(html.Tr(cells))
+
+        table = html.Table([
+            html.Thead(html.Tr(header)),
+            html.Tbody(rows)
+        ], style={
+            'width': '100%',
+            'backgroundColor': 'white',
+            'border': '1px solid #dee2e6',
+            'borderRadius': '8px',
+            'boxShadow': '0 2px 4px rgba(0,0,0,0.06)',
+        })
+        return html.Div([
+            html.H4("Metrics Comparison", style={'color': '#2c3e50', 'marginBottom': '12px', 'fontFamily': 'Inter, system-ui, sans-serif', 'fontWeight': '600'}),
+            table
+        ], style={'padding': '8px'})
+
     performance_metrics = {}
     trade_metrics = {}
     general_info = {}
@@ -263,15 +416,49 @@ def create_metrics_table(metrics: dict, nautilus_result):
     def create_metric_row(key, value):
         einheit = units.get(key, '')
         formatted_value = value
+        # Normalize key: lowercase, replace underscores and non-alnum with space
+        norm = re.sub(r'[^a-z0-9 ]', ' ', str(key).lower()).strip()
+        # decide whether this key is currency (we will append unit to label instead of value)
+        is_currency = (
+            'pnl' in norm
+            or ('final' in norm and 'real' in norm)
+            or ('avg' in norm and 'win' in norm)
+            or ('avg' in norm and 'loss' in norm)
+            or ('max' in norm and 'win' in norm)
+            or ('max' in norm and 'loss' in norm)
+            or 'commission' in norm
+            or 'commissions' in norm
+            or ('ø' in str(key).lower())
+        )
 
-        # Win Rate -> Prozent
-        if key == 'Win Rate':
+        # 1) Currency-like detection (PnL, Avg/Ø Win/Loss, Max Win/Loss, Commissions)
+        if is_currency:
             try:
-                formatted_value = f"{float(value)*100:.1f}%"
+                formatted_value = f"{float(value):.4f}"
             except Exception:
-                formatted_value = f"{value}"
+                formatted_value = f"{value}" if value is not None else "N/A"
 
-        # Zeit hübsch formatieren
+        # 2) Integer counters (Trades, Long Trades, Short Trades, Total, Counts, Max Consecutive ...)
+        elif any(w in norm for w in ['trade', 'trades', 'n trades', 'n_trades', 'long trades', 'short trades', 'total', 'count', 'counts', 'iterations', 'positions', 'max consecutive']):
+            try:
+                formatted_value = f"{int(float(value))}"
+            except Exception:
+                # if cannot convert, fall back to string without trailing .0
+                s = str(value)
+                if s.endswith('.0'):
+                    formatted_value = s[:-2]
+                else:
+                    formatted_value = s
+
+        # 3) Win rate / percent
+        elif 'win rate' in norm or 'winrate' in norm or 'win_rate' in norm:
+            try:
+                v = float(value)
+                formatted_value = f"{(v*100 if v <= 1 else v):.1f}%"
+            except Exception:
+                formatted_value = str(value)
+
+        # 4) Time formatting
         elif key == 'Elapsed Time (s)':
             try:
                 seconds = float(value)
@@ -286,32 +473,31 @@ def create_metrics_table(metrics: dict, nautilus_result):
                     hours = int((seconds % 86400) // 3600)
                     formatted_value = f"{days}d {hours}h" if hours else f"{days}d"
             except Exception:
-                formatted_value = f"{value}"
+                formatted_value = str(value)
 
-        # Ratios
-        elif key in ['Profit Factor', 'Risk Return Ratio']:
-            try:
-                formatted_value = f"{float(value):.2f}"
-            except Exception:
-                formatted_value = f"{value}"
-
-        # Prozentliche Werte (heuristisch)
-        elif ('ratio' in key.lower() or 'volatility' in key.lower() or 'average' in key.lower()) and einheit == '%':
+        # 5) Ratios / percent heuristics
+        elif ('ratio' in norm or 'volatility' in norm or 'average' in norm or 'sharpe' in norm or 'sortino' in norm) and einheit == '%':
             try:
                 v = float(value)
                 formatted_value = f"{(v*100 if v < 1 else v):.2f}%"
             except Exception:
                 formatted_value = f"{value}%"
 
-        # Einheiten
-        elif einheit:
+        # 6) Fallback numeric formatting
+        else:
             try:
-                formatted_value = f"{float(value):.2f} {einheit}"
+                f = float(value)
+                if abs(f - int(f)) < 1e-9:
+                    formatted_value = f"{int(f)}"
+                else:
+                    formatted_value = f"{f:.4f}"
             except Exception:
-                formatted_value = f"{value} {einheit}"
+                formatted_value = str(value)
 
+        # Display key with unit annotation if currency
+        display_key = f"{key} (USD/T)" if is_currency else key
         return html.Tr([
-            html.Td(key, style={
+            html.Td(display_key, style={
                 'padding': '12px 16px',
                 'fontWeight': '500',
                 'color': '#2c3e50',
@@ -380,6 +566,22 @@ def create_all_results_table(all_results_df: pd.DataFrame | None, filter_active:
             sort_by = col
             break
 
+    # arbeite auf einer Kopie
+    df = all_results_df.copy()
+    # (reverted) Do NOT inject a synthetic 'run_id' column here — keep columns as provided by caller.
+
+    if filter_active and sharpe_col:
+        try:
+            df[sharpe_col] = pd.to_numeric(df[sharpe_col], errors='coerce')
+            df[sharpe_col] = df[sharpe_col].fillna(-1e9)
+            df = df.sort_values(by=sharpe_col, ascending=False)
+        except Exception as e:
+            # suppressed debug print
+            pass
+    elif sort_by:
+        df = df.sort_values(by=sort_by, ascending=False)
+
+    # Columns come from the original DataFrame's columns (no automatic run_id injection)
     columns = [{"name": i, "id": i, "deletable": False, "selectable": False, "hideable": False}
                for i in all_results_df.columns]
 
@@ -413,17 +615,6 @@ def create_all_results_table(all_results_df: pd.DataFrame | None, filter_active:
             'transition': 'background 0.2s, color 0.2s'
         }
     )
-
-    df = all_results_df.copy()
-    if filter_active and sharpe_col:
-        try:
-            df[sharpe_col] = pd.to_numeric(df[sharpe_col], errors='coerce')
-            df[sharpe_col] = df[sharpe_col].fillna(-1e9)
-            df = df.sort_values(by=sharpe_col, ascending=False)
-        except Exception as e:
-            print(f"[create_all_results_table] Sort error by Sharpe: {e}")
-    elif sort_by:
-        df = df.sort_values(by=sort_by, ascending=False)
 
     return html.Div([
         html.Div([filter_button], style={'width': '100%', 'display': 'flex', 'justifyContent': 'flex-end'}),

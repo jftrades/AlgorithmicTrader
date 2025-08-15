@@ -104,7 +104,7 @@ class YamlViewer:
             'background': 'linear-gradient(145deg,#ffffff 0%,#f1f5f9 100%)',
             'boxShadow': '-4px 0 18px -2px rgba(0,0,0,0.18)',
             'borderLeft': '3px solid #6366f1',
-            'zIndex': '5000',
+            'zIndex': '30000',  # war 5000, jetzt ganz oben!
             'padding': '18px 22px 28px 22px',
             'boxSizing': 'border-box',
             'overflowY': 'auto',
