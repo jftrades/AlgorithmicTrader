@@ -25,7 +25,7 @@ class KalmanFilterRegressionWithZScore:
         
         # Für Z-Score
         self.zscore_window = zscore_window
-        self.price_history = deque(maxlen=zscore_window)
+        self.residual_history = deque(maxlen=zscore_window)
         self.current_kalman_mean = None
 
     def update(self, value: float):
@@ -58,17 +58,25 @@ class KalmanFilterRegressionWithZScore:
         else:
             slope = 0.0
 
-        # Price History für Z-Score aktualisieren
-        self.price_history.append(value)
-        
-        # Z-Score berechnen (Preis vs. Kalman-Mean)
+        # Z-Score berechnung - einfach und reaktiv
         zscore = None
-        if len(self.price_history) >= self.zscore_window:
-            std = np.std(self.price_history)
-            if std > 0:
-                zscore = (value - self.mean) / std
-            else:
-                zscore = 0.0
+        if self.current_kalman_mean is not None:
+            residual = value - self.mean
+            self.residual_history.append(residual)
+            
+            if len(self.residual_history) >= 3:
+                residual_array = np.array(self.residual_history)
+                
+                # Verwende alle verfügbaren Residuals für größere STD
+                residual_std = np.std(residual_array, ddof=0)
+                
+                adjusted_std = residual_std * 25.0
+                
+                if adjusted_std > 0.0001:
+                    zscore = residual / adjusted_std
+                    zscore = np.clip(zscore, -6.0, 6.0)
+                else:
+                    zscore = 0.0
 
         return self.mean, slope, zscore
 
@@ -78,7 +86,7 @@ class KalmanFilterRegressionWithZScore:
         self.initialized = False
         self.window = []
         self.buffer.clear()
-        self.price_history.clear()
+        self.residual_history.clear()
         self.current_kalman_mean = None
 
     def is_initialized(self) -> bool:
