@@ -73,14 +73,19 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         )
         
         adaptive_params, _, _, _ = self.adaptive_manager.get_adaptive_parameters()
-        vwap_params = adaptive_params['vwap']
+        vwap_params = adaptive_params.get('vwap', {})
+        
+        # Ensure anchor_method exists with fallback
+        anchor_method = vwap_params.get('anchor_method', 'kalman_cross')
+        
         self.vwap_zscore = VWAPZScoreHTFAnchored(
-            anchor_on_kalman_cross=vwap_params['vwap_anchor_on_kalman_cross'],
+            anchor_method=anchor_method,
             zscore_calculation=getattr(config, 'zscore_calculation', {"simple": {"enabled": True}}),
             gap_threshold_pct=config.gap_threshold_pct,
-            min_bars_for_zscore=vwap_params['vwap_min_bars_for_zscore'],
-            reset_grace_period=vwap_params['vwap_reset_grace_period'],
-            require_trade_for_reset=vwap_params['vwap_require_trade_for_reset']
+            min_bars_for_zscore=vwap_params.get('vwap_min_bars_for_zscore', 20),
+            reset_grace_period=vwap_params.get('vwap_reset_grace_period', 40),
+            require_trade_for_reset=vwap_params.get('vwap_require_trade_for_reset', True),
+            rolling_window_bars=vwap_params.get('rolling_window_bars', 288)
         )
         
         self.current_vix_value = None
@@ -165,6 +170,13 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
     def get_position(self):
         return self.base_get_position()
 
+    def _notify_vwap_exit_if_needed(self):
+        adaptive_params = self.adaptive_manager.get_adaptive_parameters()[0]
+        anchor_method = adaptive_params.get('vwap', {}).get('anchor_method', 'kalman_cross')
+        if anchor_method == 'kalman_cross':
+            self.vwap_zscore.set_kalman_exit_mean(self.current_kalman_mean)
+            self.vwap_zscore.notify_exit_trade_occurred()
+
     def is_rth_time(self, bar: Bar) -> bool:
         if not self.only_trade_rth:
             return True
@@ -227,7 +239,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             
         # Update VWAP with asymmetric offset
         asymmetric_offset = self.adaptive_manager.get_asymmetric_offset(self.current_kalman_mean)
-        vwap_value, zscore = self.vwap_zscore.update(bar, kalman_exit_mean=None, asymmetric_offset=asymmetric_offset)
+        anchor_method = adaptive_params.get('vwap', {}).get('anchor_method', 'kalman_cross')
+        kalman_exit_mean = self.current_kalman_mean if anchor_method == 'kalman_cross' else None
+        vwap_value, zscore = self.vwap_zscore.update(bar, kalman_exit_mean=kalman_exit_mean, asymmetric_offset=asymmetric_offset)
         self.current_zscore = zscore
 
         # Use the VWAP Z-Score for entries (not Kalman Z-Score)
@@ -247,8 +261,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                 regime = self.get_vix_regime(self.current_vix_value)
 
                 if regime == 2:  # Fear regime - close positions
-                    self.vwap_zscore.set_kalman_exit_mean(self.current_kalman_mean)
-                    self.vwap_zscore.notify_exit_trade_occurred()
+                    self._notify_vwap_exit_if_needed()
                     self.order_types.close_position_by_market_order()
                 else:
                     if self.current_kalman_mean is not None and zscore is not None:
@@ -293,8 +306,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.elastic_entry.reset_on_cross()
             
             # Reset VWAP when significant Kalman cross occurs
-            self.vwap_zscore.set_kalman_exit_mean(self.current_kalman_mean)
-            self.vwap_zscore.notify_exit_trade_occurred()
+            self._notify_vwap_exit_if_needed()
             
             self.log.info(f"Kalman cross detected: {self.last_kalman_cross_direction} -> {current_direction} | VWAP reset", color=LogColor.BLUE)
         
@@ -457,8 +469,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         regime = self.get_vix_regime(self.current_vix_value)
         
         if regime == 2:
-            self.vwap_zscore.set_kalman_exit_mean(self.current_kalman_mean)
-            self.vwap_zscore.notify_exit_trade_occurred()
+            self._notify_vwap_exit_if_needed()
             self.order_types.close_position_by_market_order()
             return
 
@@ -468,8 +479,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             long_exit, _ = self.adaptive_manager.get_adaptive_exit_thresholds(self.entry_combined_factor)
             
             if self.current_kalman_zscore >= long_exit:
-                self.vwap_zscore.set_kalman_exit_mean(self.current_kalman_mean)
-                self.vwap_zscore.notify_exit_trade_occurred()
+                self._notify_vwap_exit_if_needed()
                 self.order_types.close_position_by_market_order()
 
     def check_for_short_exit(self, bar, adaptive_params: dict):
@@ -478,8 +488,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         regime = self.get_vix_regime(self.current_vix_value)
         
         if regime == 2:
-            self.vwap_zscore.set_kalman_exit_mean(self.current_kalman_mean)
-            self.vwap_zscore.notify_exit_trade_occurred()
+            self._notify_vwap_exit_if_needed()
             self.order_types.close_position_by_market_order()
             return
         
@@ -489,8 +498,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             _, short_exit = self.adaptive_manager.get_adaptive_exit_thresholds(self.entry_combined_factor)
             
             if self.current_kalman_zscore <= short_exit:
-                self.vwap_zscore.set_kalman_exit_mean(self.current_kalman_mean)
-                self.vwap_zscore.notify_exit_trade_occurred()
+                self._notify_vwap_exit_if_needed()
                 self.order_types.close_position_by_market_order()
 
     def on_position_event(self, event: PositionEvent) -> None:
@@ -500,7 +508,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         pass
 
     def close_position(self) -> None:
-        self.vwap_zscore.notify_exit_trade_occurred()
+        self._notify_vwap_exit_if_needed()
         return self.base_close_position()
     
     def on_stop(self) -> None:

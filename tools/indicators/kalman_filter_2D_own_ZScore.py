@@ -23,9 +23,9 @@ class KalmanFilterRegressionWithZScore:
         self.window_size = window
         self.buffer = deque(maxlen=window)  # Für Regression
         
-        # Für Z-Score
+        # Für Z-Score vom Kalman Mean (echte Distanz)
         self.zscore_window = zscore_window
-        self.residual_history = deque(maxlen=zscore_window)
+        self.kalman_distance_history = deque(maxlen=zscore_window)
         self.current_kalman_mean = None
 
     def update(self, value: float):
@@ -58,22 +58,24 @@ class KalmanFilterRegressionWithZScore:
         else:
             slope = 0.0
 
-        # Z-Score berechnung - einfach und reaktiv
+        # Z-Score berechnung - echter Z-Score vom Kalman Mean mit adjustierbarer STD
         zscore = None
         if self.current_kalman_mean is not None:
-            residual = value - self.mean
-            self.residual_history.append(residual)
+            # Distanz zum Kalman Mean (nicht Residual!)
+            distance_to_kalman = value - self.mean
+            self.kalman_distance_history.append(distance_to_kalman)
             
-            if len(self.residual_history) >= 3:
-                residual_array = np.array(self.residual_history)
+            if len(self.kalman_distance_history) >= 3:
+                distance_array = np.array(self.kalman_distance_history)
                 
-                # Verwende alle verfügbaren Residuals für größere STD
-                residual_std = np.std(residual_array, ddof=0)
+                # Verwende alle verfügbaren Distanzen für STD
+                distance_std = np.std(distance_array, ddof=0)
                 
-                adjusted_std = residual_std * 25.0
+                # Adjustierbare STD (wie vorher mit Faktor 25.0)
+                adjusted_std = distance_std * 25.0
                 
                 if adjusted_std > 0.0001:
-                    zscore = residual / adjusted_std
+                    zscore = distance_to_kalman / adjusted_std
                     zscore = np.clip(zscore, -6.0, 6.0)
                 else:
                     zscore = 0.0
@@ -86,7 +88,7 @@ class KalmanFilterRegressionWithZScore:
         self.initialized = False
         self.window = []
         self.buffer.clear()
-        self.residual_history.clear()
+        self.kalman_distance_history.clear()
         self.current_kalman_mean = None
 
     def is_initialized(self) -> bool:
