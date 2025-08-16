@@ -29,7 +29,7 @@ from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 # -------------------------------------------------
 # Multi-Instrument Konfiguration (jetzt Pflicht)
 # -------------------------------------------------
-class RSISimpleStrategyConfig(StrategyConfig):
+class AlphaMemeStrategyConfig(StrategyConfig):
     instruments: List[dict]  # Jeder Eintrag: {"instrument_id": <InstrumentId>, "bar_types": List of <BarType>, "trade_size_usdt": <Decimal|int|float>}
     risk_percent: float
     max_leverage: float
@@ -40,8 +40,8 @@ class RSISimpleStrategyConfig(StrategyConfig):
     close_positions_on_stop: bool = True
 
 
-class RSISimpleStrategy(BaseStrategy, Strategy):
-    def __init__(self, config: RSISimpleStrategyConfig):
+class AlphaMemeStrategy(BaseStrategy, Strategy):
+    def __init__(self, config: AlphaMemeStrategyConfig):
         super().__init__(config)
         
         self.close_positions_on_stop = config.close_positions_on_stop
@@ -60,6 +60,7 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         for spec in self.config.instruments:
             inst_id = spec["instrument_id"]
             bar_types = spec["bar_types"]
+            #test = spec["test"]
             trade_size_usdt = Decimal(str(spec["trade_size_usdt"]))
             rsi_period = spec.get("rsi_period", self.config.rsi_period)
             rsi_overbought = spec.get("rsi_overbought", self.config.rsi_overbought)

@@ -8,9 +8,8 @@ venue: "BINANCE"
 instruments:
   - instrument_id: "BTCUSDT-PERP.BINANCE"
     bar_types: 
-      - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
-      - "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
-    trade_size_usdt: "100"
+      - "BTCUSDT-PERP.BINANCE-1-HOUR-LAST-EXTERNAL"
+    test: "2"
 
 
 

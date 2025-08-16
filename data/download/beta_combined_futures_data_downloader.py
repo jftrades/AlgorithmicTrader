@@ -11,10 +11,10 @@ import csv
 import pandas as pd
 
 class CombinedFuturesDataDownloader:
-    def __init__(self, symbol, listing_date, base_data_dir, interval="5m"):
+    def __init__(self, symbol, listing_date, base_data_dir, interval):
         self.symbol = symbol
         self.start_date = listing_date
-        self.end_date = listing_date + timedelta(days=7)
+        self.end_date = listing_date + timedelta(days=14)
         self.base_data_dir = base_data_dir
         self.interval = interval
 
@@ -47,8 +47,28 @@ class CombinedFuturesDataDownloader:
         df = pd.read_csv(csv_path, header=None, names=[
             "timestamp", "open_time_ms", "open", "high", "low", "close", "volume", "number_of_trades"
         ])
-        ts_start = int(pd.Timestamp(self.start_date).value)
-        ts_end = int(pd.Timestamp(self.end_date).value)
+        # Robust: Timestamp immer in ms bringen (egal ob ns, ms, s)
+        ts_start = int(pd.Timestamp(self.start_date).value // 10**6)  # ms
+        ts_end = int(pd.Timestamp(self.end_date).value // 10**6)      # ms
+
+        # Erkenne und konvertiere falls nötig
+        ts_max = df["timestamp"].max()
+        ts_min = df["timestamp"].min()
+        # Heuristik: > 10^15 = ns, > 10^12 = ms, > 10^9 = s
+        if ts_max > 1e15:
+            # Nanosekunden -> ms
+            df["timestamp"] = (df["timestamp"] // 10**6).astype("int64")
+        elif ts_max > 1e12:
+            # Millisekunden, alles ok
+            df["timestamp"] = df["timestamp"].astype("int64")
+        elif ts_max > 1e9:
+            # Sekunden -> ms
+            df["timestamp"] = (df["timestamp"] * 1000).astype("int64")
+        else:
+            # Unplausibel, skippe alle Zeilen
+            df = df[[]]
+
+        # Filtere auf gewünschten Zeitraum (ms)
         df = df[(df["timestamp"] >= ts_start) & (df["timestamp"] < ts_end)]
         if df.empty:
             print(f"[SKIP] Keine Daten im gewünschten Zeitraum für {self.symbol}. Symbol wird übersprungen.")
@@ -56,10 +76,33 @@ class CombinedFuturesDataDownloader:
         df.to_csv(csv_path, index=False, header=False)
 
         catalog_root_path = Path(self.base_data_dir) / "data_catalog_wrangled"
-        wrangler_init_bar_type_string = f"{self.symbol}-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
-        from nautilus_trader.core.nautilus_pyo3 import BarSpecification, BarType, BarAggregation, PriceType, AggregationSource
+        # Intervall-Parsing (wie im Downloader): z.B. "15m" -> 15-MINUTE, "1h" -> 1-HOUR
+        from nautilus_trader.core.nautilus_pyo3 import (
+            BarSpecification, BarType, BarAggregation, PriceType, AggregationSource
+        )
         from nautilus_trader.core.nautilus_pyo3 import InstrumentId as Pyo3InstrumentId, Symbol as Pyo3Symbol, Venue as Pyo3Venue
-        target_bar_spec = BarSpecification(step=5, aggregation=BarAggregation.MINUTE, price_type=PriceType.LAST)
+        raw = str(self.interval).lower().strip()
+        if raw.endswith("h"):
+            step = int(float(raw[:-1]))
+            interval_token_for_wrangler = f"{step}-HOUR"
+            aggregation = BarAggregation.HOUR
+        elif raw.endswith("d"):
+            step = int(float(raw[:-1]))
+            interval_token_for_wrangler = f"{step}-DAY"
+            aggregation = BarAggregation.DAY
+        elif raw.endswith("m"):
+            step = int(float(raw[:-1]))
+            interval_token_for_wrangler = f"{step}-MINUTE"
+            aggregation = BarAggregation.MINUTE
+        elif raw.isdigit():
+            step = int(raw)
+            interval_token_for_wrangler = f"{step}-MINUTE"
+            aggregation = BarAggregation.MINUTE
+        else:
+            raise ValueError(f"Unbekanntes Interval-Format: {self.interval}")
+
+        wrangler_init_bar_type_string = f"{self.symbol}-PERP.BINANCE-{interval_token_for_wrangler}-LAST-EXTERNAL"
+        target_bar_spec = BarSpecification(step=step, aggregation=aggregation, price_type=PriceType.LAST)
         pyo3_instrument_id = Pyo3InstrumentId(Pyo3Symbol(f"{self.symbol}-PERP"), Pyo3Venue("BINANCE"))
         target_bar_type_obj = BarType(
             instrument_id=pyo3_instrument_id,
@@ -97,7 +140,7 @@ if __name__ == "__main__":
                 symbol=symbol,
                 listing_date=listing_date,
                 base_data_dir=base_data_dir,
-                interval="5m"
+                interval="15m"
             )
             downloader.run()
     # Nach allen Durchläufen: Lösche alle processed_bar_data_* Ordner

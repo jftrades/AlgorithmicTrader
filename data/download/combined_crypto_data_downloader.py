@@ -8,12 +8,12 @@ from datetime import datetime
 import shutil
 
 # Parameter hier anpassen
-symbol = "BTCUSDT-PERP"
-start_date = "2024-10-01"
-end_date = "2024-10-31"
+symbol = "SOLUSDT-PERP"
+start_date = "2023-01-01"
+end_date = "2025-08-15"
 base_data_dir = str(Path(__file__).resolve().parents[1] / "DATA_STORAGE")
 datatype = "bar"  # oder "tick"
-interval = "15m"    # nur für Bars relevant
+interval = "1h"    # nur für Bars relevant
 
 class CombinedCryptoDataDownloader:
     def __init__(self, symbol, start_date, end_date, base_data_dir, datatype="tick", interval="1h"):
@@ -74,19 +74,38 @@ class CombinedCryptoDataDownloader:
             from nautilus_trader.core.nautilus_pyo3 import (
                 BarSpecification, BarType, BarAggregation, PriceType, AggregationSource, InstrumentId, Symbol, Venue
             )
-            interval_num = int(self.interval.lower().replace("m", ""))
-            interval_str = f"{interval_num}-MINUTE"
+            # Verwende das Intervall-Token direkt, keine Umrechnung in Minuten!
+            raw = str(self.interval).lower().strip()
+            if raw.endswith("h"):
+                step = int(float(raw[:-1]))
+                interval_token_for_wrangler = f"{step}-HOUR"
+                aggregation = BarAggregation.HOUR
+            elif raw.endswith("d"):
+                step = int(float(raw[:-1]))
+                interval_token_for_wrangler = f"{step}-DAY"
+                aggregation = BarAggregation.DAY
+            elif raw.endswith("m"):
+                step = int(float(raw[:-1]))
+                interval_token_for_wrangler = f"{step}-MINUTE"
+                aggregation = BarAggregation.MINUTE
+            elif raw.isdigit():
+                step = int(raw)
+                interval_token_for_wrangler = f"{step}-MINUTE"
+                aggregation = BarAggregation.MINUTE
+            else:
+                raise ValueError(f"Unbekanntes Interval-Format: {self.interval}")
 
             if self.is_perp:
-                wrangler_init_bar_type_string = f"{self.symbol_for_binance}-PERP.BINANCE-{interval_str}-LAST-EXTERNAL"
+                wrangler_init_bar_type_string = f"{self.symbol_for_binance}-PERP.BINANCE-{interval_token_for_wrangler}-LAST-EXTERNAL"
                 target_instrument_id = InstrumentId(Symbol(f"{self.symbol_for_binance}-PERP"), Venue("BINANCE"))
             else:
-                wrangler_init_bar_type_string = f"{self.symbol_for_binance}.BINANCE-{interval_str}-LAST-EXTERNAL"
+                wrangler_init_bar_type_string = f"{self.symbol_for_binance}.BINANCE-{interval_token_for_wrangler}-LAST-EXTERNAL"
                 target_instrument_id = InstrumentId(Symbol(self.symbol_for_binance), Venue("BINANCE"))
 
+            # BarSpecification: step ist jetzt ein Integer und aggregation korrekt gesetzt
             target_bar_spec = BarSpecification(
-                step=interval_num,
-                aggregation=BarAggregation.MINUTE,
+                step=step,
+                aggregation=aggregation,
                 price_type=PriceType.LAST
             )
             target_bar_type_obj = BarType(
@@ -94,8 +113,9 @@ class CombinedCryptoDataDownloader:
                 spec=target_bar_spec,
                 aggregation_source=AggregationSource.EXTERNAL
             )
-            price_precision = 1
-            size_precision = 3
+
+            price_precision = 8
+            size_precision = 8
             output_columns = [
                 "timestamp", "open_time_ms", "open", "high", "low", "close", "volume", "number_of_trades"
             ]
