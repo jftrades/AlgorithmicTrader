@@ -58,25 +58,27 @@ class KalmanFilterRegressionWithZScore:
         else:
             slope = 0.0
 
-        # Z-Score berechnung - echter Z-Score vom Kalman Mean mit adjustierbarer STD
+        # Z-Score berechnung - EINFACHE Distanz zum Kalman Mean in Standardabweichungen
+        # Z-Score = 0 wenn Preis EXAKT auf Kalman Mean ist
         zscore = None
         if self.current_kalman_mean is not None:
-            # Distanz zum Kalman Mean (nicht Residual!)
-            distance_to_kalman = value - self.mean
-            self.kalman_distance_history.append(distance_to_kalman)
+            # Sammle die absoluten Distanzen für Standardabweichung (ohne Vorzeichen)
+            abs_distance = abs(value - self.current_kalman_mean)
+            self.kalman_distance_history.append(abs_distance)
             
-            if len(self.kalman_distance_history) >= 3:
-                distance_array = np.array(self.kalman_distance_history)
+            # Benötigen mindestens 5 Datenpunkte für Standardabweichung
+            if len(self.kalman_distance_history) >= 5:
+                # Berechne die durchschnittliche absolute Distanz (Standardabweichung der Distanzen)
+                distance_std = np.std(list(self.kalman_distance_history), ddof=1)
                 
-                # Verwende alle verfügbaren Distanzen für STD
-                distance_std = np.std(distance_array, ddof=0)
-                
-                # Adjustierbare STD (wie vorher mit Faktor 25.0)
-                adjusted_std = distance_std * 25.0
-                
-                if adjusted_std > 0.0001:
-                    zscore = distance_to_kalman / adjusted_std
-                    zscore = np.clip(zscore, -6.0, 6.0)
+                if distance_std > 0.0001:  # Vermeide Division durch Null
+                    # EINFACHER Z-Score: Aktuelle Distanz / Standard-Distanz
+                    # Positiv wenn über Mean, Negativ wenn unter Mean
+                    current_distance = value - self.current_kalman_mean
+                    zscore = current_distance / distance_std
+                    
+                    # Begrenze extreme Werte
+                    zscore = np.clip(zscore, -80.0, 80.0)
                 else:
                     zscore = 0.0
 

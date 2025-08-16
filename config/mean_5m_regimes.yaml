@@ -2,30 +2,30 @@ symbol: "SPY"
 venue: "ARCA"
 instrument_id: "SPY.ARCA"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
-start_date: "2024-01-01T00:00:00Z"
-end_date: "2024-03-01T23:59:59Z"
+start_date: "2022-04-01T00:00:00Z"
+end_date: "2022-07-01T23:59:59Z"
 
 only_trade_rth: true
 
 base_parameters:
-  kalman_process_var: 0.0000002
+  kalman_process_var: 0.0000001
   kalman_measurement_var: 0.01
   kalman_zscore_window: 8
 
   vwap:
     # Anchor method options: "kalman_cross","daily", "weekly", "rolling" 
-    anchor_method: "weekly"
+    anchor_method: "daily"
     vwap_require_trade_for_reset: true 
     vwap_min_bars_for_zscore: 20
     vwap_reset_grace_period: 40
-    rolling_window_bars: 288  # Used only when anchor_method is "rolling" 
+    rolling_window_bars: 500  # Used only when anchor_method is "rolling" 
 
   elastic_entry:
-    zscore_long_threshold: -2.0
-    zscore_short_threshold: 3.0
-    recovery_delta: 0.4
-    long_min_distance_from_kalman: -0.10
-    short_min_distance_from_kalman: 0.10
+    zscore_long_threshold: -2.8
+    zscore_short_threshold: 3.2
+    recovery_delta: 0.5
+    long_min_distance_from_kalman: -5
+    short_min_distance_from_kalman: 5
     allow_multiple_recoveries: true
     recovery_cooldown_bars: 10
     alllow_stacking: true
@@ -37,11 +37,11 @@ base_parameters:
   
   adaptive_exit:
     enabled: true
-    extension_threshold: 1.2
-    long_base_exit: -0.1
-    long_max_extension: 0.1
-    short_base_exit: 0.02
-    short_max_extension: 0.6
+    extension_threshold: 1.1
+    long_base_exit: -1.0
+    long_max_extension: 20
+    short_base_exit: 1.0
+    short_max_extension: 15
 
   long_risk_factor: 1.2
   short_risk_factor: 0.5
@@ -51,7 +51,7 @@ adaptive_factors:
     enabled: true
     min: 0.5
     max: 1.4
-    sensitivity: 0.005
+    sensitivity: 0.04
   
   atr:
     enabled: true
