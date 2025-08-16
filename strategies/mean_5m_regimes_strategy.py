@@ -75,8 +75,20 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         adaptive_params, _, _, _ = self.adaptive_manager.get_adaptive_parameters()
         vwap_params = adaptive_params.get('vwap', {})
         
-        # Ensure anchor_method exists with fallback
+        # SAFETY FIX: If anchor_method is missing but we have vwap_anchor_on_kalman_cross, fix it
+        if 'anchor_method' not in vwap_params:
+            # Get the correct anchor method directly from config
+            correct_anchor_method = config.base_parameters.get('vwap', {}).get('anchor_method', 'kalman_cross')
+            vwap_params['anchor_method'] = correct_anchor_method
+        
+        # Get anchor method from adaptive params (which gets it from config)
         anchor_method = vwap_params.get('anchor_method', 'kalman_cross')
+        
+        # STORE the anchor method as instance variable to avoid re-querying adaptive manager
+        self.vwap_anchor_method = anchor_method
+        
+        # Debug log to verify anchor method being used
+        self.log.info(f"VWAP anchor method loaded from config: {anchor_method}", color=LogColor.GREEN)
         
         self.vwap_zscore = VWAPZScoreHTFAnchored(
             anchor_method=anchor_method,
@@ -85,7 +97,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             min_bars_for_zscore=vwap_params.get('vwap_min_bars_for_zscore', 20),
             reset_grace_period=vwap_params.get('vwap_reset_grace_period', 40),
             require_trade_for_reset=vwap_params.get('vwap_require_trade_for_reset', True),
-            rolling_window_bars=vwap_params.get('rolling_window_bars', 288)
+            rolling_window_bars=vwap_params.get('rolling_window_bars', 288),
+            log_callback=self.log.info  # Add logging callback
         )
         
         self.current_vix_value = None
@@ -174,7 +187,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         adaptive_params = self.adaptive_manager.get_adaptive_parameters()[0]
         anchor_method = adaptive_params.get('vwap', {}).get('anchor_method', 'kalman_cross')
         if anchor_method == 'kalman_cross':
-            self.vwap_zscore.set_kalman_exit_mean(self.current_kalman_mean)
             self.vwap_zscore.notify_exit_trade_occurred()
 
     def is_rth_time(self, bar: Bar) -> bool:
@@ -198,6 +210,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.current_vix_value = None
 
         self.current_kalman_mean, self.current_kalman_slope, self.current_kalman_zscore = self.kalman.update(float(bar.close))
+        
+        # Set Kalman mean for VWAP cross detection (if using kalman_cross anchor method)
+        self.vwap_zscore.set_kalman_exit_mean(self.current_kalman_mean)
         
         self.adaptive_manager.update_atr(float(bar.high), float(bar.low), float(self.prev_close) if self.prev_close else None)
         self.adaptive_manager.update_slope(self.current_kalman_mean, self.current_kalman_slope)
@@ -239,9 +254,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             
         # Update VWAP with asymmetric offset
         asymmetric_offset = self.adaptive_manager.get_asymmetric_offset(self.current_kalman_mean)
-        anchor_method = adaptive_params.get('vwap', {}).get('anchor_method', 'kalman_cross')
-        kalman_exit_mean = self.current_kalman_mean if anchor_method == 'kalman_cross' else None
-        vwap_value, zscore = self.vwap_zscore.update(bar, kalman_exit_mean=kalman_exit_mean, asymmetric_offset=asymmetric_offset)
+        vwap_value, zscore = self.vwap_zscore.update(bar, asymmetric_offset=asymmetric_offset)
         self.current_zscore = zscore
 
         # Use the VWAP Z-Score for entries (not Kalman Z-Score)
@@ -305,10 +318,17 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             # Reset Elastic Entry System
             self.elastic_entry.reset_on_cross()
             
-            # Reset VWAP when significant Kalman cross occurs
-            self._notify_vwap_exit_if_needed()
+            # Use the stored anchor method instead of querying adaptive manager again
+            anchor_method = self.vwap_anchor_method
             
-            self.log.info(f"Kalman cross detected: {self.last_kalman_cross_direction} -> {current_direction} | VWAP reset", color=LogColor.BLUE)
+            # Debug log to show what's happening
+            self.log.info(f"Kalman cross detected: {self.last_kalman_cross_direction} -> {current_direction} | Anchor method: {anchor_method}", color=LogColor.CYAN)
+            
+            if anchor_method == 'kalman_cross':
+                self._notify_vwap_exit_if_needed()
+                self.log.info(f"Kalman cross detected: {self.last_kalman_cross_direction} -> {current_direction} | VWAP reset", color=LogColor.BLUE)
+            else:
+                self.log.info(f"Kalman cross detected but VWAP anchor method is '{anchor_method}' - no VWAP reset from Kalman cross", color=LogColor.YELLOW)
         
         self.last_kalman_cross_direction = current_direction
     

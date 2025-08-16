@@ -15,6 +15,7 @@ class VWAPZScoreHTFAnchored:
         reset_grace_period: int = 25,
         require_trade_for_reset: bool = True,
         rolling_window_bars: int = 288,
+        log_callback = None,  # Add logging callback
         **kwargs
     ):
         self.anchor_method = anchor_method
@@ -23,6 +24,7 @@ class VWAPZScoreHTFAnchored:
         self.min_bars_for_zscore = min_bars_for_zscore
         self.zscore_config = zscore_calculation or {"simple": {"enabled": True}}
         self.zscore_method = self._determine_zscore_method()
+        self.log_callback = log_callback  # Store logging callback
         
         self.last_price_above_kalman = None
         self.kalman_exit_mean = None
@@ -45,7 +47,8 @@ class VWAPZScoreHTFAnchored:
         
         self.last_anchor_bar = -1
         self.reset_grace_period = reset_grace_period
-        self.require_trade_for_reset = require_trade_for_reset
+        # Trade requirement only applies to kalman_cross method
+        self.require_trade_for_reset = require_trade_for_reset if anchor_method == "kalman_cross" else False
         self.trade_occurred_since_reset = False
         
         self.segment_diff_history = []
@@ -112,11 +115,11 @@ class VWAPZScoreHTFAnchored:
         
         if self.last_date is None:
             self.last_date = bar_date
-            return True
+            return False  # Don't trigger reset on first bar ever
             
         if bar_date != self.last_date:
             self.last_date = bar_date
-            return True
+            return True  # Trigger reset on day change
             
         return False
 
@@ -126,11 +129,11 @@ class VWAPZScoreHTFAnchored:
         
         if self.last_week is None:
             self.last_week = current_week
-            return True
+            return False  # Don't trigger reset on first bar ever
             
         if current_week != self.last_week:
             self.last_week = current_week
-            return True
+            return True  # Trigger reset on week change
             
         return False
 
@@ -145,25 +148,32 @@ class VWAPZScoreHTFAnchored:
             return False, 'rolling_vwap'
             
         bars_since_last_anchor = self.total_bar_count - self.last_anchor_bar
+        
+        # Always apply grace period for all methods
         if bars_since_last_anchor < self.reset_grace_period:
             return False, 'grace_period_active'
         
-        if self.require_trade_for_reset and not self.trade_occurred_since_reset:
-            return False, 'no_trade_since_reset'
-        
+        # Check anchor conditions based on method
         if self.anchor_method == "kalman_cross":
-            if self._detect_kalman_cross(current_price, open_price):
+            # For kalman_cross: check both grace period and trade requirement
+            if self.require_trade_for_reset and not self.trade_occurred_since_reset:
+                return False, 'no_trade_since_reset'
+            
+            if self.kalman_exit_mean is not None and self._detect_kalman_cross(current_price, open_price):
                 return True, 'kalman_cross'
         elif self.anchor_method == "daily":
+            # For daily: grace period already checked above, now check day change
             if self._detect_new_day(bar):
                 return True, 'new_day'
         elif self.anchor_method == "weekly":
+            # For weekly: grace period already checked above, now check week change
             if self._detect_new_week(bar):
                 return True, 'new_week'
             
         return False, 'none'
 
     def _start_new_segment(self, reason: str = 'unknown'):
+        """Start a new VWAP segment with complete hard reset"""
         self.current_segment = {
             'start_bar': self.total_bar_count,
             'anchor_reason': reason,
@@ -172,12 +182,24 @@ class VWAPZScoreHTFAnchored:
             'vwap_value': None
         }
         
-        if reason in ['kalman_cross', 'gap', 'initial', 'forced']:
-            self.segment_diff_history = []
-            self.segment_atr_history = []
+        # Clear history for ALL anchor types to ensure clean reset
+        self.segment_diff_history = []
+        self.segment_atr_history = []
         
+        # Reset all relevant state variables for hard reset
         self.last_anchor_bar = self.total_bar_count
         self.trade_occurred_since_reset = False
+        
+        # Reset Z-score related state
+        self.current_zscore = None
+        
+        # Log the anchor event if callback is provided
+        if self.log_callback and reason != 'initial':
+            if reason == 'new_day':
+                self.log_callback("Daily VWAP anchor: New trading day detected | VWAP reset")
+            elif reason == 'new_week':
+                self.log_callback("Weekly VWAP anchor: New week detected | VWAP reset")
+            # Note: kalman_cross logging is handled in the strategy
 
     def _calculate_segment_vwap(self) -> Optional[float]:
         if self.anchor_method == "rolling":
@@ -197,14 +219,6 @@ class VWAPZScoreHTFAnchored:
         return total_pv / total_volume
 
     def _calculate_simple_zscore(self, current_price: float, vwap_value: float, asymmetric_offset: float = 0.0) -> float:
-        """
-        Berechnet simple Z-Score mit asymmetrischem Offset als direkte Z-Score-Units
-        
-        Args:
-            current_price: Aktueller Preis
-            vwap_value: VWAP Wert
-            asymmetric_offset: Direkter Z-Score Offset (z.B. 0.5 = +0.5 Z-Score Units)
-        """
         if self.anchor_method == "rolling":
             price_data = [price for price, _, _, _ in self.rolling_price_volume_data]
         else:
@@ -222,92 +236,26 @@ class VWAPZScoreHTFAnchored:
         
         return base_zscore + asymmetric_offset
 
-    def _calculate_atr_zscore(self, current_price: float, vwap_value: float, high: float, low: float, asymmetric_offset: float = 0.0) -> Optional[float]:
-        """
-        Berechnet ATR-normalisierte Z-Score mit asymmetrischem Offset als direkte Z-Score-Units
-        """
-        atr_window = self.zscore_config.get('atr', {}).get('atr_window', 14)
-        
-        if self.segment_atr_history:
-            prev_close = self.segment_atr_history[-1]['close']
-            true_range = max(high - low, abs(high - prev_close), abs(low - prev_close))
-        else:
-            true_range = high - low
-            
-        self.segment_atr_history.append({'true_range': true_range, 'close': current_price})
-        
-        if len(self.segment_atr_history) < atr_window:
-            return None
-            
-        recent_tr = [item['true_range'] for item in self.segment_atr_history[-atr_window:]]
-        atr = np.mean(recent_tr)
-        
-        if atr == 0:
-            return 0.0
-            
-        # Basis Z-Score (ATR-normalisiert) berechnen
-        base_zscore = (current_price - vwap_value) / atr
-        # Asymmetrischer Offset wird direkt zu Z-Score addiert
-        return base_zscore + asymmetric_offset
-
-    def _calculate_std_zscore(self, current_price: float, vwap_value: float, asymmetric_offset: float = 0.0) -> Optional[float]:
-        """
-        Berechnet Standardabweichungs-normalisierte Z-Score mit asymmetrischem Offset als direkte Z-Score-Units
-        """
-        std_window = self.zscore_config.get('std', {}).get('std_window', 20)
-        
-        # Basis-Differenz berechnen (ohne Offset für Standardabweichung)
-        current_diff = current_price - vwap_value
-        self.segment_diff_history.append(current_diff)
-        
-        if len(self.segment_diff_history) < std_window:
-            return None
-            
-        recent_diffs = self.segment_diff_history[-std_window:]
-        std_diff = np.std(recent_diffs)
-        
-        if std_diff == 0:
-            return 0.0
-            
-        # Basis Z-Score (Standardabweichungs-normalisiert) berechnen
-        base_zscore = current_diff / std_diff
-        # Asymmetrischer Offset wird direkt zu Z-Score addiert
-        return base_zscore + asymmetric_offset
-
     def _calculate_segment_zscore(self, current_price: float, vwap_value: float, high: float = None, low: float = None, asymmetric_offset: float = 0.0) -> Optional[float]:
         if self.anchor_method == "rolling":
             bars_available = len(self.rolling_price_volume_data)
         else:
             bars_available = self.current_segment['bars_in_segment']
             
+        # Always apply min_bars requirement for all anchor methods
         if bars_available < self.min_bars_for_zscore:
             return None
             
         if self.zscore_method == 'simple':
             return self._calculate_simple_zscore(current_price, vwap_value, asymmetric_offset)
-        elif self.zscore_method == 'atr':
-            if high is None or low is None:
-                return None
-            atr_zscore = self._calculate_atr_zscore(current_price, vwap_value, high, low, asymmetric_offset)
-            if atr_zscore is None:
-                return self._calculate_simple_zscore(current_price, vwap_value, asymmetric_offset)
-            return atr_zscore
-        elif self.zscore_method == 'std':
-            std_zscore = self._calculate_std_zscore(current_price, vwap_value, asymmetric_offset)
-            if std_zscore is None:
-                return self._calculate_simple_zscore(current_price, vwap_value, asymmetric_offset)
-            return std_zscore
         else:
             return self._calculate_simple_zscore(current_price, vwap_value, asymmetric_offset)
 
-    def update(self, bar, kalman_exit_mean: float = None, asymmetric_offset: float = 0.0) -> Tuple[Optional[float], Optional[float]]:
+    def update(self, bar, asymmetric_offset: float = 0.0) -> Tuple[Optional[float], Optional[float]]:
         price = float(bar.close)
         volume = float(bar.volume)
         high = float(bar.high)
         low = float(bar.low)
-        
-        if kalman_exit_mean is not None:
-            self.set_kalman_exit_mean(kalman_exit_mean)
         
         if self.last_close is not None:
             gap = float(bar.open) - float(self.last_close)
@@ -350,7 +298,23 @@ class VWAPZScoreHTFAnchored:
         else:
             should_anchor, anchor_reason = self._should_anchor_new_segment(bar, adj_price, adj_open)
             if should_anchor:
+                # Start new segment FIRST
                 self._start_new_segment(anchor_reason)
+                
+                # Clear gap offsets on anchor to ensure clean VWAP calculation
+                if anchor_reason in ['new_day', 'new_week', 'kalman_cross']:
+                    self.gap_offsets = []
+                    self.cumulative_gap = 0.0
+                    # Recalculate adjusted values without gap offset for new segment
+                    adj_price = price
+                    adj_high = high
+                    adj_low = low
+                    # Also recalculate adj_volume for consistency
+                    if is_rth:
+                        adj_volume = volume
+                    else:
+                        avg_rth_volume = np.mean(self.rth_session_volumes) if self.rth_session_volumes else volume
+                        adj_volume = avg_rth_volume
             
             self.current_segment['price_volume_data'].append((adj_price, adj_volume, price, volume))
             self.current_segment['bars_in_segment'] += 1
@@ -390,6 +354,11 @@ class VWAPZScoreHTFAnchored:
             bars_since_anchor = self.total_bar_count - self.last_anchor_bar
             grace_remaining = max(0, self.reset_grace_period - bars_since_anchor)
             
+            # Trade requirement only applies to kalman_cross
+            trade_requirement_met = True
+            if self.anchor_method == "kalman_cross":
+                trade_requirement_met = not self.require_trade_for_reset or self.trade_occurred_since_reset
+            
             return {
                 'anchor_method': self.anchor_method,
                 'segment_start_bar': self.current_segment['start_bar'],
@@ -405,9 +374,9 @@ class VWAPZScoreHTFAnchored:
                 'bars_since_anchor': bars_since_anchor,
                 'grace_period_remaining': grace_remaining,
                 'grace_period_active': grace_remaining > 0,
-                'require_trade_for_reset': self.require_trade_for_reset,
-                'trade_occurred_since_reset': self.trade_occurred_since_reset,
-                'reset_conditions_met': grace_remaining == 0 and (not self.require_trade_for_reset or self.trade_occurred_since_reset)
+                'require_trade_for_reset': self.require_trade_for_reset if self.anchor_method == "kalman_cross" else False,
+                'trade_occurred_since_reset': self.trade_occurred_since_reset if self.anchor_method == "kalman_cross" else True,
+                'reset_conditions_met': grace_remaining == 0 and trade_requirement_met
             }
 
     def force_new_segment(self, reason: str = 'forced'):
