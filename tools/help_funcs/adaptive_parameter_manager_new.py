@@ -89,6 +89,15 @@ class RobustATRCalculator:
 
 
 class AdaptiveParameterManager:
+    def calculate_slope_factor(self, slope: float) -> float:
+        if not self.adaptive_factors.get('slope', {}).get('enabled', False):
+            return 1.0
+        slope_config = self.adaptive_factors['slope']
+        sensitivity = slope_config['sensitivity']
+        abs_slope = abs(slope)
+        normalized_slope = min(abs_slope / sensitivity, 1.0)
+        scale_factor = slope_config['min'] + normalized_slope * (slope_config['max'] - slope_config['min'])
+        return scale_factor
     def __init__(self, base_params: dict, adaptive_factors: dict, kalman_filter=None):
         self.base_params = base_params
         self.adaptive_factors = adaptive_factors
@@ -150,25 +159,9 @@ class AdaptiveParameterManager:
         
         raw_combined_factor = (slope_factor * slope_weight) + (atr_factor * atr_weight)
         raw_combined_factor = np.clip(raw_combined_factor, min_combined, max_combined)
-        
         self.smoothed_combined_factor = (self.factor_alpha * raw_combined_factor + 
                                        (1 - self.factor_alpha) * self.smoothed_combined_factor)
-        
         return self.smoothed_combined_factor
-    
-    def calculate_slope_factor(self, slope: float) -> float:
-        if not self.adaptive_factors.get('slope', {}).get('enabled', False):
-            return 1.0
-            
-        slope_config = self.adaptive_factors['slope']
-        sensitivity = slope_config['sensitivity']
-        
-        abs_slope = abs(slope)
-        normalized_slope = min(abs_slope / sensitivity, 1.0)
-        
-        scale_factor = slope_config['min'] + normalized_slope * (slope_config['max'] - slope_config['min'])
-        
-        return scale_factor
     
     def calculate_slope_based_risk_factors(self, slope: float = None) -> tuple:
         slope_risk_config = self.base_params.get('slope_risk_scaling', {})

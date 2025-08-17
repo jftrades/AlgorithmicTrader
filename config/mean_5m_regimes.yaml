@@ -22,7 +22,7 @@ base_parameters:
   elastic_entry:
     zscore_long_threshold: -2.8
     zscore_short_threshold: 3.2
-    recovery_delta: 0.5
+    recovery_delta: 0.6
     long_min_distance_from_kalman: -5
     short_min_distance_from_kalman: 5
     allow_multiple_recoveries: true
@@ -81,15 +81,10 @@ adaptive_factors:
     use_log_space: true
     min_combined_factor: 0.6
     max_combined_factor: 2.0
-
-  linear_adjustments:
-    trend_sensitivity: 0.6
-    vol_sensitivity: 0.35
-    max_trend_strength: 0.6
   
   slope_monitor:
     enabled: true
-    bin_size: 0.0003
+    bin_size: 0.0005
 
 gap_threshold_pct: 0.8
 vix_fear_threshold: 38
