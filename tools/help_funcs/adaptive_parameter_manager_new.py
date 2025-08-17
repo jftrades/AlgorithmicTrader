@@ -96,6 +96,9 @@ class AdaptiveParameterManager:
         self.current_slope = 0.0
         self.current_kalman_mean = None
         
+        self.smoothed_combined_factor = 1.0
+        self.factor_alpha = 0.2
+        
         if self.adaptive_factors.get('atr', {}).get('enabled', False):
             atr_config = self.adaptive_factors['atr']
             self.atr_calculator = RobustATRCalculator(
@@ -145,11 +148,13 @@ class AdaptiveParameterManager:
         slope_weight = 0.7
         atr_weight = 0.3
         
-        combined_factor = (slope_factor * slope_weight) + (atr_factor * atr_weight)
+        raw_combined_factor = (slope_factor * slope_weight) + (atr_factor * atr_weight)
+        raw_combined_factor = np.clip(raw_combined_factor, min_combined, max_combined)
         
-        combined_factor = np.clip(combined_factor, min_combined, max_combined)
+        self.smoothed_combined_factor = (self.factor_alpha * raw_combined_factor + 
+                                       (1 - self.factor_alpha) * self.smoothed_combined_factor)
         
-        return combined_factor
+        return self.smoothed_combined_factor
     
     def calculate_slope_factor(self, slope: float) -> float:
         if not self.adaptive_factors.get('slope', {}).get('enabled', False):
@@ -164,6 +169,115 @@ class AdaptiveParameterManager:
         scale_factor = slope_config['min'] + normalized_slope * (slope_config['max'] - slope_config['min'])
         
         return scale_factor
+    
+    def calculate_slope_based_risk_factors(self, slope: float = None) -> tuple:
+        slope_risk_config = self.base_params.get('slope_risk_scaling', {})
+        
+        if not slope_risk_config.get('enabled', False):
+            return 1.0, 1.0
+        
+        slope_to_use = slope if slope is not None else self.current_slope
+        slope_config = self.adaptive_factors.get('slope', {})
+        sensitivity = slope_config.get('sensitivity', 0.04)
+        
+        base_long_risk = slope_risk_config.get('base_long_risk', 1.0)
+        base_short_risk = slope_risk_config.get('base_short_risk', 1.0)
+        max_long_risk_uptrend = slope_risk_config.get('max_long_risk_uptrend', 2.0)
+        max_long_risk_downtrend = slope_risk_config.get('max_long_risk_downtrend', 0.1)
+        max_short_risk_uptrend = slope_risk_config.get('max_short_risk_uptrend', 0.1)
+        max_short_risk_downtrend = slope_risk_config.get('max_short_risk_downtrend', 2.0)
+        scaling_method = slope_risk_config.get('scaling_method', 'linear')
+        
+        normalized_slope = slope_to_use / sensitivity
+        normalized_slope = np.clip(normalized_slope, -1.0, 1.0)
+        
+        if scaling_method == 'linear':
+            if normalized_slope >= 0:
+                long_risk = base_long_risk + normalized_slope * (max_long_risk_uptrend - base_long_risk)
+                short_risk = base_short_risk + normalized_slope * (max_short_risk_uptrend - base_short_risk)
+            else:
+                long_risk = base_long_risk + abs(normalized_slope) * (max_long_risk_downtrend - base_long_risk)
+                short_risk = base_short_risk + abs(normalized_slope) * (max_short_risk_downtrend - base_short_risk)
+        
+        elif scaling_method == 'exponential':
+            exp_factor = np.exp(abs(normalized_slope)) - 1
+            if normalized_slope >= 0:
+                long_risk = base_long_risk + exp_factor * (max_long_risk_uptrend - base_long_risk) / (np.e - 1)
+                short_risk = base_short_risk + exp_factor * (max_short_risk_uptrend - base_short_risk) / (np.e - 1)
+            else:
+                long_risk = base_long_risk + exp_factor * (max_long_risk_downtrend - base_long_risk) / (np.e - 1)
+                short_risk = base_short_risk + exp_factor * (max_short_risk_downtrend - base_short_risk) / (np.e - 1)
+        
+        elif scaling_method == 'logarithmic':
+            log_factor = np.log1p(abs(normalized_slope)) / np.log(2)
+            if normalized_slope >= 0:
+                long_risk = base_long_risk + log_factor * (max_long_risk_uptrend - base_long_risk)
+                short_risk = base_short_risk + log_factor * (max_short_risk_uptrend - base_short_risk)
+            else:
+                long_risk = base_long_risk + log_factor * (max_long_risk_downtrend - base_long_risk)
+                short_risk = base_short_risk + log_factor * (max_short_risk_downtrend - base_short_risk)
+        
+        else:
+            long_risk = base_long_risk
+            short_risk = base_short_risk
+        
+        return long_risk, short_risk
+    
+    def calculate_slope_based_exit_thresholds(self, slope: float = None) -> tuple:
+        slope_exit_config = self.base_params.get('slope_exit_scaling', {})
+        
+        if not slope_exit_config.get('enabled', False):
+            adaptive_exit_config = self.base_params.get('adaptive_exit', {})
+            long_base = adaptive_exit_config.get('long_base_exit', 5.0)
+            short_base = adaptive_exit_config.get('short_base_exit', -5.0)
+            return long_base, short_base
+        
+        slope_to_use = slope if slope is not None else self.current_slope
+        slope_config = self.adaptive_factors.get('slope', {})
+        sensitivity = slope_config.get('sensitivity', 0.04)
+        
+        base_long_exit = slope_exit_config.get('base_long_exit', 5.0)
+        base_short_exit = slope_exit_config.get('base_short_exit', -5.0)
+        max_long_exit_uptrend = slope_exit_config.get('max_long_exit_uptrend', 20.0)
+        max_long_exit_downtrend = slope_exit_config.get('max_long_exit_downtrend', 2.0)
+        max_short_exit_uptrend = slope_exit_config.get('max_short_exit_uptrend', -2.0)
+        max_short_exit_downtrend = slope_exit_config.get('max_short_exit_downtrend', -20.0)
+        scaling_method = slope_exit_config.get('scaling_method', 'linear')
+        
+        normalized_slope = slope_to_use / sensitivity
+        normalized_slope = np.clip(normalized_slope, -1.0, 1.0)
+        
+        if scaling_method == 'linear':
+            if normalized_slope >= 0:
+                long_exit = base_long_exit + normalized_slope * (max_long_exit_uptrend - base_long_exit)
+                short_exit = base_short_exit + normalized_slope * (max_short_exit_uptrend - base_short_exit)
+            else:
+                long_exit = base_long_exit + abs(normalized_slope) * (max_long_exit_downtrend - base_long_exit)
+                short_exit = base_short_exit + abs(normalized_slope) * (max_short_exit_downtrend - base_short_exit)
+        
+        elif scaling_method == 'exponential':
+            exp_factor = np.exp(abs(normalized_slope)) - 1
+            if normalized_slope >= 0:
+                long_exit = base_long_exit + exp_factor * (max_long_exit_uptrend - base_long_exit) / (np.e - 1)
+                short_exit = base_short_exit + exp_factor * (max_short_exit_uptrend - base_short_exit) / (np.e - 1)
+            else:
+                long_exit = base_long_exit + exp_factor * (max_long_exit_downtrend - base_long_exit) / (np.e - 1)
+                short_exit = base_short_exit + exp_factor * (max_short_exit_downtrend - base_short_exit) / (np.e - 1)
+        
+        elif scaling_method == 'logarithmic':
+            log_factor = np.log1p(abs(normalized_slope)) / np.log(2)
+            if normalized_slope >= 0:
+                long_exit = base_long_exit + log_factor * (max_long_exit_uptrend - base_long_exit)
+                short_exit = base_short_exit + log_factor * (max_short_exit_uptrend - base_short_exit)
+            else:
+                long_exit = base_long_exit + log_factor * (max_long_exit_downtrend - base_long_exit)
+                short_exit = base_short_exit + log_factor * (max_short_exit_downtrend - base_short_exit)
+        
+        else:
+            long_exit = base_long_exit
+            short_exit = base_short_exit
+        
+        return long_exit, short_exit
     
     def calculate_atr_factor(self) -> float:
         if not self.adaptive_factors.get('atr', {}).get('enabled', False):
@@ -191,12 +305,17 @@ class AdaptiveParameterManager:
         
         return scale_factor
     
-    def get_adaptive_exit_thresholds(self, entry_combined_factor: float = None) -> tuple:
+    def get_adaptive_exit_thresholds(self, entry_combined_factor: float = None, slope: float = None) -> tuple:
+        slope_exit_config = self.base_params.get('slope_exit_scaling', {})
+        
+        if slope_exit_config.get('enabled', False):
+            return self.calculate_slope_based_exit_thresholds(slope)
+        
         adaptive_exit_config = self.base_params.get('adaptive_exit', {})
         
         if not adaptive_exit_config.get('enabled', False):
-            long_exit = self.base_params.get('kalman_zscore_exit_long', -0.01)
-            short_exit = self.base_params.get('kalman_zscore_exit_short', 0.9)
+            long_exit = self.base_params.get('kalman_zscore_exit_long', 5.0)
+            short_exit = self.base_params.get('kalman_zscore_exit_short', -5.0)
             return long_exit, short_exit
         
         extension_threshold = adaptive_exit_config.get('extension_threshold', 1.3)
@@ -245,18 +364,22 @@ class AdaptiveParameterManager:
         adaptive_exit_config = self.base_params.get('adaptive_exit', {})
         if adaptive_exit_config.get('enabled', False):
             adaptive_params['adaptive_exit'] = adaptive_exit_config
-        else:
-            adaptive_params['kalman_zscore_exit_long'] = self.base_params.get('kalman_zscore_exit_long', -0.01) * combined_factor
-            adaptive_params['kalman_zscore_exit_short'] = self.base_params.get('kalman_zscore_exit_short', 0.9) * combined_factor
-        adaptive_params['long_risk_factor'] = self.base_params['long_risk_factor'] * combined_factor
-        adaptive_params['short_risk_factor'] = self.base_params['short_risk_factor'] * combined_factor
+        
+        long_exit, short_exit = self.get_adaptive_exit_thresholds(combined_factor, slope_to_use)
+        adaptive_params['kalman_zscore_exit_long'] = long_exit
+        adaptive_params['kalman_zscore_exit_short'] = short_exit
+        
+        adaptive_params['long_risk_factor'], adaptive_params['short_risk_factor'] = self.calculate_slope_based_risk_factors(slope_to_use)
         
         vwap_base = self.base_params.get('vwap', {})
+        anchor_method_from_config = vwap_base.get('anchor_method', 'kalman_cross')
+        
         adaptive_params['vwap'] = {
-            'vwap_anchor_on_kalman_cross': vwap_base.get('vwap_anchor_on_kalman_cross', True),
+            'anchor_method': anchor_method_from_config,
             'vwap_require_trade_for_reset': vwap_base.get('vwap_require_trade_for_reset', True),
-            'vwap_min_bars_for_zscore': vwap_base.get('vwap_min_bars_for_zscore', 15),
+            'vwap_min_bars_for_zscore': vwap_base.get('vwap_min_bars_for_zscore', 20),
             'vwap_reset_grace_period': vwap_base.get('vwap_reset_grace_period', 40),
+            'rolling_window_bars': vwap_base.get('rolling_window_bars', 288),
         }
         
         adaptive_params['kalman_process_var'] = self.base_params['kalman_process_var']
