@@ -299,6 +299,12 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
 
         # Trading logic - nur während RTH handeln
         if self.is_rth_time(bar):
+            # Only allow trading after initialization window is complete
+            if not self._init_window_complete:
+                if self.bar_counter % 50 == 0:  # Log every 50 bars to avoid spam
+                    self.log.info(f"Trading blocked - initialization window: {len(self._init_slope_buffer)}/{self.initialization_window} bars completed", color=LogColor.CYAN)
+                return  # Skip trading during initialization window
+                
             if self.current_vix_value is not None:
                 regime = self.get_vix_regime(self.current_vix_value)
 

@@ -4,10 +4,10 @@ venue: "ARCA"
 instrument_id: "SPY.ARCA"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
 start_date: "2019-01-01T00:00:00Z"
-end_date: "2019-03-01T23:59:59Z"
+end_date: "2019-07-01T23:59:59Z"
 
 only_trade_rth: true
-initialization_window: 30
+initialization_window: 250
 
 base_parameters:
   kalman_process_var: 0.0000001
@@ -67,17 +67,16 @@ base_parameters:
 adaptive_factors:
   slope:
     enabled: true
-    min: 0.5
-    max: 1.4
-    sensitivity: 0.03
+    min: 0.5 # at 5th percentile of last 200 bars (adaptive) = minimal strength
+    max: 1.4 # at 95th percentile of last 200 bars (adaptive) = maximum strength
   
   atr:
     enabled: true
     window: 14
     percentile_window: 600
     outlier_threshold: 2.0
-    min: 0.5
-    max: 1.8
+    min: 0.5 # at 5th percentile of last 200 bars (adaptive) = minimal strength
+    max: 1.8 # at 95th percentile of last 200 bars (adaptive) = maximum strength
   
   combination:
     use_log_space: true
@@ -86,9 +85,9 @@ adaptive_factors:
   
   distribution_monitor:
     slope_distribution:
-      enabled: true
+      enabled: false
     atr_distribution:
-      enabled: true
+      enabled: false
 
 gap_threshold_pct: 0.8
 vix_fear_threshold: 38

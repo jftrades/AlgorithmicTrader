@@ -92,12 +92,17 @@ class AdaptiveParameterManager:
     def calculate_slope_factor(self, slope: float) -> float:
         if not self.adaptive_factors.get('slope', {}).get('enabled', False):
             return 1.0
+        
         slope_config = self.adaptive_factors['slope']
-        sensitivity = slope_config['sensitivity']
-        abs_slope = abs(slope)
-        normalized_slope = min(abs_slope / sensitivity, 1.0)
-        scale_factor = slope_config['min'] + normalized_slope * (slope_config['max'] - slope_config['min'])
-        return scale_factor
+        
+        if self.slope_monitor and len(self.slope_monitor.values) >= 200:
+            normalized_slope = self._calculate_percentile_based_factor(
+                slope, self.slope_monitor, is_absolute=True
+            )
+            scale_factor = slope_config['min'] + normalized_slope * (slope_config['max'] - slope_config['min'])
+            return scale_factor
+        
+        return 1.0
     def __init__(self, base_params: dict, adaptive_factors: dict, kalman_filter=None):
         self.base_params = base_params
         self.adaptive_factors = adaptive_factors
@@ -155,6 +160,31 @@ class AdaptiveParameterManager:
                 self.atr_monitor.add_atr(current_atr)
             return current_atr, percentile
         return None, self.current_atr_percentile
+    
+    def _calculate_percentile_based_factor(self, value: float, monitor, is_absolute: bool = False) -> float:
+        if len(monitor.values) < 200:
+            return 0.5
+        
+        percentiles = monitor._calculate_weighted_percentiles([5, 95])
+        p5, p95 = percentiles[5], percentiles[95]
+        
+        if p5 is None or p95 is None or p95 <= p5:
+            return 0.5
+        
+        comparison_value = abs(value) if is_absolute else value
+        
+        if is_absolute:
+            p5, p95 = abs(p5), abs(p95)
+            if p5 > p95:
+                p5, p95 = p95, p5
+        
+        if comparison_value <= p5:
+            return 0.0
+        elif comparison_value >= p95:
+            return 1.0
+        else:
+            normalized = (comparison_value - p5) / (p95 - p5)
+            return max(0.0, min(1.0, normalized))
     
     def _robust_factor_combination(self, slope_factor: float, atr_factor: float) -> float:
         combination_config = self.adaptive_factors.get('combination', {})
@@ -332,22 +362,15 @@ class AdaptiveParameterManager:
         if self.atr_calculator is None or len(self.atr_calculator.atr_history) < 20:
             return 1.0
         
-        atr_history = list(self.atr_calculator.atr_history)
-        atr_mean = np.mean(atr_history)
-        atr_std = np.std(atr_history)
+        if self.atr_monitor and len(self.atr_monitor.values) >= 200:
+            current_atr = self.atr_calculator.current_atr
+            normalized_atr = self._calculate_percentile_based_factor(
+                current_atr, self.atr_monitor, is_absolute=False
+            )
+            scale_factor = atr_config['min'] + normalized_atr * (atr_config['max'] - atr_config['min'])
+            return scale_factor
         
-        if atr_std == 0:
-            return 1.0
-        
-        current_atr = self.atr_calculator.current_atr
-        atr_zscore = (current_atr - atr_mean) / atr_std
-        
-        volatility_strength = 1 / (1 + np.exp(-abs(atr_zscore)))
-        volatility_strength = (volatility_strength - 0.5) * 2
-        
-        scale_factor = atr_config['min'] + volatility_strength * (atr_config['max'] - atr_config['min'])
-        
-        return scale_factor
+        return 1.0
     
     def get_adaptive_exit_thresholds(self, entry_combined_factor: float = None, slope: float = None) -> tuple:
         slope_exit_config = self.base_params.get('slope_exit_scaling', {})
@@ -549,6 +572,103 @@ class AdaptiveParameterManager:
             self.atr_monitor.print_distribution()
         else:
             print("ATR monitor is disabled.")
+    
+    def get_current_scaling_info(self) -> dict:
+        info = {
+            'slope_scaling': 'waiting_for_data',
+            'atr_scaling': 'waiting_for_data',
+            'slope_samples': 0,
+            'atr_samples': 0,
+            'percentile_scaling_active': False
+        }
+        
+        if self.slope_monitor and len(self.slope_monitor.values) >= 200:
+            info['slope_scaling'] = 'dynamic_percentile'
+            info['slope_samples'] = len(self.slope_monitor.values)
+            
+            percentiles = self.slope_monitor._calculate_weighted_percentiles([5, 95])
+            if percentiles[5] is not None and percentiles[95] is not None:
+                info['slope_p5'] = abs(percentiles[5])
+                info['slope_p95'] = abs(percentiles[95])
+                info['slope_range'] = abs(percentiles[95]) - abs(percentiles[5])
+        
+        if self.atr_monitor and len(self.atr_monitor.values) >= 200:
+            info['atr_scaling'] = 'dynamic_percentile'
+            info['atr_samples'] = len(self.atr_monitor.values)
+            
+            percentiles = self.atr_monitor._calculate_weighted_percentiles([5, 95])
+            if percentiles[5] is not None and percentiles[95] is not None:
+                info['atr_p5'] = percentiles[5]
+                info['atr_p95'] = percentiles[95]
+                info['atr_range'] = percentiles[95] - percentiles[5]
+        
+        info['percentile_scaling_active'] = (
+            info['slope_scaling'] == 'dynamic_percentile' or 
+            info['atr_scaling'] == 'dynamic_percentile'
+        )
+        
+        return info
+    
+    def print_scaling_status(self):
+        info = self.get_current_scaling_info()
+        
+        print(f"\n{'='*60}")
+        print("ADAPTIVE SCALING STATUS")
+        print(f"{'='*60}")
+        
+        print(f"SLOPE SCALING: {info['slope_scaling'].upper()}")
+        if info['slope_scaling'] == 'dynamic_percentile':
+            print(f"  Samples: {info['slope_samples']}")
+            if 'slope_p5' in info:
+                print(f"  5th Percentile (abs):  {info['slope_p5']:.6f}")
+                print(f"  95th Percentile (abs): {info['slope_p95']:.6f}")
+                print(f"  Dynamic Range:         {info['slope_range']:.6f}")
+            print(f"  Current Slope: {self.current_slope:.6f} (abs: {abs(self.current_slope):.6f})")
+            
+            if hasattr(self, 'slope_monitor') and self.slope_monitor:
+                current_factor = self._calculate_percentile_based_factor(
+                    self.current_slope, self.slope_monitor, is_absolute=True
+                )
+                print(f"  Normalized (0-1): {current_factor:.3f}")
+        else:
+            print(f"  Waiting for 200+ samples (current: {info['slope_samples']})")
+            print(f"  Current slope: {self.current_slope:.6f}")
+        
+        print()
+        
+        print(f"ATR SCALING: {info['atr_scaling'].upper()}")
+        if info['atr_scaling'] == 'dynamic_percentile':
+            print(f"  Samples: {info['atr_samples']}")
+            if 'atr_p5' in info:
+                print(f"  5th Percentile:  {info['atr_p5']:.6f}")
+                print(f"  95th Percentile: {info['atr_p95']:.6f}")
+                print(f"  Dynamic Range:   {info['atr_range']:.6f}")
+            if self.atr_calculator and self.atr_calculator.current_atr:
+                print(f"  Current ATR: {self.atr_calculator.current_atr:.6f}")
+                
+                if hasattr(self, 'atr_monitor') and self.atr_monitor:
+                    current_factor = self._calculate_percentile_based_factor(
+                        self.atr_calculator.current_atr, self.atr_monitor, is_absolute=False
+                    )
+                    print(f"  Normalized (0-1): {current_factor:.3f}")
+        else:
+            print(f"  Waiting for 200+ samples (current: {info['atr_samples']})")
+            if self.atr_calculator and self.atr_calculator.current_atr:
+                print(f"  Current ATR: {self.atr_calculator.current_atr:.6f}")
+        
+        print(f"\nPercentile Scaling Active: {info['percentile_scaling_active']}")
+        
+        if self.current_slope is not None:
+            slope_factor = self.calculate_slope_factor(self.current_slope)
+            atr_factor = self.calculate_atr_factor()
+            combined = self._robust_factor_combination(slope_factor, atr_factor)
+            
+            print("\nCURRENT FACTORS:")
+            print(f"  Slope Factor:    {slope_factor:.3f}")
+            print(f"  ATR Factor:      {atr_factor:.3f}")
+            print(f"  Combined Factor: {combined:.3f}")
+        
+        print(f"{'='*60}\n")
     
     def log_trade_state(self, trade_type: str, price: float, zscore: float, entry_reason: str, 
                        stack_info: str, regime: int, adaptive_params: dict, 
