@@ -12,13 +12,12 @@ base_parameters:
   kalman_measurement_var: 0.01
   kalman_zscore_window: 8
 
-  vwap:
-    # Anchor method options: "kalman_cross","daily", "weekly", "rolling" 
+  vwap: # Anchor method options: "kalman_cross","daily", "weekly", "rolling" 
     anchor_method: "daily"
     vwap_require_trade_for_reset: true 
     vwap_min_bars_for_zscore: 20
     vwap_reset_grace_period: 40
-    rolling_window_bars: 500  # Used only when anchor_method is "rolling" 
+    rolling_window_bars: 500  # only for rolling method
 
   elastic_entry:
     zscore_long_threshold: -2.8
@@ -34,7 +33,8 @@ base_parameters:
     additional_zscore_min_gain: 1.5
     recovery_delta_reentry: 0.8
     stacking_bar_cooldown: 10
-  
+
+  # the following method get scaled only with slope and can use "linear", "exponential" and "logarithmic"
   slope_exit_scaling:
     enabled: true
     scaling_method: "logarithmic"
@@ -54,6 +54,13 @@ base_parameters:
     max_long_risk_downtrend: 0.1
     max_short_risk_uptrend: 0.1
     max_short_risk_downtrend: 2.0
+
+  slope_asymmetric_offset:
+    enabled: true
+    scaling_method: "linear"
+    base_offset: 0.0
+    max_offset_uptrend: 1.8
+    max_offset_downtrend: -1.8
 
 adaptive_factors:
   slope:
@@ -75,14 +82,6 @@ adaptive_factors:
     min_combined_factor: 0.6
     max_combined_factor: 2.0
 
-  asymmetric_offset:
-    enabled: true
-    max_offset_pct: 1.8
-    min_trend_strength: 0.1
-    strength_threshold: 0.6
-    scale_by_volatility: true
-    vol_sensitivity: 0.75
-    
   linear_adjustments:
     trend_sensitivity: 0.6
     vol_sensitivity: 0.35

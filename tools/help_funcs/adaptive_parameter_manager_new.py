@@ -279,6 +279,50 @@ class AdaptiveParameterManager:
         
         return long_exit, short_exit
     
+    def calculate_slope_based_asymmetric_offset(self, slope: float = None) -> float:
+        slope_offset_config = self.base_params.get('slope_asymmetric_offset', {})
+        
+        if not slope_offset_config.get('enabled', False):
+            return 0.0
+        
+        slope_to_use = slope if slope is not None else self.current_slope
+        slope_config = self.adaptive_factors.get('slope', {})
+        sensitivity = slope_config.get('sensitivity', 0.04)
+        
+        base_offset = slope_offset_config.get('base_offset', 0.0)
+        max_offset_uptrend = slope_offset_config.get('max_offset_uptrend', 1.8)
+        max_offset_downtrend = slope_offset_config.get('max_offset_downtrend', -1.8)
+        scaling_method = slope_offset_config.get('scaling_method', 'linear')
+        
+        normalized_slope = slope_to_use / sensitivity
+        normalized_slope = np.clip(normalized_slope, -1.0, 1.0)
+        
+        # Calculate offset based on scaling method
+        if scaling_method == 'linear':
+            if normalized_slope >= 0:
+                offset = base_offset + normalized_slope * (max_offset_uptrend - base_offset)
+            else:
+                offset = base_offset + abs(normalized_slope) * (max_offset_downtrend - base_offset)
+        
+        elif scaling_method == 'exponential':
+            exp_factor = np.exp(abs(normalized_slope)) - 1
+            if normalized_slope >= 0:
+                offset = base_offset + exp_factor * (max_offset_uptrend - base_offset) / (np.e - 1)
+            else:
+                offset = base_offset + exp_factor * (max_offset_downtrend - base_offset) / (np.e - 1)
+        
+        elif scaling_method == 'logarithmic':
+            log_factor = np.log1p(abs(normalized_slope)) / np.log(2)
+            if normalized_slope >= 0:
+                offset = base_offset + log_factor * (max_offset_uptrend - base_offset)
+            else:
+                offset = base_offset + log_factor * (max_offset_downtrend - base_offset)
+        
+        else:
+            offset = base_offset
+        
+        return offset
+    
     def calculate_atr_factor(self) -> float:
         if not self.adaptive_factors.get('atr', {}).get('enabled', False):
             return 1.0
@@ -436,7 +480,12 @@ class AdaptiveParameterManager:
         return base_value + trend_adjustment + vol_adjustment
     
     def get_asymmetric_offset(self, base_mean: float = None) -> float:
-
+        # Check if slope-based asymmetric offset is enabled
+        slope_offset_config = self.base_params.get('slope_asymmetric_offset', {})
+        if slope_offset_config.get('enabled', False):
+            return self.calculate_slope_based_asymmetric_offset()
+        
+        # Fallback to old method if slope-based offset is disabled
         offset_config = self.adaptive_factors.get('asymmetric_offset', {})
         if not offset_config.get('enabled', False):
             return 0.0
@@ -444,26 +493,19 @@ class AdaptiveParameterManager:
         trend_factor = self.get_trend_factor()
         trend_strength = abs(trend_factor)
         
-        # Parameter aus Config - jetzt als direkte Z-Score Units interpretiert
-        max_offset_zscore = offset_config.get('max_offset_pct', 0.5)  # Jetzt Z-Score Units statt Prozent
+        max_offset_zscore = offset_config.get('max_offset_pct', 0.5)
         min_strength = offset_config.get('min_trend_strength', 0.1)
         strength_threshold = offset_config.get('strength_threshold', 0.5)
         
         if trend_strength < min_strength:
             return 0.0
         
-        # Optionale Volatilitäts-Skalierung
-        if self.atr_calculator and offset_config.get('scale_by_volatility', False):
-            vol_scaling = 0.5 + (self.current_atr_percentile - 0.5) * offset_config.get('vol_sensitivity', 0.3)
-        else:
-            vol_scaling = 1.0
-        
         # Z-Score Offset berechnen
         if trend_strength >= strength_threshold:
-            zscore_offset_magnitude = max_offset_zscore * vol_scaling
+            zscore_offset_magnitude = max_offset_zscore
         else:
             normalized_strength = (trend_strength - min_strength) / (strength_threshold - min_strength)
-            zscore_offset_magnitude = max_offset_zscore * normalized_strength * vol_scaling
+            zscore_offset_magnitude = max_offset_zscore * normalized_strength
         
         # Finaler Z-Score Offset: Trend-Richtung * Magnitude
         zscore_offset = np.sign(trend_factor) * zscore_offset_magnitude
