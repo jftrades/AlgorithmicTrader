@@ -374,11 +374,67 @@ class SlideMenuComponent:
             html.Div(id="param-analyzer-content")
         ])
 
+        # --- NEU: Regime Analyzer Button + Panel (Placeholder) ---
+        regime_analyzer_btn = html.Button(
+            "Regime Analyzer",
+            id="regime-analyzer-open-btn",
+            n_clicks=0,
+            style={
+                'display': 'flex' if is_fullscreen else 'none',
+                'marginTop': '6px',
+                'background': 'linear-gradient(90deg,#10b981 0%,#34d399 100%)',  # green-ish
+                'color': '#fff',
+                'border': 'none',
+                'borderRadius': '12px',
+                'padding': '10px 20px',
+                'fontFamily': 'Inter,system-ui,sans-serif',
+                'fontWeight': '600',
+                'cursor': 'pointer',
+                'boxShadow': '0 4px 14px -2px rgba(16,185,129,0.28)',
+                'letterSpacing': '.5px'
+            }
+        )
+        regime_panel = html.Div(id="regime-analyzer-panel", style={
+            'display': 'none',
+            'position': 'fixed',
+            'top': '0',
+            'left': '0',
+            'width': '100vw',
+            'height': '100vh',
+            'zIndex': '35500',
+            'background': 'linear-gradient(135deg,rgba(6,10,17,0.94),rgba(20,27,40,0.96))',
+            'backdropFilter': 'blur(10px)',
+            'padding': '40px 48px',
+            'overflowY': 'auto',
+            'boxSizing': 'border-box'
+        }, children=[
+            html.Button("Close ✕", id="regime-analyzer-close-btn", style={
+                'position': 'absolute',
+                'top': '24px',
+                'right': '28px',
+                'background': '#264653',
+                'color': '#e6eef6',
+                'border': '1px solid #1f3b4a',
+                'borderRadius': '10px',
+                'padding': '10px 18px',
+                'cursor': 'pointer',
+                'fontFamily': 'Inter',
+                'fontWeight': '600',
+                'fontSize': '14px'
+            }),
+            # NEU: Kein statischer Titel/Placeholder mehr — nur der Container für das UI-Layout
+            html.Div(id="regime-analyzer-content", style={'marginTop': '18px'})
+        ])
+        # --- /NEU ---
+
         return html.Div([
             run_table,
             equity_charts,
             param_analyzer_btn,
             analyzer_panel,
+            # Regime Analyzer elements appended right after param analyzer
+            regime_analyzer_btn,
+            regime_panel,
             html.Div([fullscreen_button], style={
                 'display': 'flex' if not is_fullscreen else 'none',
                 'justifyContent': 'center',

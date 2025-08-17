@@ -6,6 +6,21 @@ def build_analyzer_layout(runs_df, service: ParameterAnalysisService):
     param_cols = service.run_param_columns(runs_df)
     param_options = [{'label': p, 'value': p} for p in param_cols]
 
+    # Build run options: prefer explicit 'run_path' or 'indicators_path' column, else use index -> results/{run}/general/indicators
+    run_options = []
+    if 'run_path' in runs_df.columns:
+        for idx, p in runs_df['run_path'].astype(str).items():
+            run_options.append({'label': str(idx), 'value': p})
+    elif 'indicators_path' in runs_df.columns:
+        for idx, p in runs_df['indicators_path'].astype(str).items():
+            run_options.append({'label': str(idx), 'value': p})
+    else:
+        for idx in runs_df.index:
+            # value is a relative run-folder; UI/Service will resolve it (e.g. "results/{run}/general/indicators")
+            run_options.append({'label': str(idx), 'value': f"results/{idx}/general/indicators"})
+
+    default_run_value = run_options[0]['value'] if run_options else None
+
     def dark_dropdown_style():
         return {
             'control': {
@@ -49,6 +64,21 @@ def build_analyzer_layout(runs_df, service: ParameterAnalysisService):
             html.P(f"Loaded {len(runs_df)} runs, {len(param_options)} parameters, {len(metric_options)} metrics", 
                    style={'color': '#94a3b8', 'fontSize': '12px', 'margin': '0 0 20px 0'})
         ]),
+
+        # Store selected run path for cross-component use
+        dcc.Store(id="selected-run-path", data=default_run_value),
+
+        # Run selector (neu)
+        html.Div([
+            html.Label("Select Run (for data folder)", style={'color': '#cbd5e1', 'fontSize': '12px', 'marginBottom': '6px', 'display': 'block'}),
+            dcc.Dropdown(
+                id="param-run-select",
+                options=run_options,
+                value=default_run_value,
+                clearable=False,
+                style=_dropdown_style()
+            )
+        ], style={'maxWidth': '420px', 'marginBottom': '18px'}),
         
         html.Div([
             html.Div([
