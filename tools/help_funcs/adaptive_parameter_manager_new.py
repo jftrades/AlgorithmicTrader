@@ -1,6 +1,6 @@
 import numpy as np
 from collections import deque
-from tools.help_funcs.slope_distrubition_monitor import SlopeDistributionMonitor
+from tools.help_funcs.distrubition_monitor import SlopeDistributionMonitor, ATRDistributionMonitor
 
 
 class RobustATRCalculator:
@@ -120,13 +120,18 @@ class AdaptiveParameterManager:
             self.atr_calculator = None
             self.current_atr_percentile = 0.5
         
-        if self.adaptive_factors.get('slope_monitor', {}).get('enabled', False):
-            monitor_config = self.adaptive_factors['slope_monitor']
-            self.slope_monitor = SlopeDistributionMonitor(
-                bin_size=monitor_config.get('bin_size', 0.001)
-            )
+        # Slope Distribution Monitor
+        distribution_config = self.adaptive_factors.get('distribution_monitor', {})
+        if distribution_config.get('slope_distribution', {}).get('enabled', False):
+            self.slope_monitor = SlopeDistributionMonitor()
         else:
             self.slope_monitor = None
+        
+        # ATR Distribution Monitor
+        if distribution_config.get('atr_distribution', {}).get('enabled', False):
+            self.atr_monitor = ATRDistributionMonitor()
+        else:
+            self.atr_monitor = None
     
     def update_slope(self, kalman_mean: float, kalman_slope: float):
         if kalman_mean is not None:
@@ -146,6 +151,8 @@ class AdaptiveParameterManager:
         if self.atr_calculator is not None:
             current_atr, percentile = self.atr_calculator.update(high, low, prev_close)
             self.current_atr_percentile = percentile
+            if self.atr_monitor is not None and current_atr is not None:
+                self.atr_monitor.add_atr(current_atr)
             return current_atr, percentile
         return None, self.current_atr_percentile
     
@@ -510,7 +517,8 @@ class AdaptiveParameterManager:
             'kalman_enabled': self.adaptive_factors.get('kalman', {}).get('enabled', False),
             'atr_enabled': self.adaptive_factors.get('atr', {}).get('enabled', False),
             'slope_enabled': self.adaptive_factors.get('slope', {}).get('enabled', False),
-            'slope_monitor_enabled': self.adaptive_factors.get('slope_monitor', {}).get('enabled', False),
+            'slope_monitor_enabled': self.adaptive_factors.get('distribution_monitor', {}).get('slope_distribution', {}).get('enabled', False),
+            'atr_monitor_enabled': self.adaptive_factors.get('distribution_monitor', {}).get('atr_distribution', {}).get('enabled', False),
             'current_atr_percentile': self.current_atr_percentile,
             'current_slope': self.current_slope,
             'current_kalman_mean': self.current_kalman_mean,
@@ -524,6 +532,9 @@ class AdaptiveParameterManager:
         
         if self.slope_monitor is not None:
             debug_info['slope_monitor_samples'] = self.slope_monitor.total_count
+        
+        if self.atr_monitor is not None:
+            debug_info['atr_monitor_samples'] = self.atr_monitor.total_count
             
         return debug_info
     
@@ -532,6 +543,12 @@ class AdaptiveParameterManager:
             self.slope_monitor.print_distribution()
         else:
             print("Slope monitor is disabled.")
+    
+    def print_atr_distribution(self):
+        if self.atr_monitor is not None:
+            self.atr_monitor.print_distribution()
+        else:
+            print("ATR monitor is disabled.")
     
     def log_trade_state(self, trade_type: str, price: float, zscore: float, entry_reason: str, 
                        stack_info: str, regime: int, adaptive_params: dict, 
@@ -558,8 +575,8 @@ class AdaptiveParameterManager:
         print(f"Thresholds - Long: {long_threshold:.2f} | Short: {short_threshold:.2f} | Recovery: {recovery_delta:.2f}")
         print(f"Position State - Long: {long_positions} | Short: {short_positions} | Stacking: {allow_stacking}")
         
-        if self.slope_monitor and self.slope_monitor.slope_values:
-            recent = self.slope_monitor.slope_values[-3:]
+        if self.slope_monitor and self.slope_monitor.values:
+            recent = self.slope_monitor.values[-3:]
             print(f"Recent Slopes: {[f'{s:.4f}' for s in recent]}")
         
         if self.atr_calculator:

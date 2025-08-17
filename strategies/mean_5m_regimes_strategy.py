@@ -68,6 +68,12 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.entry_combined_factor = None
         self.current_slope_factor = None
         self.current_atr_factor = None
+
+        # General initialization window for all indicators/datapoints
+        self.initialization_window = config.base_parameters.get('initialization_window', 30)
+        self._init_slope_buffer = []  # Buffer for slope initialization
+        self._init_slope_factor_buffer = []  # Buffer for slope_factor initialization
+        self._init_window_complete = False
         
         self.adaptive_manager = AdaptiveParameterManager(
             base_params=config.base_parameters,
@@ -161,6 +167,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.subscribe_bars(self.bar_type_5m)
         self.log.info("Strategy started!")
 
+        # Reset initialization buffers and flags
+        self._init_slope_buffer = []
+        self._init_slope_factor_buffer = []
+        self._init_window_complete = False
+
         self.risk_manager = RiskManager(
             self,
             Decimal(str(self.config.risk_percent)),
@@ -223,6 +234,19 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.current_combined_factor = combined_factor
         self.current_slope_factor = slope_factor
         self.current_atr_factor = atr_factor
+
+        # --- General initialization window logic ---
+        if not self._init_window_complete:
+            self._init_slope_buffer.append(self.current_kalman_slope)
+            self._init_slope_factor_buffer.append(slope_factor)
+            if len(self._init_slope_buffer) >= self.initialization_window:
+                # Initialize all indicators/datapoints as mean of window (example for slope/slope_factor)
+                import numpy as np
+                self.initial_slope = float(np.mean(self._init_slope_buffer))
+                self.initial_slope_factor = float(np.mean(self._init_slope_factor_buffer))
+                self._init_window_complete = True
+                self.log.info(f"Initialization window complete (window={self.initialization_window}): initial_slope={self.initial_slope}, initial_slope_factor={self.initial_slope_factor}", color=LogColor.YELLOW)
+        # --- End general init window logic ---
         
         linear_config = self.adaptive_manager.adaptive_factors.get('linear_adjustments', {})
         trend_sensitivity = linear_config.get('trend_sensitivity', 0.3)
@@ -564,8 +588,17 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
 
         logging_message = self.collector.save_data()
         self.log.info(logging_message, color=LogColor.GREEN)
+
+        # Print distributions if individual monitors are enabled
+        distribution_config = self.adaptive_manager.adaptive_factors.get('distribution_monitor', {})
         
-        self.adaptive_manager.print_slope_distribution()
+        if distribution_config.get('slope_distribution', {}).get('enabled', False):
+            self.adaptive_manager.print_slope_distribution()
+            
+        if distribution_config.get('atr_distribution', {}).get('enabled', False):
+            if distribution_config.get('slope_distribution', {}).get('enabled', False):
+                print("\n")  # Add spacing between distributions if both are enabled
+            self.adaptive_manager.print_atr_distribution()
     
     def on_order_filled(self, order_filled) -> None:
         # KEIN automatischer VWAP Reset bei allen Order Fills
