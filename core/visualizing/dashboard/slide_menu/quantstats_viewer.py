@@ -151,16 +151,6 @@ class QuantStatsViewer:
                 self._log(f"Found equity file in general: {equity_file}")
                 return equity_file
         
-        # Fallback: Suche in allen Collector-Ordnern nach indicators/total_equity.csv
-        for collector_dir in run_dir.iterdir():
-            if collector_dir.is_dir() and collector_dir.name.lower() != "general":
-                indicators_dir = collector_dir / "indicators"
-                if indicators_dir.exists():
-                    equity_file = indicators_dir / "total_equity.csv"
-                    if equity_file.exists():
-                        self._log(f"Found equity file in collector: {equity_file}")
-                        return equity_file
-        
         self._log(f"No total_equity.csv found for run {run_id}")
         return None
 
@@ -204,8 +194,7 @@ class QuantStatsViewer:
                 returns, 
                 benchmark=benchmark, 
                 output=output_path,
-                #title=f"QuantStats Report - {run_id}"
-                title=f"QuantStats Report - {3}"
+                title=f"QuantStats Report - {run_id}"
             )
 
             # Im Browser öffnen

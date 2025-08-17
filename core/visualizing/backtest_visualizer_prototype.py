@@ -58,21 +58,23 @@ class IndicatorInstance:
 
 
 class BacktestDataCollector:
-    def __init__(self, name): 
+    def __init__(self, name, run_id): 
         self.name = name
         # Bars pro Timeframe
         self.bars = {}              # timeframe -> List[bar_dict]
         # Entfernt: _all_bars_flat / _global_bar_index
         self.trades = []
+        self.run_id = run_id
         self.indicators = {}
         self.indicator_plot_number = {}
         self.initialise_result_path()
+        
 
     def initialise_result_path(self):
         import shutil
         from pathlib import Path
         base_dir = Path(__file__).resolve().parents[2]
-        self._results_root = base_dir / "data" / "DATA_STORAGE" / "results"
+        self._results_root = base_dir / "data" / "DATA_STORAGE" / "results" / f"{self.run_id}"
         self.path = self._results_root / self.name  # Ordner pro Collector
         # Nur eigenen Ordner neu erstellen
         if self.path.exists() and self.path.is_dir():

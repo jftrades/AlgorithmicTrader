@@ -25,6 +25,8 @@ from  tools.help_funcs.help_funcs_strategy import extract_interval_from_bar_type
 
 # Strategiespezifische Importe
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
+from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
+from nautilus_trader.indicators.vwap import VolumeWeightedAveragePrice
 
 # -------------------------------------------------
 # Multi-Instrument Konfiguration (jetzt Pflicht)
@@ -37,6 +39,7 @@ class RSISimpleStrategyConfig(StrategyConfig):
     rsi_period: int
     rsi_overbought: float
     rsi_oversold: float
+    run_id: str
     close_positions_on_stop: bool = True
 
 
@@ -45,6 +48,7 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         super().__init__(config)
         
         self.close_positions_on_stop = config.close_positions_on_stop
+        self.run_id = config.run_id
         self.stopped = False
         self.realized_pnl = 0
 
@@ -53,6 +57,12 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         # Entfernt: primäre Instrument-Ableitungen (self.instrument_id, self.bar_type, etc.)
         self.risk_manager = None
         self.order_types = None
+        self.ema = ExponentialMovingAverage(10)
+        self.vwap = VolumeWeightedAveragePrice()
+        self.rsi = RelativeStrengthIndex(period=10)
+        self.general_collector.initialise_logging_indicator("RSI", 1)
+        self.general_collector.initialise_logging_indicator("VWAP", 2)
+        self.general_collector.initialise_logging_indicator("EMA", 3)
 
     def _initialize_instrument_contexts(self):
         if not self.config.instruments or len(self.config.instruments) == 0:
@@ -87,7 +97,7 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
                 "rsi_oversold": rsi_oversold,
                 "last_rsi_cross": None,
                 "realized_pnl": 0.0,
-                "collector": BacktestDataCollector(str(inst_id)),
+                "collector": BacktestDataCollector(str(inst_id), self.run_id),
             }
             current_instrument["collector"].initialise_logging_indicator("RSI", 1)
             current_instrument["collector"].initialise_logging_indicator("position", 2)
@@ -122,12 +132,17 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
     # Ereignis Routing
     # -------------------------------------------------
     def on_bar(self, bar: Bar) -> None:
+        
         instrument_id = bar.bar_type.instrument_id
         current_instrument = self.instrument_dict.get(instrument_id)
         if current_instrument is None:
             return
+        self.rsi.handle_bar(bar)
+        self.vwap.handle_bar(bar)    
+        self.ema.handle_bar(bar)
+
         rsi = current_instrument["rsi"]
-        rsi.handle_bar(bar)
+        rsi.handle_bar(bar) 
         if not rsi.initialized:
             return
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
@@ -140,6 +155,9 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         current_instrument["collector"].add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close, bar_type = bar.bar_type)
         self.update_visualizer_data(bar, current_instrument)
         self._update_general_metrics(bar.ts_event)
+        self.general_collector.add_indicator(timestamp=bar.ts_event, name="RSI", value=self.rsi.value)
+        self.general_collector.add_indicator(timestamp=bar.ts_event, name="EMA", value=self.ema.value)
+        self.general_collector.add_indicator(timestamp=bar.ts_event, name="VWAP", value=self.vwap.value)
 
     # -------------------------------------------------
     # Entry Logic pro Instrument
@@ -147,7 +165,7 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
     def entry_logic(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
         trade_size_usdt = float(current_instrument["trade_size_usdt"])
-        qty = trade_size_usdt / float(bar.close)
+        qty = max(1, trade_size_usdt / float(bar.close))
         rsi_value = current_instrument["rsi"].value
         if rsi_value is None:
             return
@@ -220,7 +238,6 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
             # timeframe ist z. B. "1m" oder "5m"
 
             bar_types = current_instrument["bar_types"]
-
             last_timestamp = max(current_instrument["collector"].bars[extract_interval_from_bar_type(str(bt), str(bt.instrument_id))][-1]["timestamp"] for bt in bar_types)
             #current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="equity", value=equity)
             current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="position", value=net_position if net_position is not None else None)

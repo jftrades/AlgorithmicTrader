@@ -9,7 +9,7 @@ from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 class BaseStrategy(Strategy):
     def __init__(self, config: StrategyConfig):
         super().__init__(config)
-        self.general_collector = BacktestDataCollector("general")
+        self.general_collector = BacktestDataCollector("general", config.run_id)
         self.general_collector.initialise_logging_indicator("total_position", 1)
         self.general_collector.initialise_logging_indicator("total_unrealized_pnl", 2)
         self.general_collector.initialise_logging_indicator("total_realized_pnl", 3)

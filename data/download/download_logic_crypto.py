@@ -284,8 +284,8 @@ class BarTransformer:
                     low=b_in.low,
                     close=b_in.close,
                     volume=Quantity(b_in.volume.as_double(), self.size_precision),
-                    ts_event=b_in.ts_event,
-                    ts_init=b_in.ts_init,
+                    ts_event=b_in.ts_event * 1_000_000,
+                    ts_init=b_in.ts_init * 1_000_000,
                 ))
             print(f"INFO: {len(final_bars)} Bar-Objekte vom Wrangler erzeugt.")
         else:
@@ -301,7 +301,7 @@ class BarTransformer:
             print(f"[INFO] Entferne alten Zielordner: {bar_type_dir}")
             shutil.rmtree(bar_type_dir)
         catalog = ParquetDataCatalog(path=self.catalog_root_path)
-        instrument_for_meta = get_instrument(self.symbol, self.is_perp)
+        instrument_for_meta = get_instrument(self.symbol, self.is_perp, self.price_precision, self.size_precision)
         catalog.write_data([instrument_for_meta])
         catalog.write_data(final_bars)
 
@@ -313,9 +313,9 @@ class BarTransformer:
 
         if final_bars:
             from nautilus_trader.core.datetime import unix_nanos_to_dt
-            # Achtung: ts_event ist in Millisekunden, unix_nanos_to_dt erwartet Nanosekunden!
-            ts_min = unix_nanos_to_dt(min(bar.ts_event for bar in final_bars) * 1_000_000)
-            ts_max = unix_nanos_to_dt(max(bar.ts_event for bar in final_bars) * 1_000_000)
+            # ts_event ist bereits in Nanosekunden!
+            ts_min = unix_nanos_to_dt(min(bar.ts_event for bar in final_bars))
+            ts_max = unix_nanos_to_dt(max(bar.ts_event for bar in final_bars))
             print(f"📈 Gespeicherter Zeitbereich: {ts_min} bis {ts_max}")
         else:
             print("❌ Keine Bars vorhanden zum Prüfen des Zeitbereichs.")
@@ -361,15 +361,27 @@ def find_csv_file(symbol, processed_dir):
     print(f"[INFO] Gefundene CSV-Datei: {csv_files[0]}")
     return csv_files[0]
 
-def get_instrument(symbol: str, is_perp: bool):
+def precision_to_increment_str(precision: int) -> str:
+    """
+    Gibt zu einer Dezimal-Precision (>=0) den Inkrement-String zurück.
+    Beispiele:
+      0 -> "1"
+      1 -> "0.1"
+      8 -> "0.00000001"
+    """
+    if precision < 0:
+        raise ValueError("precision must be >= 0")
+    if precision == 0:
+        return "1"
+    return "0." + ("0" * (precision - 1)) + "1"
+
+def get_instrument(symbol: str, is_perp: bool, price_precision, size_precision):
     from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
     from nautilus_trader.test_kit.providers import TestInstrumentProvider
     from nautilus_trader.model.objects import Price, Quantity
 
     if is_perp:
-        if symbol.upper() == "BTCUSDT":
-            return TestInstrumentProvider.btcusdt_perp_binance()
-        else:
+            increment = precision_to_increment_str(price_precision)
             # Erzeuge ein neues Instrument-Objekt auf Basis von BTCUSDT, aber mit angepasstem Symbol/ID
             template = TestInstrumentProvider.btcusdt_perp_binance()
             instrument_id = InstrumentId(Symbol(f"{symbol}-PERP"), Venue("BINANCE"))
@@ -380,10 +392,10 @@ def get_instrument(symbol: str, is_perp: bool):
                 quote_currency=template.quote_currency,
                 settlement_currency=template.settlement_currency,
                 is_inverse=template.is_inverse,
-                price_precision=8,
-                size_precision=8,
-                price_increment=Price.from_str("0.00000001"),
-                size_increment=Quantity.from_str("0.00000001"),
+                price_precision=price_precision,
+                size_precision=size_precision,
+                price_increment=Price.from_str(increment),
+                size_increment=Quantity.from_str(increment),
                 margin_init=template.margin_init,
                 margin_maint=template.margin_maint,
                 maker_fee=template.maker_fee,
@@ -392,9 +404,7 @@ def get_instrument(symbol: str, is_perp: bool):
                 ts_init=template.ts_init,
             )
     else:
-        if symbol.upper() == "BTCUSDT":
-            return TestInstrumentProvider.btcusdt_binance()
-        else:
+            increment = precision_to_increment_str(price_precision)
             template = TestInstrumentProvider.btcusdt_binance()
             instrument_id = InstrumentId(Symbol(symbol), Venue("BINANCE"))
             return template.__class__(
@@ -404,10 +414,10 @@ def get_instrument(symbol: str, is_perp: bool):
                 quote_currency=template.quote_currency,
                 settlement_currency=template.settlement_currency,
                 is_inverse=template.is_inverse,
-                price_precision=template.price_precision,
-                size_precision=template.size_precision,
-                price_increment=template.price_increment,
-                size_increment=template.size_increment,
+                price_precision=price_precision,
+                size_precision=size_precision,
+                price_increment=increment,
+                size_increment=increment,
                 margin_init=template.margin_init,
                 margin_maint=template.margin_maint,
                 maker_fee=template.maker_fee,
@@ -415,3 +425,5 @@ def get_instrument(symbol: str, is_perp: bool):
                 ts_event=template.ts_event,
                 ts_init=template.ts_init,
             )
+
+

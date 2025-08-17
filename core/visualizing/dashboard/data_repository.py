@@ -150,7 +150,7 @@ class ResultsRepository:
                 unit = m.group(2).lower()
                 mult = {"s": 1, "m": 60, "h": 3600, "d": 86400}.get(unit, 10**6)
                 return val * mult
-            out["bars_df"] = sorted(bars_list, key=lambda d: tf_seconds(d["timeframe"].iloc[0]))[0]
+            out["bars_df"] = sorted(bars_list, key=lambda d: tf_seconds(d["timeframe"].iloc[0]))[-1]
 
         # Trades
         tpath = folder / "trades.csv"

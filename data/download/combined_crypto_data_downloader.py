@@ -8,15 +8,17 @@ from datetime import datetime
 import shutil
 
 # Parameter hier anpassen
-symbol = "SOLUSDT-PERP"
+symbol = "BTCUSDT-PERP"
 start_date = "2023-01-01"
 end_date = "2025-08-15"
 base_data_dir = str(Path(__file__).resolve().parents[1] / "DATA_STORAGE")
 datatype = "bar"  # oder "tick"
-interval = "1h"    # nur für Bars relevant
+interval = "5m"    # nur für Bars relevant
+price_precision = 1
+size_precision = 1
 
 class CombinedCryptoDataDownloader:
-    def __init__(self, symbol, start_date, end_date, base_data_dir, datatype="tick", interval="1h"):
+    def __init__(self, symbol, start_date, end_date, base_data_dir, datatype="tick", interval="1h", price_precision=8, size_precision=8):
         # Symbol-Handling für Spot und Futures (PERP)
         self.is_perp = symbol.endswith("-PERP")
         self.symbol_for_binance = symbol.replace("-PERP", "")
@@ -27,6 +29,8 @@ class CombinedCryptoDataDownloader:
         self.base_data_dir = base_data_dir
         self.datatype = datatype
         self.interval = interval
+        self.price_precision = price_precision
+        self.size_precision = size_precision
 
     def run(self):
         if self.datatype == "tick":
@@ -114,8 +118,7 @@ class CombinedCryptoDataDownloader:
                 aggregation_source=AggregationSource.EXTERNAL
             )
 
-            price_precision = 8
-            size_precision = 8
+
             output_columns = [
                 "timestamp", "open_time_ms", "open", "high", "low", "close", "volume", "number_of_trades"
             ]
@@ -146,6 +149,8 @@ if __name__ == "__main__":
         end_date=end_date,
         base_data_dir=base_data_dir,
         datatype=datatype,
-        interval=interval
+        interval=interval,
+        price_precision=price_precision,
+        size_precision=size_precision
     )
     downloader.run()
