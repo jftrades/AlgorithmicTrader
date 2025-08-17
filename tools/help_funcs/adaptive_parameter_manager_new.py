@@ -125,30 +125,29 @@ class AdaptiveParameterManager:
             self.atr_calculator = None
             self.current_atr_percentile = 0.5
         
-        # Slope Distribution Monitor
-        distribution_config = self.adaptive_factors.get('distribution_monitor', {})
-        if distribution_config.get('slope_distribution', {}).get('enabled', False):
+        # Slope Distribution Monitor - always create if slope factors are enabled
+        if self.adaptive_factors.get('slope', {}).get('enabled', False):
             self.slope_monitor = SlopeDistributionMonitor()
         else:
             self.slope_monitor = None
         
-        # ATR Distribution Monitor
-        if distribution_config.get('atr_distribution', {}).get('enabled', False):
+        # ATR Distribution Monitor - always create if ATR factors are enabled  
+        if self.adaptive_factors.get('atr', {}).get('enabled', False):
             self.atr_monitor = ATRDistributionMonitor()
         else:
             self.atr_monitor = None
     
-    def update_slope(self, kalman_mean: float, kalman_slope: float):
-        if kalman_mean is not None:
-            self.current_kalman_mean = kalman_mean
-        if kalman_slope is not None:
-            self.current_slope = kalman_slope
+    def update_slope(self, ltf_kalman_mean: float, htf_kalman_slope: float):
+        if ltf_kalman_mean is not None:
+            self.current_kalman_mean = ltf_kalman_mean
+        if htf_kalman_slope is not None:
+            self.current_slope = htf_kalman_slope
             if self.slope_monitor is not None:
-                self.slope_monitor.add_slope(kalman_slope)
-        return kalman_mean, kalman_slope
+                self.slope_monitor.add_slope(htf_kalman_slope)
+        return ltf_kalman_mean, htf_kalman_slope
     
-    def update_market_data(self, kalman_mean: float, kalman_slope: float, high: float, low: float, prev_close: float = None):
-        self.update_slope(kalman_mean, kalman_slope)
+    def update_market_data(self, ltf_kalman_mean: float, htf_kalman_slope: float, high: float, low: float, prev_close: float = None):
+        self.update_slope(ltf_kalman_mean, htf_kalman_slope)
         self.update_atr(high, low, prev_close)
     
     def update_atr(self, high: float, low: float, prev_close: float = None):
@@ -449,9 +448,15 @@ class AdaptiveParameterManager:
             'rolling_window_bars': vwap_base.get('rolling_window_bars', 288),
         }
         
-        adaptive_params['kalman_process_var'] = self.base_params['kalman_process_var']
-        adaptive_params['kalman_measurement_var'] = self.base_params['kalman_measurement_var']
-        adaptive_params['kalman_zscore_window'] = self.base_params['kalman_zscore_window']
+        # LTF Kalman parameters (fast, responsive)
+        adaptive_params['ltf_kalman_process_var'] = self.base_params['ltf_kalman_process_var']
+        adaptive_params['ltf_kalman_measurement_var'] = self.base_params['ltf_kalman_measurement_var']
+        adaptive_params['ltf_kalman_zscore_window'] = self.base_params['ltf_kalman_zscore_window']
+        
+        # HTF Kalman parameters (slow, stable)
+        adaptive_params['htf_kalman_process_var'] = self.base_params['htf_kalman_process_var']
+        adaptive_params['htf_kalman_measurement_var'] = self.base_params['htf_kalman_measurement_var']
+        adaptive_params['htf_kalman_zscore_window'] = self.base_params['htf_kalman_zscore_window']
         
         return adaptive_params, slope_factor, atr_factor, combined_factor
     
