@@ -679,39 +679,13 @@ class AdaptiveParameterManager:
                        stack_info: str, regime: int, adaptive_params: dict, 
                        long_positions: int, short_positions: int, allow_stacking: bool):
         
-        trend_factor = self.get_trend_factor()
-        vol_factor = self.get_volatility_factor()
+        # Get the actual calculated factors (same as used in strategy)
         _, slope_factor, atr_factor, combined_factor = self.get_adaptive_parameters()
-        asymmetric_offset = self.get_asymmetric_offset(self.current_kalman_mean)
         
-        elastic_base = adaptive_params['elastic_entry']
-        long_threshold = elastic_base['zscore_long_threshold']
-        short_threshold = elastic_base['zscore_short_threshold']
-        recovery_delta = elastic_base['recovery_delta']
+        # Create slim log message matching the adaptive factors format
+        message = f"{trade_type.upper()} ${price:.2f} | ZScore: {zscore:.3f} | Adaptive factors: slope={slope_factor:.3f}, atr={atr_factor:.3f}, combined={combined_factor:.3f}"
         
-        print(f"\n=== {trade_type.upper()} TRADE: {stack_info} ===")
-        print(f"Price: ${price:.2f} | ZScore: {zscore:.3f} | Reason: {entry_reason} | VIX Regime: {regime}")
-        print(f"Slope: {self.current_slope:.6f} | Trend Factor: {trend_factor:.3f} | Vol Factor: {vol_factor:.3f}")
-        
-        mean_str = f"{self.current_kalman_mean:.2f}" if self.current_kalman_mean is not None else "N/A"
-        print(f"Asymmetric Offset: {asymmetric_offset:.6f} | Mean: {mean_str}")
-        
-        print(f"Factors - Slope: {slope_factor:.3f} | ATR: {atr_factor:.3f} | Combined: {combined_factor:.3f}")
-        print(f"Thresholds - Long: {long_threshold:.2f} | Short: {short_threshold:.2f} | Recovery: {recovery_delta:.2f}")
-        print(f"Position State - Long: {long_positions} | Short: {short_positions} | Stacking: {allow_stacking}")
-        
-        if self.slope_monitor and self.slope_monitor.values:
-            recent = self.slope_monitor.values[-3:]
-            print(f"Recent Slopes: {[f'{s:.4f}' for s in recent]}")
-        
-        if self.atr_calculator:
-            atr_history = list(self.atr_calculator.atr_history)
-            if len(atr_history) >= 20:
-                atr_mean = np.mean(atr_history)
-                atr_std = np.std(atr_history)
-                atr_zscore = (self.atr_calculator.current_atr - atr_mean) / atr_std if atr_std > 0 else 0
-                print(f"ATR Info - Current: {self.atr_calculator.current_atr:.4f} | Z-Score: {atr_zscore:.3f}")
-            else:
-                print(f"ATR Info - Current: {self.atr_calculator.current_atr:.4f} | Insufficient data")
-        
-        print("="*70)
+        # Note: LogColor.MAGENTA is typically purple in most terminals
+        # This will be called from strategy context, so we'll return the message
+        # and let the strategy log it with proper color
+        return message

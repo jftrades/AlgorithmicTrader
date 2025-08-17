@@ -484,11 +484,12 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             stack_info = f"Stack {self.long_positions_since_cross + 1}/{self.max_long_stacked_positions}" if self.long_positions_since_cross > 0 else "Initial"
             
             # Log trade state
-            self.adaptive_manager.log_trade_state(
+            trade_message = self.adaptive_manager.log_trade_state(
                 "LONG", float(bar.close), zscore, entry_reason, stack_info, regime, 
                 adaptive_params, self.long_positions_since_cross, self.short_positions_since_cross, 
                 self.allow_stacking
             )
+            self.log.info(trade_message, color=LogColor.MAGENTA)
             
             self.order_types.submit_long_market_order(qty, price=bar.close)
             self.long_positions_since_cross += 1
@@ -530,11 +531,12 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             stack_info = f"Stack {self.short_positions_since_cross + 1}/{self.max_short_stacked_positions}" if self.short_positions_since_cross > 0 else "Initial"
             
             # Log trade state
-            self.adaptive_manager.log_trade_state(
+            trade_message = self.adaptive_manager.log_trade_state(
                 "SHORT", float(bar.close), zscore, entry_reason, stack_info, regime, 
                 adaptive_params, self.long_positions_since_cross, self.short_positions_since_cross, 
                 self.allow_stacking
             )
+            self.log.info(trade_message, color=LogColor.MAGENTA)
             
             self.order_types.submit_short_market_order(qty, price=bar.close)
             self.short_positions_since_cross += 1
