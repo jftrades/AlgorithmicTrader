@@ -33,9 +33,23 @@ class DistributionMonitor:
         
         # Create weights that increase exponentially for more recent values
         n = len(self.values)
-        weights = np.exp(self.decay_factor * np.arange(n))
+        
+        # Prevent overflow by clipping the exponent values
+        exponents = self.decay_factor * np.arange(n)
+        # Clip to prevent overflow (exp(700) is near float64 limit)
+        exponents = np.clip(exponents, -700, 700)
+        
+        weights = np.exp(exponents)
+        
+        # Prevent division by zero and handle potential overflow
+        weights_sum = np.sum(weights)
+        if weights_sum == 0 or not np.isfinite(weights_sum):
+            # Fallback to uniform weights if numerical issues
+            weights = np.ones(n)
+            weights_sum = n
+        
         # Normalize weights to sum to 1
-        weights = weights / np.sum(weights)
+        weights = weights / weights_sum
         return weights
     
     def _calculate_weighted_percentiles(self, percentiles: list) -> dict:
@@ -45,6 +59,14 @@ class DistributionMonitor:
         
         values_array = np.array(self.values)
         weights = self._calculate_exponential_weights()
+        
+        # Check for invalid weights
+        if not np.all(np.isfinite(weights)) or np.sum(weights) == 0:
+            # Fallback to simple percentiles if weights are invalid
+            results = {}
+            for percentile in percentiles:
+                results[percentile] = np.percentile(values_array, percentile)
+            return results
         
         # Sort values and corresponding weights
         sorted_indices = np.argsort(values_array)

@@ -267,8 +267,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                 self.log.info(f"Using default factors during init: slope={slope_factor}, atr={atr_factor}, combined={combined_factor} (bar {len(self._init_slope_buffer)}/{self.initialization_window})", color=LogColor.CYAN)
         else:
             adaptive_params, slope_factor, atr_factor, combined_factor = self.adaptive_manager.get_adaptive_parameters()
-            if self.bar_counter % 100 == 0:  # Log every 100 bars after init
-                self.log.info(f"Adaptive factors: slope={slope_factor:.3f}, atr={atr_factor:.3f}, combined={combined_factor:.3f}", color=LogColor.GREEN)
         
         self.current_combined_factor = combined_factor
         self.current_slope_factor = slope_factor
