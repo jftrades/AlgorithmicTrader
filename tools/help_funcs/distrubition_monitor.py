@@ -2,7 +2,7 @@
 import numpy as np
 
 class DistributionMonitor:
-    def __init__(self, bin_size: float = 0.001, label: str = "Value", decay_factor: float = 0.01):
+    def __init__(self, bin_size: float = 0.001, label: str = "Value", decay_factor: float = 0.01, max_values: int = 100000):
         self.values = []
         self.timestamps = []  # To track chronological order
         self.bin_size = bin_size    
@@ -10,16 +10,33 @@ class DistributionMonitor:
         self.total_count = 0
         self.label = label
         self.decay_factor = decay_factor  # Higher = more weight to recent values
+        self.max_values = max_values  # Conservative limit - only for very long backtests
         
     def add(self, value: float):
         if value is not None:
             self.values.append(value)
             self.timestamps.append(len(self.values))  # Simple sequential timestamp
             self.total_count += 1
-            bin_key = self._get_bin_key(value)
-            if bin_key not in self.distribution:
-                self.distribution[bin_key] = 0
-            self.distribution[bin_key] += 1
+            
+            # Conservative memory management: Only for extremely long backtests
+            if len(self.values) > self.max_values:
+                # Very conservative cleanup - only remove oldest 10% 
+                remove_count = int(self.max_values * 0.1)
+                self.values = self.values[remove_count:]
+                self.timestamps = self.timestamps[remove_count:]
+                # Rebuild distribution for remaining values
+                self.distribution = {}
+                for val in self.values:
+                    bin_key = self._get_bin_key(val)
+                    if bin_key not in self.distribution:
+                        self.distribution[bin_key] = 0
+                    self.distribution[bin_key] += 1
+            else:
+                # Normal case: just update distribution
+                bin_key = self._get_bin_key(value)
+                if bin_key not in self.distribution:
+                    self.distribution[bin_key] = 0
+                self.distribution[bin_key] += 1
 
     def _get_bin_key(self, value: float) -> str:
         lower_bound = int(value / self.bin_size) * self.bin_size
@@ -34,12 +51,21 @@ class DistributionMonitor:
         # Create weights that increase exponentially for more recent values
         n = len(self.values)
         
-        # Prevent overflow by clipping the exponent values
-        exponents = self.decay_factor * np.arange(n)
+        # Prevent overflow by using smaller decay factor for large datasets
+        effective_decay = self.decay_factor
+        if n > 10000:  # For very large datasets, reduce decay factor
+            effective_decay = self.decay_factor * (10000 / n)
+        
+        # Create exponents with overflow protection
+        exponents = effective_decay * np.arange(n)
         # Clip to prevent overflow (exp(700) is near float64 limit)
         exponents = np.clip(exponents, -700, 700)
         
-        weights = np.exp(exponents)
+        try:
+            weights = np.exp(exponents)
+        except (OverflowError, RuntimeWarning):
+            # Fallback: use linear weights if exponential fails
+            weights = np.linspace(0.1, 1.0, n)
         
         # Prevent division by zero and handle potential overflow
         weights_sum = np.sum(weights)
@@ -184,17 +210,17 @@ class DistributionMonitor:
         print(f"{'='*80}\n")
 
 class SlopeDistributionMonitor(DistributionMonitor):
-    def __init__(self, bin_size: float = 0.0005, decay_factor: float = 0.02):
-        # Higher decay factor for slopes since market regimes can change quickly
-        super().__init__(bin_size=bin_size, label="Slope", decay_factor=decay_factor)
+    def __init__(self, bin_size: float = 0.0005, decay_factor: float = 0.02, max_values: int = 100000):
+        # Conservative limit - higher for better analysis
+        super().__init__(bin_size=bin_size, label="Slope", decay_factor=decay_factor, max_values=max_values)
 
     def add_slope(self, slope_value: float):
         self.add(slope_value)
 
 class ATRDistributionMonitor(DistributionMonitor):
-    def __init__(self, bin_size: float = 0.01, decay_factor: float = 0.01):
-        # Lower decay factor for ATR since volatility regimes change more slowly
-        super().__init__(bin_size=bin_size, label="ATR", decay_factor=decay_factor)
+    def __init__(self, bin_size: float = 0.01, decay_factor: float = 0.01, max_values: int = 100000):
+        # Conservative limit - higher for better analysis
+        super().__init__(bin_size=bin_size, label="ATR", decay_factor=decay_factor, max_values=max_values)
 
     def add_atr(self, atr_value: float):
         self.add(atr_value)

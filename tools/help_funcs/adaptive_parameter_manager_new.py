@@ -127,13 +127,13 @@ class AdaptiveParameterManager:
         
         # Slope Distribution Monitor - always create if slope factors are enabled
         if self.adaptive_factors.get('slope', {}).get('enabled', False):
-            self.slope_monitor = SlopeDistributionMonitor()
+            self.slope_monitor = SlopeDistributionMonitor(max_values=100000)  # Conservative limit
         else:
             self.slope_monitor = None
         
         # ATR Distribution Monitor - always create if ATR factors are enabled  
         if self.adaptive_factors.get('atr', {}).get('enabled', False):
-            self.atr_monitor = ATRDistributionMonitor()
+            self.atr_monitor = ATRDistributionMonitor(max_values=100000)  # Conservative limit
         else:
             self.atr_monitor = None
     

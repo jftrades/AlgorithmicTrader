@@ -1,4 +1,5 @@
 from typing import Tuple, Dict, Any
+from collections import deque
 from tools.indicators.VWAP_ZScore_HTF import VWAPZScoreHTFAnchored
 
 class ElasticReversionZScoreEntry:
@@ -11,7 +12,7 @@ class ElasticReversionZScoreEntry:
         reset_neutral_zone_long: float = 0.3, 
         reset_neutral_zone_short: float = -0.3,
         allow_multiple_recoveries: bool = True,
-        recovery_cooldown_bars: int = 5   
+        recovery_cooldown_bars: int = 5
     ):
         self.vwap_zscore = vwap_zscore_indicator
         self.z_min_threshold = z_min_threshold
@@ -20,7 +21,8 @@ class ElasticReversionZScoreEntry:
         self.reset_neutral_zone_long = reset_neutral_zone_long
         self.reset_neutral_zone_short = reset_neutral_zone_short
         
-        self.zscore_since_cross = []
+        # Use deque with reasonable maxlen for memory efficiency
+        self.zscore_since_cross = deque(maxlen=5000)  # Keep last 5000 values
         self.z_extreme_long_since_cross = None      
         self.z_extreme_short_since_cross = None     
         self.bars_since_long_extreme = 0
@@ -48,7 +50,7 @@ class ElasticReversionZScoreEntry:
 
     def reset_on_cross(self):
         """Resettet das System bei einem neuen Kalman Cross - ersetzt lookback_window"""
-        self.zscore_since_cross = []
+        self.zscore_since_cross.clear()  # Clear deque efficiently
         self.z_extreme_long_since_cross = None
         self.z_extreme_short_since_cross = None
         self.bars_since_long_extreme = 0
@@ -89,6 +91,7 @@ class ElasticReversionZScoreEntry:
         if zscore is None:
             return
             
+        # Deque automatically manages memory with maxlen
         self.zscore_since_cross.append(zscore)
         self._update_extremes_since_cross(zscore)
 

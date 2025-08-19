@@ -57,11 +57,17 @@ class IndicatorInstance:
 
 
 class BacktestDataCollector:
-    def __init__(self): 
+    def __init__(self, enable_memory_optimization: bool = True, max_bars_for_full_storage: int = 100000): 
         self.bars = []  # OHLC mit timestamp
         self.trades = []  # dicts: timestamp, tradesize, buy_inprice, tp, sl, long
         self.indicators = {}  # name -> list of dicts: timestamp, value
         self.indicator_plot_number = {}  # name -> plot_number -- 0 -> in (bar) chart, 1 -> metrik plot 1 etc...
+        
+        # Conservative memory management - only for very long backtests
+        self.enable_memory_optimization = enable_memory_optimization
+        self.max_bars_for_full_storage = max_bars_for_full_storage
+        self.bar_counter = 0
+        
         self.initialise_result_path()
 
     def initialise_result_path(self):
@@ -87,14 +93,26 @@ class BacktestDataCollector:
             'low': low,
             'close': close,
             'bar_index': bar_index  # NEU
-
         })
+        self.bar_counter += 1
 
     def add_indicator(self, name, timestamp, value):
         bar_index = len(self.bars) - 1 if self.bars else 0
         plot_number = self.indicator_plot_number.get(name, 0)
         if name not in self.indicators:
             self.indicators[name] = []
+        
+        # Conservative memory optimization - only for very long backtests
+        if (self.enable_memory_optimization and 
+            self.bar_counter > self.max_bars_for_full_storage and 
+            len(self.indicators[name]) > 50000):
+            # Very conservative: only thin out when we have excessive data
+            # Keep every 5th value to maintain reasonable resolution
+            if len(self.indicators[name]) % 5 == 0:
+                # Remove every 5th old entry to gradually reduce memory
+                if len(self.indicators[name]) > 1:
+                    self.indicators[name].pop(0)
+        
         self.indicators[name].append({
             'timestamp': timestamp,
             'value': value,

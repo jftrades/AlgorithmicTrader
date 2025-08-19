@@ -33,7 +33,7 @@ base_parameters:
     allow_multiple_recoveries: true
     recovery_cooldown_bars: 10
     alllow_stacking: true
-    max_long_stacked_positions: 5
+    max_long_stacked_positions: 4
     max_short_stacked_positions: 2
     additional_zscore_min_gain: 1.5
     recovery_delta_reentry: 0.8

@@ -1,6 +1,7 @@
 # Standard Library Importe
 from decimal import Decimal
 from typing import Any
+from collections import deque
 import datetime
 # Nautilus Kern offizielle Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
@@ -157,8 +158,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.long_positions_since_cross = 0
         self.short_positions_since_cross = 0
         self.last_kalman_cross_direction = None
-        self.long_entry_zscores = []
-        self.short_entry_zscores = []
+        # Use deques with reasonable maxlen for memory efficiency without losing functionality
+        self.long_entry_zscores = deque(maxlen=200)  # Keep last 200 entries
+        self.short_entry_zscores = deque(maxlen=200)  # Keep last 200 entries
         self.bars_since_last_long_entry = 0
         self.bars_since_last_short_entry = 0
 
@@ -493,7 +495,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.long_positions_since_cross += 1
             self.entry_combined_factor = self.current_combined_factor
             
-            # Track entry ZScore for stacking
+            # Track entry ZScore for stacking - deque automatically manages memory
             self.long_entry_zscores.append(zscore)
             self.bars_since_last_long_entry = 0
 
@@ -540,7 +542,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.short_positions_since_cross += 1
             self.entry_combined_factor = self.current_combined_factor
             
-            # Track entry ZScore for stacking
+            # Track entry ZScore for stacking - deque automatically manages memory
             self.short_entry_zscores.append(zscore)
             self.bars_since_last_short_entry = 0
 
