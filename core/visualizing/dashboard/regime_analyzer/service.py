@@ -405,6 +405,7 @@ class RegimeService:
                     secondary_y=False
                 )
         else:
+            # Generate synthetic price data aligned with indicator timestamps
             synthetic_prices = 50000 + np.random.normal(0, 1000, len(raw_data)).cumsum()
             fig.add_trace(
                 go.Scatter(
@@ -412,28 +413,32 @@ class RegimeService:
                     y=synthetic_prices,
                     mode='lines',
                     name='Synthetic Price',
-                    line=dict(color='#1f77b4', width=2, dash='dot')
+                    line=dict(color='#1f77b4', width=2, dash='dot'),
+                    hovertemplate='<b>Synthetic Price</b>: $%{y:.2f}<br><b>Time</b>: %{x}<extra></extra>',
+                    yaxis='y'
                 ),
                 secondary_y=False
             )
         
-        indicator_color = '#ff7f0e'
+        # Add indicator overlay (secondary y-axis with normalized scale)
+        indicator_color = '#ff7f0e'  # Orange for indicator
         
+        # Customize indicator color and name based on type
         if feature.startswith('general_'):
             indicator_colors = {
-                'general_rsi': '#9333ea',
-                'general_macd': '#f59e0b',
-                'general_bollinger': '#06b6d4',
-                'general_sma': '#84cc16',
-                'general_ema': '#22c55e',
-                'general_atr': '#ef4444'
+                'general_rsi': '#9333ea',      # Purple for RSI
+                'general_macd': '#f59e0b',     # Amber for MACD  
+                'general_bollinger': '#06b6d4', # Cyan for Bollinger
+                'general_sma': '#84cc16',       # Lime for SMA
+                'general_ema': '#22c55e',       # Green for EMA
+                'general_atr': '#ef4444'        # Red for ATR
             }
             indicator_color = indicator_colors.get(feature, '#ff7f0e')
         elif feature in ['RSI', 'EMA', 'VWAP']:
             csv_colors = {
-                'RSI': '#9333ea',
-                'EMA': '#22c55e',
-                'VWAP': '#06b6d4'
+                'RSI': '#9333ea',    # Purple for RSI
+                'EMA': '#22c55e',    # Green for EMA  
+                'VWAP': '#06b6d4'    # Cyan for VWAP
             }
             indicator_color = csv_colors.get(feature, '#ff7f0e')
         
@@ -441,13 +446,16 @@ class RegimeService:
             go.Scatter(
                 x=raw_data['timestamp'],
                 y=raw_data[feature],
-                mode='lines',
+                mode='lines',  # No markers for cleaner look
                 name=feature,
-                line=dict(color=indicator_color, width=3)
+                line=dict(color=indicator_color, width=3),
+                hovertemplate=f'<b>{feature}</b>: %{{y:.4f}}<br><b>Time</b>: %{{x}}<extra></extra>',
+                yaxis='y2'
             ),
             secondary_y=True
         )
         
+        # Set y-axis ranges with proper scaling
         if price_subset is not None and len(price_subset) > 0:
             price_range = price_subset['close'].max() - price_subset['close'].min()
             price_margin = price_range * 0.05 if price_range > 0 else 1000
@@ -455,30 +463,53 @@ class RegimeService:
             fig.update_yaxes(
                 title_text="Price ($)",
                 range=[price_subset['close'].min() - price_margin, price_subset['close'].max() + price_margin],
-                secondary_y=False
+                secondary_y=False,
+                side="left"
             )
         else:
+            # Default price range
             fig.update_yaxes(
                 title_text="Price ($)",
                 range=[45000, 55000],
-                secondary_y=False
+                secondary_y=False,
+                side="left"
             )
         
+        # Indicator y-axis - with smart range
         indicator_range = raw_data[feature].max() - raw_data[feature].min()
         indicator_margin = indicator_range * 0.05 if indicator_range > 0 else 0.1
         
         fig.update_yaxes(
             title_text=f"{feature}",
             range=[raw_data[feature].min() - indicator_margin, raw_data[feature].max() + indicator_margin],
-            secondary_y=True
+            secondary_y=True,
+            side="right"
         )
         
+        # Add bin boundary vertical lines for reference
+        bin_edges = analysis.get('bin_edges', [])
+        if len(bin_edges) > 2:
+            indicator_range = raw_data[feature].max() - raw_data[feature].min()
+            for i, edge in enumerate(bin_edges[1:-1], 1):
+                # mark horizontal threshold on indicator axis (value)
+                fig.add_hline(y=edge, line=dict(color="rgba(128,128,128,0.25)", width=1, dash="dot"),
+                              annotation=dict(text=f"Bin {i}", font=dict(size=9), showarrow=False))
+        
         fig.update_layout(
-            title=f'{title_prefix}: {feature} Indicator with Price Context',
+            title=f'{title_prefix}: {feature} Indicator with Price Context<br><sub>Dual-axis chart showing price movement and indicator behavior</sub>',
             height=500,
             paper_bgcolor='white',
             plot_bgcolor='white',
-            hovermode='x unified'
+            xaxis=dict(gridcolor='rgba(128,128,128,0.2)', title='Time'),
+            font=dict(size=12),
+            hovermode='x unified',
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01,
+                bgcolor="rgba(255,255,255,0.8)"
+            )
         )
         
         return fig
