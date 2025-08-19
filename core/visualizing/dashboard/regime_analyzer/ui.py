@@ -99,8 +99,8 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                     dcc.Dropdown(
                         id='regime-analysis-type',
                         options=[
-                            {'label': '📈 Index Analysis', 'value': 'index'},
-                            {'label': '₿ Crypto Analysis', 'value': 'crypto'}
+                            {'label': 'Index Analysis', 'value': 'index'},  # FIX: Removed emoji
+                            {'label': 'Crypto Analysis', 'value': 'crypto'}  # FIX: Removed emoji
                         ],
                         value='crypto',
                         className="regime-dropdown",

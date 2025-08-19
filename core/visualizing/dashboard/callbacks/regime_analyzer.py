@@ -203,8 +203,8 @@ def register_regime_analyzer_callbacks(app, repo):
                     'quartile_performance': summary.get('quartile_performance', {})
                 }
                 
-                # NEW: Include analysis type in title
-                analysis_type_label = "📈 Index" if analysis_type == 'index' else "₿ Crypto"
+                # NEW: Include analysis type in title (without emojis)
+                analysis_type_label = "Index" if analysis_type == 'index' else "Crypto"
                 summary_card = create_summary_card(summary_card_data, f"{feature} ({analysis_type_label})", "Trade PnL")
                 
                 # Create bin info table for trade entry if bins mode
@@ -232,8 +232,8 @@ def register_regime_analyzer_callbacks(app, repo):
                 fig1, fig2 = _regime_service.plot_regime_analysis(feature, analysis_mode, n_bins, return_type, forward_periods)
                 summary = _regime_service.get_performance_summary(feature, return_type, forward_periods)
                 
-                # Create summary card with analysis type and time info
-                analysis_type_label = "📈 Index" if analysis_type == 'index' else "₿ Crypto"
+                # Create summary card with analysis type and time info (without emojis)
+                analysis_type_label = "Index" if analysis_type == 'index' else "Crypto"
                 time_info = f" ({time_value} {time_unit})" if return_type == 'forward_return_custom' else ""
                 display_return_type = f"{return_type}{time_info}"
                 
