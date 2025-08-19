@@ -96,11 +96,33 @@ class AdaptiveParameterManager:
         slope_config = self.adaptive_factors['slope']
         
         if self.slope_monitor and len(self.slope_monitor.values) >= self.adaptive_percentile_window:
-            normalized_slope = self._calculate_percentile_based_factor(
-                slope, self.slope_monitor, is_absolute=True
-            )
-            scale_factor = slope_config['min'] + normalized_slope * (slope_config['max'] - slope_config['min'])
-            return scale_factor
+            # Get the actual 5th and 95th percentiles
+            percentiles = self._get_cached_percentiles(self.slope_monitor, 'slope')
+            p5, p95 = percentiles[5], percentiles[95]
+            
+            if p5 is None or p95 is None:
+                return 1.0
+                
+            # Use absolute values for slope comparison
+            abs_slope = abs(slope)
+            abs_p5 = abs(p5)
+            abs_p95 = abs(p95)
+            
+            # Ensure p5 < p95 for proper scaling
+            if abs_p5 > abs_p95:
+                abs_p5, abs_p95 = abs_p95, abs_p5
+                
+            # Map slope directly to min/max range based on percentile position
+            if abs_slope <= abs_p5:
+                # Below 5th percentile -> use min value
+                return slope_config['min']
+            elif abs_slope >= abs_p95:
+                # Above 95th percentile -> use max value
+                return slope_config['max']
+            else:
+                # Between 5th and 95th percentile -> linear interpolation
+                percentile_position = (abs_slope - abs_p5) / (abs_p95 - abs_p5)
+                return slope_config['min'] + percentile_position * (slope_config['max'] - slope_config['min'])
         
         return 1.0
     def __init__(self, base_params: dict, adaptive_factors: dict, kalman_filter=None, adaptive_percentile_window: int = 200, cache_update_frequency: int = 50):
@@ -399,12 +421,26 @@ class AdaptiveParameterManager:
             return 1.0
         
         if self.atr_monitor and len(self.atr_monitor.values) >= self.adaptive_percentile_window:
+            # Get the actual 5th and 95th percentiles
+            percentiles = self._get_cached_percentiles(self.atr_monitor, 'atr')
+            p5, p95 = percentiles[5], percentiles[95]
+            
+            if p5 is None or p95 is None or p95 <= p5:
+                return 1.0
+                
             current_atr = self.atr_calculator.current_atr
-            normalized_atr = self._calculate_percentile_based_factor(
-                current_atr, self.atr_monitor, is_absolute=False
-            )
-            scale_factor = atr_config['min'] + normalized_atr * (atr_config['max'] - atr_config['min'])
-            return scale_factor
+            
+            # Map ATR directly to min/max range based on percentile position
+            if current_atr <= p5:
+                # Below 5th percentile -> use min value
+                return atr_config['min']
+            elif current_atr >= p95:
+                # Above 95th percentile -> use max value
+                return atr_config['max']
+            else:
+                # Between 5th and 95th percentile -> linear interpolation
+                percentile_position = (current_atr - p5) / (p95 - p5)
+                return atr_config['min'] + percentile_position * (atr_config['max'] - atr_config['min'])
         
         return 1.0
     
