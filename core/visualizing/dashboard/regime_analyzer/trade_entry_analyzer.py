@@ -11,10 +11,10 @@ class TradeEntryAnalyzer:
     
     def __init__(self, results_root: Path):
         self.results_root = Path(results_root)
-        self.trades_data = None
-        self.indicators = {}
-        self.merged_trade_data = None
-        self.current_run = None
+        self.trades_data: Optional[pd.DataFrame] = None
+        self.indicators: Dict[str, pd.DataFrame] = {}
+        self.merged_trade_data: Optional[pd.DataFrame] = None
+        self.current_run: Optional[str] = None
         
     def load_trades_data(self, run_id: str) -> bool:
         """Load all trades data from different instruments/folders for specified run."""
@@ -292,66 +292,46 @@ class TradeEntryAnalyzer:
             'count': '#8b5cf6'
         }
         
-        # Create hover templates correctly - fix the Series issue
-        def create_hover_template_with_range(bin_id, metric_name, value_format):
-            """Create hover template with correct range lookup."""
-            if bin_id < len(bin_ranges):
-                range_label = bin_ranges[bin_id]['range_label']
-                return f'<b>Bin {bin_id}</b><br>Range: {range_label}<br>{metric_name}: %{{y{value_format}}}<extra></extra>'
-            else:
-                return f'<b>Bin {bin_id}</b><br>{metric_name}: %{{y{value_format}}}<extra></extra>'
-        
-        # Average PnL per trade - fixed hover
-        hover_templates_avg_pnl = [create_hover_template_with_range(i, 'Avg PnL', ':.2f') for i in bin_stats.index]
+        # FIX: Simplified hover templates
         fig1.add_trace(
             go.Bar(
                 x=bin_stats.index, 
                 y=bin_stats['avg_pnl'], 
                 name='Avg PnL', 
                 marker_color=colors['avg_pnl'],
-                hovertemplate=[hover_templates_avg_pnl[i] if i < len(hover_templates_avg_pnl) else f'<b>Bin {bin_stats.index[i]}</b><br>Avg PnL: %{{y:.2f}}<extra></extra>' for i in range(len(bin_stats.index))],
                 showlegend=False
             ),
             row=1, col=1
         )
         
-        # Win Rate - fixed hover
-        hover_templates_win_rate = [create_hover_template_with_range(i, 'Win Rate', ':.2%') for i in bin_stats.index]
         fig1.add_trace(
             go.Bar(
                 x=bin_stats.index, 
                 y=bin_stats['win_rate'], 
                 name='Win Rate', 
                 marker_color=colors['win_rate'],
-                hovertemplate=[hover_templates_win_rate[i] if i < len(hover_templates_win_rate) else f'<b>Bin {bin_stats.index[i]}</b><br>Win Rate: %{{y:.2%}}<extra></extra>' for i in range(len(bin_stats.index))],
                 showlegend=False
             ),
             row=1, col=2
         )
         
-        # Total PnL - fixed hover
-        hover_templates_total_pnl = [create_hover_template_with_range(i, 'Total PnL', ':.2f') for i in bin_stats.index]
         fig1.add_trace(
             go.Bar(
                 x=bin_stats.index, 
                 y=bin_stats['total_pnl'], 
                 name='Total PnL', 
                 marker_color=colors['total_pnl'],
-                hovertemplate=[hover_templates_total_pnl[i] if i < len(hover_templates_total_pnl) else f'<b>Bin {bin_stats.index[i]}</b><br>Total PnL: %{{y:.2f}}<extra></extra>' for i in range(len(bin_stats.index))],
                 showlegend=False
             ),
             row=2, col=1
         )
         
-        # Trade Count - fixed hover
-        hover_templates_count = [create_hover_template_with_range(i, 'Trade Count', '') for i in bin_stats.index]
         fig1.add_trace(
             go.Bar(
                 x=bin_stats.index, 
                 y=bin_stats['trade_count'], 
                 name='Trade Count', 
                 marker_color=colors['count'],
-                hovertemplate=[hover_templates_count[i] if i < len(hover_templates_count) else f'<b>Bin {bin_stats.index[i]}</b><br>Trade Count: %{{y}}<extra></extra>' for i in range(len(bin_stats.index))],
                 showlegend=False
             ),
             row=2, col=2
@@ -369,23 +349,15 @@ class TradeEntryAnalyzer:
         # Update axes
         for i in range(1, 3):
             for j in range(1, 3):
-                fig1.update_xaxes(
-                    title_text="Entry Bin",
-                    ticktext=[f"{k}" for k in bin_stats.index],
-                    tickvals=list(bin_stats.index),
-                    row=i, col=j
-                )
-                fig1.update_yaxes(
-                    gridcolor='rgba(128,128,128,0.2)',
-                    row=i, col=j
-                )
+                fig1.update_xaxes(title_text="Entry Bin", row=i, col=j)
+                fig1.update_yaxes(gridcolor='rgba(128,128,128,0.2)', row=i, col=j)
         
-        # Scatter plot: Entry Feature vs Trade PnL - FIX: Match bar chart colors
+        # Scatter plot: Entry Feature vs Trade PnL
         fig2 = go.Figure()
         
         raw_data = analysis['raw_data']
         
-        # FIX: Use consistent color mapping - green for profitable, red for losses (same as bars)
+        # Use explicit colors for profitable vs loss trades
         scatter_colors = ['#10b981' if profitable else '#ef4444' for profitable in raw_data['is_profitable']]
         
         fig2.add_trace(go.Scatter(
@@ -393,22 +365,13 @@ class TradeEntryAnalyzer:
             y=raw_data['trade_pnl'],
             mode='markers',
             marker=dict(
-                color=scatter_colors,  # FIX: Use explicit colors instead of colorscale
-                showscale=False,  # FIX: Remove colorscale since we use explicit colors
+                color=scatter_colors,
+                showscale=False,
                 size=6,
                 opacity=0.7,
                 line=dict(width=0.5, color='white')
             ),
-            name='Trades',
-            text=raw_data['action'],
-            customdata=raw_data['is_profitable'],  # Store for hover
-            hovertemplate='<br>'.join([
-                f'<b>Entry {feature}</b>: %{{x:.4f}}',
-                f'<b>Trade PnL</b>: %{{y:.2f}} USDT',
-                '<b>Action</b>: %{text}',
-                '<b>Result</b>: %{customdata}',  # Show profitable/loss
-                '<extra></extra>'
-            ])
+            name='Trades'
         ))
         
         # Add custom legend for colors
@@ -430,38 +393,19 @@ class TradeEntryAnalyzer:
         
         # Add bin boundary lines
         bin_edges = analysis['bin_edges']
-        for i, edge in enumerate(bin_edges[1:-1], 1):
-            fig2.add_vline(
-                x=edge,
-                line=dict(color="rgba(128,128,128,0.6)", width=1, dash="dash"),
-                annotation=dict(
-                    text=f"{edge:.3f}",
-                    textangle=90,
-                    font=dict(size=10, color="rgba(128,128,128,0.8)"),
-                    showarrow=False,
-                    xshift=10,
-                    yshift=10
-                )
-            )
+        for edge in bin_edges[1:-1]:
+            fig2.add_vline(x=edge, line=dict(color="rgba(128,128,128,0.6)", width=1, dash="dash"))
         
         # Add horizontal line at PnL=0
-        fig2.add_hline(
-            y=0,
-            line=dict(color="rgba(255,0,0,0.3)", width=2, dash="dot"),
-            annotation_text="Break-even",
-            annotation_position="bottom right"
-        )
+        fig2.add_hline(y=0, line=dict(color="rgba(255,0,0,0.3)", width=2, dash="dot"))
         
         fig2.update_layout(
-            title=f'Trade Scatter: Entry {feature} vs Trade PnL<br><sub>Each dot = one trade. Dashed lines = bin boundaries</sub>',
+            title=f'Trade Scatter: Entry {feature} vs Trade PnL',
             xaxis_title=f'Entry {feature}',
             yaxis_title='Trade PnL (USDT)',
             height=500,
             paper_bgcolor='white',
-            plot_bgcolor='white',
-            xaxis=dict(gridcolor='rgba(128,128,128,0.2)'),
-            yaxis=dict(gridcolor='rgba(128,128,128,0.2)'),
-            font=dict(size=12)
+            plot_bgcolor='white'
         )
         
         return fig1, fig2

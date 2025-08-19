@@ -24,6 +24,40 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
     # Get available indicators
     features = _service.get_feature_names() if data_loaded else []
     
+    # NEW: Get available instruments and timeframes for the initial run
+    instruments_options = []
+    timeframes_options = []
+    initial_instrument = None
+    initial_timeframe = None
+    
+    if results_root and initial_run:
+        try:
+            run_path = results_root / initial_run
+            if run_path.exists():
+                # Find instrument directories
+                instrument_dirs = [item for item in run_path.iterdir() if item.is_dir() and item.name != 'general']
+                
+                if instrument_dirs:
+                    instruments = [d.name for d in instrument_dirs]
+                    instruments_options = [{'label': inst, 'value': inst} for inst in instruments]
+                    initial_instrument = instruments[0]
+                    
+                    print(f"[UI] Found instruments: {instruments}")
+                    
+                    # Get timeframes for first instrument
+                    if initial_instrument:
+                        instrument_path = run_path / initial_instrument
+                        bar_files = list(instrument_path.glob("bars-*.csv"))
+                        
+                        if bar_files:
+                            timeframes = [f.stem.replace('bars-', '') for f in bar_files]
+                            timeframes_options = [{'label': tf, 'value': tf} for tf in timeframes]
+                            initial_timeframe = timeframes[0]
+                            
+                            print(f"[UI] Found timeframes for {initial_instrument}: {timeframes}")
+        except Exception as e:
+            print(f"[UI] Error loading instruments/timeframes: {e}")
+
     return html.Div([        
         # Header Section - FUTURISTIC DARK MODE
         html.Div([
@@ -62,7 +96,7 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                 'letterSpacing': '1px'
             }),
             
-            # Row 1: Primary Controls
+            # Row 1: Primary Controls - FIX: Add missing instrument/timeframe selectors
             html.Div([
                 html.Div([
                     html.Label("Run Selection", style={
@@ -79,12 +113,52 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                         options=[{'label': run, 'value': run} for run in available_runs],
                         value=initial_run,
                         placeholder="Select run...",
-                        className="regime-dropdown",  # FIX: Use className instead of Style
-                        style={
-                            'marginBottom': '16px'
-                        }
+                        className="regime-dropdown",
+                        style={'marginBottom': '16px'}
                     )
-                ], style={'width': '18%', 'display': 'inline-block', 'marginRight': '2%'}),  # FIX: Reduced width
+                ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),  # FIX: Reduced width for more dropdowns
+                
+                # FIX: ADD MISSING INSTRUMENT SELECTOR
+                html.Div([
+                    html.Label("Instrument", style={
+                        'fontWeight': '500',
+                        'color': '#d1d5db',
+                        'display': 'block',
+                        'marginBottom': '8px',
+                        'fontSize': '13px',
+                        'textTransform': 'uppercase',
+                        'letterSpacing': '0.5px'
+                    }),
+                    dcc.Dropdown(
+                        id='regime-instrument-selector',  # FIX: This ID was missing!
+                        options=instruments_options,
+                        value=initial_instrument,
+                        placeholder="Select instrument...",
+                        className="regime-dropdown",
+                        style={'marginBottom': '16px'}
+                    )
+                ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
+                
+                # FIX: ADD MISSING TIMEFRAME SELECTOR  
+                html.Div([
+                    html.Label("Timeframe", style={
+                        'fontWeight': '500',
+                        'color': '#d1d5db',
+                        'display': 'block',
+                        'marginBottom': '8px',
+                        'fontSize': '13px',
+                        'textTransform': 'uppercase',
+                        'letterSpacing': '0.5px'
+                    }),
+                    dcc.Dropdown(
+                        id='regime-timeframe-selector',  # FIX: This ID was missing!
+                        options=timeframes_options,
+                        value=initial_timeframe,
+                        placeholder="Select timeframe...",
+                        className="regime-dropdown",
+                        style={'marginBottom': '16px'}
+                    )
+                ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
                 
                 html.Div([
                     html.Label("Analysis Type", style={
@@ -99,16 +173,14 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                     dcc.Dropdown(
                         id='regime-analysis-type',
                         options=[
-                            {'label': 'Index Analysis', 'value': 'index'},  # FIX: Removed emoji
-                            {'label': 'Crypto Analysis', 'value': 'crypto'}  # FIX: Removed emoji
+                            {'label': 'Index Analysis', 'value': 'index'},
+                            {'label': 'Crypto Analysis', 'value': 'crypto'}
                         ],
                         value='crypto',
                         className="regime-dropdown",
-                        style={
-                            'marginBottom': '16px'
-                        }
+                        style={'marginBottom': '16px'}
                     )
-                ], style={'width': '18%', 'display': 'inline-block', 'marginRight': '2%'}),  # NEW: Analysis Type
+                ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
                 
                 html.Div([
                     html.Label("Analysis Mode", style={
@@ -127,12 +199,10 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                             {'label': 'Trade Entry Analysis', 'value': 'trade_entry'}
                         ],
                         value='equity',
-                        className="regime-dropdown",  # FIX: Use className instead of Style
-                        style={
-                            'marginBottom': '16px'
-                        }
+                        className="regime-dropdown",
+                        style={'marginBottom': '16px'}
                     )
-                ], style={'width': '18%', 'display': 'inline-block', 'marginRight': '2%'}),  # FIX: Reduced width
+                ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
                 
                 html.Div([
                     html.Label("Feature Selection", style={
@@ -149,13 +219,14 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                         options=[{'label': f, 'value': f} for f in features],
                         value=features[0] if features else None,
                         placeholder="Select feature...",
-                        className="regime-dropdown",  # FIX: Use className instead of Style
-                        style={
-                            'marginBottom': '16px'
-                        }
+                        className="regime-dropdown",
+                        style={'marginBottom': '16px'}
                     )
-                ], style={'width': '18%', 'display': 'inline-block', 'marginRight': '2%'}),  # FIX: Reduced width
-                
+                ], style={'width': '15%', 'display': 'inline-block'})
+            ]),
+            
+            # Row 2: Return Configuration and Controls
+            html.Div([
                 html.Div([
                     html.Label("Return Configuration", style={
                         'fontWeight': '500',
@@ -175,12 +246,9 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                         ],
                         value='forward_return_custom',
                         className="regime-dropdown",
-                        style={
-                            'marginBottom': '8px'
-                        },
-                        disabled=False
+                        style={'marginBottom': '8px'}
                     ),
-                    # FIX: Forward Return Time Range Input
+                    # Forward Return Time Range Input
                     html.Div(id='forward-return-time-container', children=[
                         html.Label("Forward Time Range", style={
                             'fontWeight': '400',
@@ -196,7 +264,7 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                                 id='forward-time-value',
                                 type='number',
                                 min=1,
-                                max=999999,  # FIX: Entferne 5000 Limit, jetzt viel höher
+                                max=999999,
                                 step=1,
                                 value=1,
                                 style={
@@ -217,7 +285,7 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                                     {'label': 'Hours', 'value': 'hours'},
                                     {'label': 'Days', 'value': 'days'},
                                     {'label': 'Weeks', 'value': 'weeks'},
-                                    {'label': 'Periods', 'value': 'periods'}  # Raw data points
+                                    {'label': 'Periods', 'value': 'periods'}
                                 ],
                                 value='hours',
                                 className="regime-dropdown",
@@ -239,11 +307,8 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                             'fontStyle': 'italic'
                         })
                     ], style={'marginTop': '8px'})
-                ], style={'width': '20%', 'display': 'inline-block'})  # FIX: Adjusted width
-            ]),
-            
-            # Row 2: Secondary Controls
-            html.Div([
+                ], style={'width': '25%', 'display': 'inline-block', 'marginRight': '5%'}),
+                
                 html.Div([
                     html.Label("Visualization Type", style={
                         'fontWeight': '500',
@@ -270,7 +335,7 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                             'fontWeight': '400'
                         }
                     )
-                ], style={'width': '35%', 'display': 'inline-block', 'marginRight': '5%'}),
+                ], style={'width': '25%', 'display': 'inline-block', 'marginRight': '5%'}),
                 
                 html.Div([
                     html.Label("Bin Configuration", style={
@@ -294,7 +359,7 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                         },
                         tooltip={"placement": "bottom", "always_visible": True}
                     )
-                ], style={'width': '30%', 'display': 'inline-block', 'marginRight': '5%'}),
+                ], style={'width': '20%', 'display': 'inline-block', 'marginRight': '5%'}),
                 
                 html.Div([
                     html.Button("ANALYZE", id='regime-analyze-btn', 
@@ -314,7 +379,7 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                                   'transition': 'all 0.2s ease',
                                   'boxShadow': '0 4px 12px rgba(99, 102, 241, 0.3)'
                               })
-                ], style={'width': '25%', 'display': 'inline-block', 'verticalAlign': 'top'})
+                ], style={'width': '20%', 'display': 'inline-block', 'verticalAlign': 'top'})
             ])
         ], style={
             'background': '#1f2937',
@@ -374,13 +439,12 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
     })
 
 def register_regime_callbacks(app):
-    # This function is no longer needed - callbacks are registered in callbacks/regime_analyzer.py
-    pass
+    pass  # kept for compatibility
 
 def create_summary_card(summary: dict, feature: str, return_type: str):
     """Create performance summary card with DARK THEME."""
     if not summary:
-        return html.Div()
+        return html.Div("No summary", style={'padding': '12px', 'border': '1px solid #eee', 'borderRadius': '6px'})
         
     correlation = summary.get('correlation', 0)
     total_obs = summary.get('total_observations', 0) or summary.get('total_trades', 0)
@@ -440,18 +504,18 @@ def create_summary_card(summary: dict, feature: str, return_type: str):
             'alignItems': 'flex-start'
         })
     ], style={
-        'background': '#111827',
-        'padding': '24px',
+        'border': '1px solid #d4d4d8',
         'borderRadius': '8px',
-        'border': '1px solid #374151',
-        'margin': '24px 0',
-        'boxShadow': '0 4px 16px rgba(0, 0, 0, 0.1)'
+        'padding': '14px',
+        'background': 'white',
+        'marginBottom': '20px',
+        'boxShadow': '0 1px 3px rgba(0,0,0,0.06)'
     })
 
 def create_bin_info_table(bin_analysis: dict, feature: str):
     """Create bin information table with DARK THEME."""
     if not bin_analysis or 'bin_ranges' not in bin_analysis or 'bin_stats' not in bin_analysis:
-        return html.Div()
+        return html.Div(f"Bins: {len(bin_analysis.get('bin_ranges', []))}")
     
     bin_ranges = bin_analysis['bin_ranges']
     bin_stats = bin_analysis['bin_stats']

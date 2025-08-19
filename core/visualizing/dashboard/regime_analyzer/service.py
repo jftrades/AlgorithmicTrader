@@ -5,6 +5,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
+from .indicators import IndicatorManager
 
 class RegimeService:
     """Advanced regime analysis service for equity performance vs indicators."""
@@ -17,9 +18,9 @@ class RegimeService:
         self.merged_data = None
         self.available_runs = []
         self.current_run = None
-        self.analysis_type = 'crypto'  # NEW: Default to crypto
+        self.analysis_type = 'crypto'
+        self.indicator_manager = None
 
-    # NEW: Set analysis type method
     def set_analysis_type(self, analysis_type: str):
         """Set the analysis type (index or crypto) for specialized handling."""
         self.analysis_type = analysis_type
@@ -29,7 +30,6 @@ class RegimeService:
         """Get list of available run directories."""
         if not self.results_root.exists():
             return []
-        
         runs = []
         for item in self.results_root.iterdir():
             if item.is_dir() and item.name.startswith('run'):
@@ -41,62 +41,38 @@ class RegimeService:
         print(f"[SERVICE] Loading data for run: {run_id}")
         try:
             self.current_run = run_id
-            run_path = self.results_root / run_id / "general" / "indicators"
-            print(f"[SERVICE] Run path: {run_path}")
-            print(f"[SERVICE] Path exists: {run_path.exists()}")
+            self.indicator_manager = IndicatorManager(self.results_root)
             
+            run_path = self.results_root / run_id / "general" / "indicators"
             if not run_path.exists():
                 print(f"[SERVICE] Run path does not exist!")
                 return False
 
-            # Load equity data
             equity_file = run_path / "total_equity.csv"
-            print(f"[SERVICE] Equity file: {equity_file}")
-            print(f"[SERVICE] Equity file exists: {equity_file.exists()}")
-            
             if equity_file.exists():
                 equity_df = pd.read_csv(equity_file)
-                print(f"[SERVICE] Raw equity data shape: {equity_df.shape}")
-                print(f"[SERVICE] Raw equity columns: {equity_df.columns.tolist()}")
-                print(f"[SERVICE] First few equity rows:\n{equity_df.head()}")
-                
                 equity_df['timestamp'] = pd.to_datetime(equity_df['timestamp'], unit='ns')
                 equity_df = equity_df.sort_values('timestamp')
                 self.equity_data = equity_df[['timestamp', 'value']].rename(columns={'value': 'equity'})
                 print(f"[SERVICE] Processed equity data shape: {self.equity_data.shape}")
-                print(f"[SERVICE] Equity data date range: {self.equity_data['timestamp'].min()} to {self.equity_data['timestamp'].max()}")
             else:
                 print(f"[SERVICE] Equity file not found!")
                 return False
 
-            # Load all indicator files
-            self.indicators = {}
-            csv_files = list(run_path.glob("*.csv"))
-            print(f"[SERVICE] Found {len(csv_files)} CSV files in directory")
+            all_indicators = self.indicator_manager.load_all_for_analysis_type(run_id, self.analysis_type)
             
-            for csv_file in csv_files:
-                if not csv_file.name.startswith('total'):
-                    indicator_name = csv_file.stem
-                    print(f"[SERVICE] Loading indicator: {indicator_name} from {csv_file.name}")
-                    try:
-                        df = pd.read_csv(csv_file)
-                        print(f"[SERVICE] Raw {indicator_name} shape: {df.shape}")
-                        print(f"[SERVICE] Raw {indicator_name} columns: {df.columns.tolist()}")
-                        
-                        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ns')
-                        df = df.sort_values('timestamp')
-                        self.indicators[indicator_name] = df[['timestamp', 'value']].rename(
-                            columns={'value': indicator_name}
+            self.indicators = {}
+            for indicator_name, indicator_df in all_indicators.items():
+                if 'timestamp' in indicator_df.columns and len(indicator_df.columns) >= 2:
+                    value_cols = [c for c in indicator_df.columns if c != 'timestamp']
+                    if value_cols:
+                        main_value_col = value_cols[0]
+                        self.indicators[indicator_name] = indicator_df[['timestamp', main_value_col]].rename(
+                            columns={main_value_col: indicator_name}
                         )
-                        print(f"[SERVICE] Processed {indicator_name} shape: {self.indicators[indicator_name].shape}")
-                        print(f"[SERVICE] {indicator_name} date range: {self.indicators[indicator_name]['timestamp'].min()} to {self.indicators[indicator_name]['timestamp'].max()}")
-                    except Exception as e:
-                        print(f"[SERVICE] Error loading {indicator_name}: {e}")
-                        continue
+                        print(f"[SERVICE] Loaded indicator: {indicator_name} ({len(indicator_df)} points)")
 
             print(f"[SERVICE] Total indicators loaded: {len(self.indicators)}")
-            print(f"[SERVICE] Indicator names: {list(self.indicators.keys())}")
-            
             self.create_merged_data()
             return True
 
@@ -110,57 +86,73 @@ class RegimeService:
         """Merge equity data with indicators and calculate returns."""
         print(f"[SERVICE] Creating merged data...")
         if self.equity_data is None or not self.indicators:
-            print(f"[SERVICE] Cannot merge - equity_data: {self.equity_data is not None}, indicators: {len(self.indicators) if self.indicators else 0}")
             return
 
-        # Start with equity data
         merged = self.equity_data.copy()
-        print(f"[SERVICE] Starting with equity data shape: {merged.shape}")
+        equity_values = merged['equity'].values
         
-        # Calculate returns
+        # Current return (standard)
         merged['equity_return'] = merged['equity'].pct_change()
-        merged['forward_return_1'] = merged['equity'].pct_change().shift(-1)  # Next period return
-        merged['forward_return_5'] = merged['equity'].pct_change(5).shift(-5)  # 5-period forward return
+        
+        # Manual calculation for forward returns
+        forward_return_1 = np.full(len(equity_values), np.nan)
+        for i in range(len(equity_values) - 1):
+            if equity_values[i] != 0 and not np.isnan(equity_values[i]) and not np.isnan(equity_values[i + 1]):
+                forward_return_1[i] = (equity_values[i + 1] - equity_values[i]) / equity_values[i]
+        merged['forward_return_1'] = forward_return_1
+        
+        forward_return_5 = np.full(len(equity_values), np.nan)
+        for i in range(len(equity_values) - 5):
+            if equity_values[i] != 0 and not np.isnan(equity_values[i]) and not np.isnan(equity_values[i + 5]):
+                forward_return_5[i] = (equity_values[i + 5] - equity_values[i]) / equity_values[i]
+        merged['forward_return_5'] = forward_return_5
+        
         merged['cumulative_return'] = (merged['equity'] / merged['equity'].iloc[0]) - 1
-        # Store base data for forward_return_custom calculation
         merged['equity_base'] = merged['equity']
-        print(f"[SERVICE] After adding returns, shape: {merged.shape}")
 
-        # Merge each indicator using nearest timestamp matching
+        # Merge indicators
         for indicator_name, indicator_df in self.indicators.items():
-            print(f"[SERVICE] Merging indicator: {indicator_name}")
-            print(f"[SERVICE] Before merge - merged shape: {merged.shape}")
-            print(f"[SERVICE] Indicator {indicator_name} shape: {indicator_df.shape}")
-            
             merged = pd.merge_asof(
                 merged.sort_values('timestamp'),
                 indicator_df.sort_values('timestamp'),
                 on='timestamp',
                 direction='nearest'
             )
-            print(f"[SERVICE] After merging {indicator_name}, shape: {merged.shape}")
 
-        print(f"[SERVICE] Before dropna, merged shape: {merged.shape}")
         self.merged_data = merged.dropna()
         print(f"[SERVICE] Final merged data shape: {self.merged_data.shape}")
-        print(f"[SERVICE] Final merged data columns: {list(self.merged_data.columns)}")
-        print(f"[SERVICE] Sample of merged data:\n{self.merged_data.head()}")
 
     def calculate_forward_return_custom(self, periods: int) -> str:
         """Calculate custom forward return for given periods."""
         if self.merged_data is None:
-            return 'forward_return_1'  # fallback
+            return 'forward_return_1'
             
         column_name = f'forward_return_{periods}'
         
-        # Only calculate if not already exists
         if column_name not in self.merged_data.columns:
             if 'equity_base' in self.merged_data.columns:
-                # Calculate forward return for custom periods
-                self.merged_data[column_name] = self.merged_data['equity_base'].pct_change(periods).shift(-periods)
-                print(f"[SERVICE] Calculated {column_name} with {periods} periods")
+                try:
+                    print(f"[SERVICE] Computing {column_name} for {periods} periods...")
+                    self.merged_data = self.merged_data.copy(deep=True)
+                    
+                    equity_values = self.merged_data['equity_base'].to_numpy()
+                    forward_returns = np.full(len(equity_values), np.nan, dtype='float64')
+                    limit = len(equity_values) - periods
+                    if periods <= 0:
+                        raise ValueError("periods must be > 0")
+                    for i in range(limit):
+                        cur = equity_values[i]
+                        fut = equity_values[i + periods]
+                        if cur and not np.isnan(cur) and not np.isnan(fut):
+                            forward_returns[i] = (fut - cur) / cur
+                    
+                    self.merged_data.loc[:, column_name] = forward_returns
+                    valid_count = np.isfinite(forward_returns).sum()
+                    print(f"[SERVICE] forward_return_custom {periods} bars computed ({valid_count} values)")
+                except Exception as e:
+                    print(f"[SERVICE] Error calculating {column_name}: {e}")
+                    self.merged_data.loc[:, column_name] = self.merged_data.get('forward_return_1', np.nan)
             else:
-                print(f"[SERVICE] Warning: equity_base not found, using forward_return_1")
                 return 'forward_return_1'
         
         return column_name
@@ -170,45 +162,52 @@ class RegimeService:
         return list(self.indicators.keys()) if self.indicators else []
 
     def analyze_regime_bins(self, feature: str, n_bins: int = 10, return_type: str = 'forward_return_1', forward_periods: int = 1) -> Dict:
-        """Analyze performance across binned indicator ranges with custom forward period support."""
+        """Analyze performance across binned indicator ranges."""
         if self.merged_data is None or feature not in self.merged_data.columns:
             return {}
 
-        # Handle forward_return_custom  
         if return_type == 'forward_return_custom':
             return_type = self.calculate_forward_return_custom(forward_periods)
 
-        data = self.merged_data.dropna(subset=[feature, return_type])
+        data = self.merged_data.dropna(subset=[feature, return_type]).copy()
         
-        # Create bins with explicit bin edges
         feature_values = data[feature]
         min_val = feature_values.min()
         max_val = feature_values.max()
         
-        # Create equally spaced bin edges
-        bin_edges = np.linspace(min_val, max_val, n_bins + 1)
+        try:
+            bin_edges = np.linspace(min_val, max_val, n_bins + 1)
+            vals = feature_values.to_numpy()
+            bin_assignments = np.digitize(vals, bin_edges, right=False) - 1
+            bin_assignments = np.clip(bin_assignments, 0, n_bins - 1)
+            data.loc[:, 'feature_bin'] = bin_assignments
+        except Exception as e:
+            print(f"[SERVICE] Error in binning: {e}")
+            data.loc[:, 'feature_bin'] = pd.qcut(feature_values, q=min(n_bins, feature_values.nunique()),
+                                                 labels=False, duplicates='drop')
+            qs = np.linspace(0, 1, n_bins + 1)
+            bin_edges = feature_values.quantile(qs).to_numpy()
+
+        try:
+            bin_stats = data.groupby('feature_bin').agg({
+                return_type: ['mean', 'std', 'count'],
+                feature: ['min', 'max', 'mean']
+            }).round(4)
+            
+            bin_stats.columns = ['return_mean', 'return_std', 'count', 'feature_min', 'feature_max', 'feature_mean']
+            bin_stats['sharpe'] = (bin_stats['return_mean'] / bin_stats['return_std']).fillna(0)
+            bin_stats['win_rate'] = data.groupby('feature_bin')[return_type].apply(lambda x: (x > 0).mean()).round(4)
+        except Exception as e:
+            print(f"[SERVICE] Error in statistics calculation: {e}")
+            return {}
         
-        # Create bins and get bin labels
-        data['feature_bin'] = pd.cut(data[feature], bins=bin_edges, labels=False, include_lowest=True)
-        
-        # Calculate statistics per bin
-        bin_stats = data.groupby('feature_bin').agg({
-            return_type: ['mean', 'std', 'count'],
-            feature: ['min', 'max', 'mean']
-        }).round(4)
-        
-        bin_stats.columns = ['return_mean', 'return_std', 'count', 'feature_min', 'feature_max', 'feature_mean']
-        bin_stats['sharpe'] = (bin_stats['return_mean'] / bin_stats['return_std']).fillna(0)
-        bin_stats['win_rate'] = data.groupby('feature_bin')[return_type].apply(lambda x: (x > 0).mean()).round(4)
-        
-        # Add bin range information
         bin_ranges = []
         for i in range(n_bins):
             if i < len(bin_edges) - 1:
                 bin_ranges.append({
                     'bin_id': i,
-                    'range_start': bin_edges[i],
-                    'range_end': bin_edges[i + 1],
+                    'range_start': float(bin_edges[i]),
+                    'range_end': float(bin_edges[i + 1]),
                     'range_label': f"[{bin_edges[i]:.4f}, {bin_edges[i + 1]:.4f}]"
                 })
         
@@ -216,7 +215,7 @@ class RegimeService:
             'bin_stats': bin_stats,
             'raw_data': data,
             'feature_range': (min_val, max_val),
-            'bin_edges': bin_edges,
+            'bin_edges': bin_edges if 'bin_edges' in locals() else np.linspace(min_val, max_val, n_bins + 1),
             'bin_ranges': bin_ranges,
             'n_bins': n_bins
         }
@@ -224,9 +223,7 @@ class RegimeService:
     def plot_regime_analysis(self, feature: str, analysis_mode: str = 'bins', 
                            n_bins: int = 10, return_type: str = 'forward_return_1', 
                            forward_periods: int = 1) -> Tuple[go.Figure, go.Figure]:
-        """Create regime analysis plots with custom forward period support."""
-        
-        # Handle forward_return_custom
+        """Create regime analysis plots."""
         if return_type == 'forward_return_custom':
             return_type = self.calculate_forward_return_custom(forward_periods)
         
@@ -248,34 +245,29 @@ class RegimeService:
         bin_stats = analysis['bin_stats']
         bin_ranges = analysis['bin_ranges']
         
-        # NEW: Customize colors and styling based on analysis type
+        needs_chart_overlay = (
+            feature.startswith('chart_') or
+            feature.startswith('general_') or
+            feature in ['EMA', 'RSI', 'VWAP']
+        )
+        
         if self.analysis_type == 'index':
             theme_colors = {
-                'return': ['#dc2626' if val < 0 else '#16a34a' for val in bin_stats['return_mean']],  # Traditional red/green
-                'win_rate': '#1d4ed8',  # Traditional blue
+                'return': ['#dc2626' if val < 0 else '#16a34a' for val in bin_stats['return_mean']],
+                'win_rate': '#1d4ed8',
                 'sharpe': ['#dc2626' if val < 0 else '#f59e0b' for val in bin_stats['sharpe']],
                 'count': '#7c3aed'
             }
             title_prefix = "Index Analysis"
-        else:  # crypto
+        else:
             theme_colors = {
-                'return': ['#ef4444' if val < 0 else '#10b981' for val in bin_stats['return_mean']],  # Crypto orange/green
-                'win_rate': '#3b82f6',  # Crypto blue
+                'return': ['#ef4444' if val < 0 else '#10b981' for val in bin_stats['return_mean']],
+                'win_rate': '#3b82f6',
                 'sharpe': ['#ef4444' if val < 0 else '#f59e0b' for val in bin_stats['sharpe']],
-                'count': '#8b5cf6'  # Crypto purple
+                'count': '#8b5cf6'
             }
             title_prefix = "Crypto Analysis"
-        
-        # Create clean hover templates with range information
-        def create_hover_info(bin_id, value_type):
-            if bin_id < len(bin_ranges):
-                range_info = bin_ranges[bin_id]
-                range_text = range_info['range_label']
-                return f'<b>Bin {bin_id}</b><br>Range: {range_text}<br>{value_type}: %{{y}}<extra></extra>'
-            else:
-                return f'<b>Bin {bin_id}</b><br>{value_type}: %{{y}}<extra></extra>'
-        
-        # Performance by bins chart
+
         fig1 = make_subplots(
             rows=2, cols=2,
             subplot_titles=(
@@ -288,277 +280,340 @@ class RegimeService:
                    [{"secondary_y": False}, {"secondary_y": False}]]
         )
 
-        # Average Returns - with theme colors
         fig1.add_trace(
             go.Bar(
                 x=bin_stats.index, 
                 y=bin_stats['return_mean'], 
                 name='Avg Return', 
-                marker_color=theme_colors['return'],  # NEW: Theme-based colors
-                hovertemplate='<br>'.join([
-                    '<b>Bin %{x}</b>',
-                    'Range: ' + (bin_ranges[i]['range_label'] if i < len(bin_ranges) else 'N/A' for i in bin_stats.index).__next__(),
-                    'Avg Return: %{y:.6f}',
-                    '<extra></extra>'
-                ]),
+                marker_color=theme_colors['return'],
                 showlegend=False
             ),
             row=1, col=1
         )
 
-        # Win Rate - with theme colors
         fig1.add_trace(
             go.Bar(
                 x=bin_stats.index, 
                 y=bin_stats['win_rate'], 
                 name='Win Rate', 
-                marker_color=theme_colors['win_rate'],  # NEW: Theme-based colors
-                hovertemplate='<br>'.join([
-                    '<b>Bin %{x}</b>',
-                    'Range: ' + (bin_ranges[i]['range_label'] if i < len(bin_ranges) else 'N/A' for i in bin_stats.index).__next__(),
-                    'Win Rate: %{y:.2%}',
-                    '<extra></extra>'
-                ]),
+                marker_color=theme_colors['win_rate'],
                 showlegend=False
             ),
             row=1, col=2
         )
 
-        # Sharpe Ratio - with theme colors
         fig1.add_trace(
             go.Bar(
                 x=bin_stats.index, 
                 y=bin_stats['sharpe'], 
                 name='Sharpe', 
-                marker_color=theme_colors['sharpe'],  # NEW: Theme-based colors
-                hovertemplate='<br>'.join([
-                    '<b>Bin %{x}</b>',
-                    'Range: ' + (bin_ranges[i]['range_label'] if i < len(bin_ranges) else 'N/A' for i in bin_stats.index).__next__(),
-                    'Sharpe: %{y:.4f}',
-                    '<extra></extra>'
-                ]),
+                marker_color=theme_colors['sharpe'],
                 showlegend=False
             ),
             row=2, col=1
         )
 
-        # Sample Count - with theme colors
         fig1.add_trace(
             go.Bar(
                 x=bin_stats.index, 
                 y=bin_stats['count'], 
                 name='Count', 
-                marker_color=theme_colors['count'],  # NEW: Theme-based colors
-                hovertemplate='<br>'.join([
-                    '<b>Bin %{x}</b>',
-                    'Range: ' + (bin_ranges[i]['range_label'] if i < len(bin_ranges) else 'N/A' for i in bin_stats.index).__next__(),
-                    'Sample Count: %{y}',
-                    '<extra></extra>'
-                ]),
+                marker_color=theme_colors['count'],
                 showlegend=False
             ),
             row=2, col=2
         )
 
-        # Update layout with analysis type in title
         fig1.update_layout(
             height=600,
             showlegend=False,
-            title_text=f"{title_prefix}: {feature} vs {return_type}<br><sub>Feature range: [{analysis['feature_range'][0]:.4f}, {analysis['feature_range'][1]:.4f}], {n_bins} bins</sub>",  # NEW: Include analysis type
+            title_text=f"{title_prefix}: {feature} vs {return_type}<br><sub>Feature range: [{analysis['feature_range'][0]:.4f}, {analysis['feature_range'][1]:.4f}], {n_bins} bins</sub>",
             paper_bgcolor='white',
             plot_bgcolor='white',
             font=dict(size=12)
         )
 
-        # Update x-axes to show clean bin labels
-        for i in range(1, 3):  # rows
-            for j in range(1, 3):  # cols
-                fig1.update_xaxes(
-                    title_text="Bin",
-                    ticktext=[f"{k}" for k in bin_stats.index],
-                    tickvals=list(bin_stats.index),
-                    row=i, col=j
-                )
-                fig1.update_yaxes(
-                    gridcolor='rgba(128,128,128,0.2)',
-                    row=i, col=j
-                )
+        for i in range(1, 3):
+            for j in range(1, 3):
+                fig1.update_xaxes(title_text="Bin", row=i, col=j)
+                fig1.update_yaxes(gridcolor='rgba(128,128,128,0.2)', row=i, col=j)
 
-        # Enhanced scatter plot with analysis type theme
-        fig2 = go.Figure()
-        
+        if needs_chart_overlay and self.indicator_manager and self.indicator_manager.price_data is not None:
+            fig2 = self._create_price_indicator_overlay(feature, analysis, title_prefix)
+        else:
+            fig2 = self._create_standard_scatter_plot(feature, return_type, analysis, theme_colors, title_prefix)
+
+        return fig1, fig2
+
+    def _create_price_indicator_overlay(self, feature: str, analysis: Dict, title_prefix: str) -> go.Figure:
+        """Create price chart with indicator overlay."""
+        price_data = self.indicator_manager.price_data
         raw_data = analysis['raw_data']
         
-        # NEW: Choose colorscale based on analysis type
-        if self.analysis_type == 'index':
-            colorscale = 'RdYlGn'  # Traditional finance colors
-        else:
-            colorscale = 'viridis'  # Crypto tech colors
+        fig = make_subplots(
+            rows=1, cols=1,
+            specs=[[{"secondary_y": True}]],
+            subplot_titles=[f'{title_prefix}: {feature} with Price Context']
+        )
         
-        # Add scatter plot with theme-based colors
-        fig2.add_trace(go.Scatter(
+        price_subset = price_data.copy() if price_data is not None else None
+        
+        if price_subset is not None and len(raw_data) > 0:
+            start_time = raw_data['timestamp'].min()
+            end_time = raw_data['timestamp'].max()
+            
+            price_subset = price_subset[
+                (price_subset['timestamp'] >= start_time) & 
+                (price_subset['timestamp'] <= end_time)
+            ]
+            
+            if len(price_subset) > 0:
+                if all(col in price_subset.columns for col in ['open', 'high', 'low', 'close']):
+                    fig.add_trace(
+                        go.Candlestick(
+                            x=price_subset['timestamp'],
+                            open=price_subset['open'],
+                            high=price_subset['high'],
+                            low=price_subset['low'],
+                            close=price_subset['close'],
+                            name='Price',
+                            increasing_line_color='#10b981',
+                            decreasing_line_color='#ef4444'
+                        ),
+                        secondary_y=False
+                    )
+                else:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=price_subset['timestamp'],
+                            y=price_subset['close'],
+                            mode='lines',
+                            name='Price',
+                            line=dict(color='#1f77b4', width=2)
+                        ),
+                        secondary_y=False
+                    )
+            else:
+                fig.add_trace(
+                    go.Scatter(
+                        x=raw_data['timestamp'],
+                        y=[raw_data[feature].mean()] * len(raw_data),
+                        mode='lines',
+                        name='No Price Data',
+                        line=dict(color='gray', dash='dot')
+                    ),
+                    secondary_y=False
+                )
+        else:
+            synthetic_prices = 50000 + np.random.normal(0, 1000, len(raw_data)).cumsum()
+            fig.add_trace(
+                go.Scatter(
+                    x=raw_data['timestamp'],
+                    y=synthetic_prices,
+                    mode='lines',
+                    name='Synthetic Price',
+                    line=dict(color='#1f77b4', width=2, dash='dot')
+                ),
+                secondary_y=False
+            )
+        
+        indicator_color = '#ff7f0e'
+        
+        if feature.startswith('general_'):
+            indicator_colors = {
+                'general_rsi': '#9333ea',
+                'general_macd': '#f59e0b',
+                'general_bollinger': '#06b6d4',
+                'general_sma': '#84cc16',
+                'general_ema': '#22c55e',
+                'general_atr': '#ef4444'
+            }
+            indicator_color = indicator_colors.get(feature, '#ff7f0e')
+        elif feature in ['RSI', 'EMA', 'VWAP']:
+            csv_colors = {
+                'RSI': '#9333ea',
+                'EMA': '#22c55e',
+                'VWAP': '#06b6d4'
+            }
+            indicator_color = csv_colors.get(feature, '#ff7f0e')
+        
+        fig.add_trace(
+            go.Scatter(
+                x=raw_data['timestamp'],
+                y=raw_data[feature],
+                mode='lines',
+                name=feature,
+                line=dict(color=indicator_color, width=3)
+            ),
+            secondary_y=True
+        )
+        
+        if price_subset is not None and len(price_subset) > 0:
+            price_range = price_subset['close'].max() - price_subset['close'].min()
+            price_margin = price_range * 0.05 if price_range > 0 else 1000
+            
+            fig.update_yaxes(
+                title_text="Price ($)",
+                range=[price_subset['close'].min() - price_margin, price_subset['close'].max() + price_margin],
+                secondary_y=False
+            )
+        else:
+            fig.update_yaxes(
+                title_text="Price ($)",
+                range=[45000, 55000],
+                secondary_y=False
+            )
+        
+        indicator_range = raw_data[feature].max() - raw_data[feature].min()
+        indicator_margin = indicator_range * 0.05 if indicator_range > 0 else 0.1
+        
+        fig.update_yaxes(
+            title_text=f"{feature}",
+            range=[raw_data[feature].min() - indicator_margin, raw_data[feature].max() + indicator_margin],
+            secondary_y=True
+        )
+        
+        fig.update_layout(
+            title=f'{title_prefix}: {feature} Indicator with Price Context',
+            height=500,
+            paper_bgcolor='white',
+            plot_bgcolor='white',
+            hovermode='x unified'
+        )
+        
+        return fig
+
+    def _create_standard_scatter_plot(self, feature: str, return_type: str, analysis: Dict, theme_colors: Dict, title_prefix: str) -> go.Figure:
+        """Create standard scatter plot for non-chart indicators."""
+        fig = go.Figure()
+        raw_data = analysis['raw_data']
+        colorscale = 'RdYlGn' if self.analysis_type == 'index' else 'viridis'
+        
+        fig.add_trace(go.Scatter(
             x=raw_data[feature],
             y=raw_data[return_type],
             mode='markers',
             marker=dict(
                 color=raw_data['feature_bin'],
-                colorscale=colorscale,  # NEW: Theme-based colorscale
+                colorscale=colorscale,
                 showscale=True,
-                colorbar=dict(
-                    title="Bin ID",
-                    ticktext=[f"Bin {i}" for i in range(n_bins)],
-                    tickvals=list(range(n_bins)),
-                    x=1.02
-                ),
-                size=5,
-                opacity=0.7,
-                line=dict(width=0.5, color='white')
+                colorbar=dict(title="Bin ID"),
+                size=6,
+                opacity=0.75
             ),
-            name='Data Points',
-            hovertemplate='<br>'.join([
-                f'<b>{feature}</b>: %{{x:.4f}}',
-                f'<b>{return_type}</b>: %{{y:.6f}}',
-                'Bin: %{marker.color}',
-                '<extra></extra>'
-            ])
+            name='Observations'
         ))
         
-        # Add vertical lines for bin boundaries with better styling
-        bin_edges = analysis['bin_edges']
-        for i, edge in enumerate(bin_edges[1:-1], 1):  # Skip first and last edge
-            fig2.add_vline(
-                x=edge,
-                line=dict(color="rgba(128,128,128,0.6)", width=1, dash="dash"),
-                annotation=dict(
-                    text=f"{edge:.3f}",
-                    textangle=90,
-                    font=dict(size=10, color="rgba(128,128,128,0.8)"),
-                    showarrow=False,
-                    xshift=10,
-                    yshift=10
-                )
-            )
-
-        # Add horizontal line at y=0 for returns
+        for edge in analysis['bin_edges'][1:-1]:
+            fig.add_vline(x=edge, line=dict(color="rgba(120,120,120,0.5)", width=1, dash="dash"))
+        
         if 'return' in return_type.lower():
-            fig2.add_hline(
-                y=0,
-                line=dict(color="rgba(255,0,0,0.3)", width=1, dash="dot"),
-                annotation_text="Break-even",
-                annotation_position="bottom right"
-            )
+            fig.add_hline(y=0, line=dict(color="rgba(255,0,0,0.35)", width=1, dash="dot"))
 
-        fig2.update_layout(
-            title=f'{title_prefix}: {feature} vs {return_type}<br><sub>Dashed lines show bin boundaries</sub>',
+        fig.update_layout(
+            title=f"{title_prefix}: {feature} vs {return_type}",
             xaxis_title=feature,
             yaxis_title=return_type,
-            height=500,
             paper_bgcolor='white',
             plot_bgcolor='white',
-            xaxis=dict(gridcolor='rgba(128,128,128,0.2)'),
-            yaxis=dict(gridcolor='rgba(128,128,128,0.2)'),
-            font=dict(size=12)
+            height=500
         )
-
-        return fig1, fig2
+        
+        return fig
 
     def _plot_continuous_analysis(self, feature: str, return_type: str) -> Tuple[go.Figure, go.Figure]:
         """Create continuous regime analysis plots."""
         if self.merged_data is None or feature not in self.merged_data.columns:
             empty_fig = go.Figure()
-            empty_fig.add_annotation(text="No data available", xref="paper", yref="paper", 
-                                   x=0.5, y=0.5, showarrow=False)
             return empty_fig, empty_fig
 
-        data = self.merged_data.dropna(subset=[feature, return_type])
-        
-        # Rolling correlation and performance
-        window = min(50, len(data) // 10)  # Adaptive window size
+        data = self.merged_data.dropna(subset=[feature, return_type]).copy()
         data = data.sort_values('timestamp')
-        data['rolling_corr'] = data[feature].rolling(window).corr(data[return_type])
-        
-        # Smooth trend analysis
+
         fig1 = make_subplots(
-            rows=3, cols=1,
-            subplot_titles=(
-                f'{feature} Over Time',
-                f'{return_type} Over Time',
-                f'Rolling Correlation ({window} periods)'
-            ),
+            rows=2, cols=1,
+            subplot_titles=(f'{feature} Over Time', f'{return_type} Over Time'),
             shared_xaxes=True
         )
 
-        # Feature over time
         fig1.add_trace(
             go.Scatter(x=data['timestamp'], y=data[feature], 
                       name=feature, line=dict(color='blue')),
             row=1, col=1
         )
 
-        # Returns over time
         fig1.add_trace(
             go.Scatter(x=data['timestamp'], y=data[return_type], 
-                      name=return_type, line=dict(color='green')),
+                      name=return_type, line=dict(color='red')),
             row=2, col=1
         )
 
-        # Rolling correlation
-        fig1.add_trace(
-            go.Scatter(x=data['timestamp'], y=data['rolling_corr'], 
-                      name='Rolling Correlation', line=dict(color='red')),
-            row=3, col=1
-        )
-
         fig1.update_layout(
-            height=700,
+            height=600,
             title_text=f"Continuous Analysis: {feature} vs {return_type}",
-            paper_bgcolor='white',
-            plot_bgcolor='white'
+            paper_bgcolor='white'
         )
 
-        # Heatmap-style analysis
-        fig2 = px.density_heatmap(
-            data, x=feature, y=return_type,
-            title=f'Density Heatmap: {feature} vs {return_type}',
-            color_continuous_scale='RdYlBu_r'
-        )
-        
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(
+            x=data[feature],
+            y=data[return_type],
+            mode='markers',
+            marker=dict(size=5, opacity=0.6)
+        ))
+
         fig2.update_layout(
+            title=f'Correlation: {feature} vs {return_type}',
+            xaxis_title=feature,
+            yaxis_title=return_type,
             height=500,
-            paper_bgcolor='white',
-            plot_bgcolor='white'
+            paper_bgcolor='white'
         )
 
         return fig1, fig2
 
     def get_performance_summary(self, feature: str, return_type: str = 'forward_return_1', forward_periods: int = 1) -> Dict:
-        """Get overall performance summary for the feature with custom forward period support."""
+        """Get overall performance summary."""
         if self.merged_data is None or feature not in self.merged_data.columns:
             return {}
 
-        # Handle forward_return_custom
         if return_type == 'forward_return_custom':
             return_type = self.calculate_forward_return_custom(forward_periods)
 
         data = self.merged_data.dropna(subset=[feature, return_type])
         
+        if len(data) == 0:
+            return {}
+
         correlation = data[feature].corr(data[return_type])
-        
-        # Quartile analysis
         quartiles = data[feature].quantile([0.25, 0.5, 0.75])
-        q1_returns = data[data[feature] <= quartiles[0.25]][return_type].mean()
-        q2_returns = data[(data[feature] > quartiles[0.25]) & (data[feature] <= quartiles[0.5])][return_type].mean()
-        q3_returns = data[(data[feature] > quartiles[0.5]) & (data[feature] <= quartiles[0.75])][return_type].mean()
-        q4_returns = data[data[feature] > quartiles[0.75]][return_type].mean()
+        
+        q1_data = data[data[feature] <= quartiles[0.25]]
+        q2_data = data[(data[feature] > quartiles[0.25]) & (data[feature] <= quartiles[0.5])]
+        q3_data = data[(data[feature] > quartiles[0.5]) & (data[feature] <= quartiles[0.75])]
+        q4_data = data[data[feature] > quartiles[0.75]]
+        
+        quartile_performance = {
+            'Q1 (Low)': q1_data[return_type].mean() if len(q1_data) > 0 else 0,
+            'Q2': q2_data[return_type].mean() if len(q2_data) > 0 else 0,
+            'Q3': q3_data[return_type].mean() if len(q3_data) > 0 else 0,
+            'Q4 (High)': q4_data[return_type].mean() if len(q4_data) > 0 else 0
+        }
+        
+        total_observations = len(data)
+        mean_return = data[return_type].mean()
+        std_return = data[return_type].std()
+        sharpe = mean_return / std_return if std_return != 0 else 0
+        win_rate = (data[return_type] > 0).mean()
 
         return {
             'correlation': correlation,
-            'total_observations': len(data),
+            'total_observations': total_observations,
+            'mean_return': mean_return,
+            'std_return': std_return,
+            'sharpe_ratio': sharpe,
+            'win_rate': win_rate,
+            'quartile_performance': quartile_performance,
             'feature_range': (data[feature].min(), data[feature].max()),
-            'quartile_performance': {
-                'Q1 (Low)': q1_returns,
-                'Q2': q2_returns, 
-                'Q3': q3_returns,
-                'Q4 (High)': q4_returns
-            }
+            'return_range': (data[return_type].min(), data[return_type].max())
         }
