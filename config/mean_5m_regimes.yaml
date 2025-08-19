@@ -67,21 +67,23 @@ base_parameters:
     max_offset_uptrend: 1.8
     max_offset_downtrend: -1.8
 
+adaptive_percentile_window: 500
+
 adaptive_factors:
   slope:
     enabled: true
-    min: 0.5 # at 5th percentile of last 200 bars (adaptive) = minimal strength
-    max: 1.4 # at 95th percentile of last 200 bars (adaptive) = maximum strength
+    min: 0.5  # at 5th percentile of last "adaptive_percentile_window" bars
+    max: 1.4 # at 95th percentile of last "adaptive_percentile_window" bars
   
   atr:
     enabled: true
     window: 14
-    percentile_window: 600
     outlier_threshold: 2.0
-    min: 0.5 # at 5th percentile of last 200 bars (adaptive) = minimal strength
-    max: 1.8 # at 95th percentile of last 200 bars (adaptive) = maximum strength
-  
+    min: 0.5 # at 5th percentile of last "adaptive_percentile_window" bars
+    max: 1.8 # at 95th percentile of last "adaptive_percentile_window" bars
+
   combination:
+  
     use_log_space: true
     min_combined_factor: 0.6
     max_combined_factor: 2.0

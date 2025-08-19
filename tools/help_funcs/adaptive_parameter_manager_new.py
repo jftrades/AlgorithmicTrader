@@ -95,7 +95,7 @@ class AdaptiveParameterManager:
         
         slope_config = self.adaptive_factors['slope']
         
-        if self.slope_monitor and len(self.slope_monitor.values) >= 200:
+        if self.slope_monitor and len(self.slope_monitor.values) >= self.adaptive_percentile_window:
             normalized_slope = self._calculate_percentile_based_factor(
                 slope, self.slope_monitor, is_absolute=True
             )
@@ -103,10 +103,11 @@ class AdaptiveParameterManager:
             return scale_factor
         
         return 1.0
-    def __init__(self, base_params: dict, adaptive_factors: dict, kalman_filter=None):
+    def __init__(self, base_params: dict, adaptive_factors: dict, kalman_filter=None, adaptive_percentile_window: int = 200):
         self.base_params = base_params
         self.adaptive_factors = adaptive_factors
         self.kalman = kalman_filter
+        self.adaptive_percentile_window = adaptive_percentile_window
         self.current_slope = 0.0
         self.current_kalman_mean = None
         
@@ -117,7 +118,7 @@ class AdaptiveParameterManager:
             atr_config = self.adaptive_factors['atr']
             self.atr_calculator = RobustATRCalculator(
                 atr_window=atr_config.get('window', 14),
-                percentile_window=atr_config.get('percentile_window', 200),
+                percentile_window=self.adaptive_percentile_window,
                 outlier_threshold=atr_config.get('outlier_threshold', 3.0)
             )
             self.current_atr_percentile = 0.5
@@ -161,7 +162,7 @@ class AdaptiveParameterManager:
         return None, self.current_atr_percentile
     
     def _calculate_percentile_based_factor(self, value: float, monitor, is_absolute: bool = False) -> float:
-        if len(monitor.values) < 200:
+        if len(monitor.values) < self.adaptive_percentile_window:
             return 0.5
         
         percentiles = monitor._calculate_weighted_percentiles([5, 95])
@@ -361,7 +362,7 @@ class AdaptiveParameterManager:
         if self.atr_calculator is None or len(self.atr_calculator.atr_history) < 20:
             return 1.0
         
-        if self.atr_monitor and len(self.atr_monitor.values) >= 200:
+        if self.atr_monitor and len(self.atr_monitor.values) >= self.adaptive_percentile_window:
             current_atr = self.atr_calculator.current_atr
             normalized_atr = self._calculate_percentile_based_factor(
                 current_atr, self.atr_monitor, is_absolute=False
@@ -587,7 +588,7 @@ class AdaptiveParameterManager:
             'percentile_scaling_active': False
         }
         
-        if self.slope_monitor and len(self.slope_monitor.values) >= 200:
+        if self.slope_monitor and len(self.slope_monitor.values) >= self.adaptive_percentile_window:
             info['slope_scaling'] = 'dynamic_percentile'
             info['slope_samples'] = len(self.slope_monitor.values)
             
@@ -597,7 +598,7 @@ class AdaptiveParameterManager:
                 info['slope_p95'] = abs(percentiles[95])
                 info['slope_range'] = abs(percentiles[95]) - abs(percentiles[5])
         
-        if self.atr_monitor and len(self.atr_monitor.values) >= 200:
+        if self.atr_monitor and len(self.atr_monitor.values) >= self.adaptive_percentile_window:
             info['atr_scaling'] = 'dynamic_percentile'
             info['atr_samples'] = len(self.atr_monitor.values)
             
@@ -636,7 +637,7 @@ class AdaptiveParameterManager:
                 )
                 print(f"  Normalized (0-1): {current_factor:.3f}")
         else:
-            print(f"  Waiting for 200+ samples (current: {info['slope_samples']})")
+            print(f"  Waiting for {self.adaptive_percentile_window}+ samples (current: {info['slope_samples']})")
             print(f"  Current slope: {self.current_slope:.6f}")
         
         print()
@@ -657,7 +658,7 @@ class AdaptiveParameterManager:
                     )
                     print(f"  Normalized (0-1): {current_factor:.3f}")
         else:
-            print(f"  Waiting for 200+ samples (current: {info['atr_samples']})")
+            print(f"  Waiting for {self.adaptive_percentile_window}+ samples (current: {info['atr_samples']})")
             if self.atr_calculator and self.atr_calculator.current_atr:
                 print(f"  Current ATR: {self.atr_calculator.current_atr:.6f}")
         
