@@ -380,38 +380,52 @@ class TradeEntryAnalyzer:
                     row=i, col=j
                 )
         
-        # Scatter plot: Entry Feature vs Trade PnL - fixed hover
+        # Scatter plot: Entry Feature vs Trade PnL - FIX: Match bar chart colors
         fig2 = go.Figure()
         
         raw_data = analysis['raw_data']
         
-        # Add scatter plot with color coding by profitability
+        # FIX: Use consistent color mapping - green for profitable, red for losses (same as bars)
+        scatter_colors = ['#10b981' if profitable else '#ef4444' for profitable in raw_data['is_profitable']]
+        
         fig2.add_trace(go.Scatter(
             x=raw_data[feature],
             y=raw_data['trade_pnl'],
             mode='markers',
             marker=dict(
-                color=raw_data['is_profitable'],
-                colorscale=[[0, '#ef4444'], [1, '#10b981']],  # Red for losses, green for wins
-                showscale=True,
-                colorbar=dict(
-                    title="Profitable",
-                    ticktext=["Loss", "Win"],
-                    tickvals=[0, 1],
-                    x=1.02
-                ),
+                color=scatter_colors,  # FIX: Use explicit colors instead of colorscale
+                showscale=False,  # FIX: Remove colorscale since we use explicit colors
                 size=6,
                 opacity=0.7,
                 line=dict(width=0.5, color='white')
             ),
             name='Trades',
-            text=raw_data['action'],  # Store action in text field
+            text=raw_data['action'],
+            customdata=raw_data['is_profitable'],  # Store for hover
             hovertemplate='<br>'.join([
                 f'<b>Entry {feature}</b>: %{{x:.4f}}',
                 f'<b>Trade PnL</b>: %{{y:.2f}} USDT',
                 '<b>Action</b>: %{text}',
+                '<b>Result</b>: %{customdata}',  # Show profitable/loss
                 '<extra></extra>'
             ])
+        ))
+        
+        # Add custom legend for colors
+        fig2.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode='markers',
+            marker=dict(color='#10b981', size=8),
+            name='Profitable Trades',
+            showlegend=True
+        ))
+        
+        fig2.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode='markers',
+            marker=dict(color='#ef4444', size=8),
+            name='Loss Trades',
+            showlegend=True
         ))
         
         # Add bin boundary lines
@@ -574,7 +588,7 @@ class TradeEntryAnalyzer:
             'overall_win_rate': data['is_profitable'].mean(),
             'feature_range': (data[feature].min(), data[feature].max()),
             'quartile_performance': {
-                'Q1 (Low)': q1_pnl,  # FIX: Return raw numbers instead of formatted strings
+                'Q1 (Low)': q1_pnl,
                 'Q2': q2_pnl, 
                 'Q3': q3_pnl,
                 'Q4 (High)': q4_pnl

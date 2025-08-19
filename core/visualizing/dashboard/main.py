@@ -44,6 +44,60 @@ def create_app():
                     -moz-osx-font-smoothing: grayscale;
                 }
                 
+                /* FIX: Regime Analyzer Dropdown Styling */
+                .regime-dropdown .Select-control {
+                    background-color: #374151 !important;
+                    border: 1px solid #4b5563 !important;
+                    color: #f9fafb !important;
+                }
+                
+                .regime-dropdown .Select-placeholder {
+                    color: #9ca3af !important;
+                }
+                
+                .regime-dropdown .Select-value-label,
+                .regime-dropdown .Select-single-value {
+                    color: #f9fafb !important;
+                }
+                
+                .regime-dropdown .Select-input > input {
+                    color: #f9fafb !important;
+                }
+                
+                .regime-dropdown .Select-menu-outer {
+                    background: #1f2937 !important;
+                    border: 1px solid #4b5563 !important;
+                    border-radius: 6px !important;
+                    box-shadow: 0 4px 16px rgba(0,0,0,0.35) !important;
+                    z-index: 9999 !important;
+                }
+                
+                .regime-dropdown .Select-option {
+                    background: #1f2937 !important;
+                    color: #f9fafb !important;
+                    padding: 10px 14px !important;
+                    border-bottom: 1px solid #374151 !important;
+                }
+                
+                .regime-dropdown .Select-option:last-child {
+                    border-bottom: none !important;
+                }
+                
+                .regime-dropdown .Select-option.is-focused,
+                .regime-dropdown .Select-option:hover {
+                    background: #374151 !important;
+                }
+                
+                .regime-dropdown .Select-option.is-selected {
+                    background: #4f46e5 !important;
+                    color: #fff !important;
+                }
+                
+                .regime-dropdown .Select-control.is-focused {
+                    box-shadow: 0 0 0 1px #4f46e5 !important;
+                    border: 1px solid #4f46e5 !important;
+                }
+                
                 .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner tr:hover {
                     transform: translateY(-2px);
                     transition: all 0.2s ease;
@@ -74,12 +128,12 @@ def create_app():
                 }
                 .run-tools-toolbar .Select, 
                 .run-tools-toolbar .Select-control {
-                    min-height: 30px !important;  /* was 32 */
+                    min-height: 30px !important;
                     height: 30px !important;
                     border-radius: 7px !important;
                 }
                 .run-tools-toolbar .Select-value-label {
-                    line-height: 28px !important; /* was 30 */
+                    line-height: 28px !important;
                     font-size: 10.5px !important;
                 }
                 .run-tools-toolbar .Select-menu-outer,

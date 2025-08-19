@@ -24,7 +24,7 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
     # Get available indicators
     features = _service.get_feature_names() if data_loaded else []
     
-    return html.Div([
+    return html.Div([        
         # Header Section - FUTURISTIC DARK MODE
         html.Div([
             html.H1("REGIME ANALYZER", style={
@@ -79,11 +79,9 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                         options=[{'label': run, 'value': run} for run in available_runs],
                         value=initial_run,
                         placeholder="Select run...",
+                        className="regime-dropdown",  # FIX: Use className instead of Style
                         style={
-                            'marginBottom': '16px',
-                            'backgroundColor': '#374151',
-                            'border': '1px solid #4b5563',
-                            'borderRadius': '6px'
+                            'marginBottom': '16px'
                         }
                     )
                 ], style={'width': '22%', 'display': 'inline-block', 'marginRight': '2%'}),
@@ -105,11 +103,9 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                             {'label': 'Trade Entry Analysis', 'value': 'trade_entry'}
                         ],
                         value='equity',
+                        className="regime-dropdown",  # FIX: Use className instead of Style
                         style={
-                            'marginBottom': '16px',
-                            'backgroundColor': '#374151',
-                            'border': '1px solid #4b5563',
-                            'borderRadius': '6px'
+                            'marginBottom': '16px'
                         }
                     )
                 ], style={'width': '22%', 'display': 'inline-block', 'marginRight': '2%'}),
@@ -129,11 +125,9 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                         options=[{'label': f, 'value': f} for f in features],
                         value=features[0] if features else None,
                         placeholder="Select feature...",
+                        className="regime-dropdown",  # FIX: Use className instead of Style
                         style={
-                            'marginBottom': '16px',
-                            'backgroundColor': '#374151',
-                            'border': '1px solid #4b5563',
-                            'borderRadius': '6px'
+                            'marginBottom': '16px'
                         }
                     )
                 ], style={'width': '22%', 'display': 'inline-block', 'marginRight': '2%'}),
@@ -156,17 +150,15 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                             {'label': 'Forward Return (Custom)', 'value': 'forward_return_custom'}
                         ],
                         value='forward_return_custom',
+                        className="regime-dropdown",
                         style={
-                            'marginBottom': '8px',
-                            'backgroundColor': '#374151',
-                            'border': '1px solid #4b5563',
-                            'borderRadius': '6px'
+                            'marginBottom': '8px'
                         },
                         disabled=False
                     ),
-                    # Forward Return Period Slider
-                    html.Div(id='forward-return-period-container', children=[
-                        html.Label("Forward Periods", style={
+                    # FIX: Forward Return Time Range Input
+                    html.Div(id='forward-return-time-container', children=[
+                        html.Label("Forward Time Range", style={
                             'fontWeight': '400',
                             'color': '#9ca3af',
                             'display': 'block',
@@ -175,21 +167,53 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                             'textTransform': 'uppercase',
                             'letterSpacing': '0.5px'
                         }),
-                        dcc.Slider(
-                            id='forward-return-periods',
-                            min=1,
-                            max=50,
-                            step=1,
-                            value=1,
-                            marks={
-                                1: {'label': '1', 'style': {'color': '#9ca3af', 'fontSize': '10px'}},
-                                5: {'label': '5', 'style': {'color': '#9ca3af', 'fontSize': '10px'}},
-                                10: {'label': '10', 'style': {'color': '#9ca3af', 'fontSize': '10px'}},
-                                25: {'label': '25', 'style': {'color': '#9ca3af', 'fontSize': '10px'}},
-                                50: {'label': '50', 'style': {'color': '#9ca3af', 'fontSize': '10px'}}
-                            },
-                            tooltip={"placement": "bottom", "always_visible": True}
-                        )
+                        html.Div([
+                            dcc.Input(
+                                id='forward-time-value',
+                                type='number',
+                                min=1,
+                                max=999999,  # FIX: Entferne 5000 Limit, jetzt viel höher
+                                step=1,
+                                value=1,
+                                style={
+                                    'width': '60px',
+                                    'padding': '4px 8px',
+                                    'borderRadius': '4px',
+                                    'border': '1px solid #4b5563',
+                                    'backgroundColor': '#374151',
+                                    'color': '#f9fafb',
+                                    'fontSize': '12px',
+                                    'textAlign': 'center'
+                                }
+                            ),
+                            dcc.Dropdown(
+                                id='forward-time-unit',
+                                options=[
+                                    {'label': 'Minutes', 'value': 'minutes'},
+                                    {'label': 'Hours', 'value': 'hours'},
+                                    {'label': 'Days', 'value': 'days'},
+                                    {'label': 'Weeks', 'value': 'weeks'},
+                                    {'label': 'Periods', 'value': 'periods'}  # Raw data points
+                                ],
+                                value='hours',
+                                className="regime-dropdown",
+                                style={
+                                    'width': '100px',
+                                    'marginLeft': '8px',
+                                    'fontSize': '11px'
+                                }
+                            )
+                        ], style={
+                            'display': 'flex',
+                            'alignItems': 'center',
+                            'gap': '0px'
+                        }),
+                        html.Div(id='forward-time-preview', style={
+                            'fontSize': '10px',
+                            'color': '#6b7280',
+                            'marginTop': '4px',
+                            'fontStyle': 'italic'
+                        })
                     ], style={'marginTop': '8px'})
                 ], style={'width': '22%', 'display': 'inline-block'})
             ]),

@@ -140,28 +140,42 @@ def register_regime_analyzer_callbacks(app, repo):
         
         return options, default_value
 
-    # Main analysis callback - now handles both modes
+    # Main analysis callback - now handles both modes with forward periods
     @app.callback(
         [Output('regime-summary-card', 'children'),
          Output('regime-analysis-results', 'children')],
         [Input('regime-analyze-btn', 'n_clicks')],
         [State('regime-run-selector', 'value'),
-         State('regime-data-mode', 'value'),  # FIX: Add data mode state
+         State('regime-data-mode', 'value'),
          State('regime-feature-selector', 'value'),
          State('regime-return-type', 'value'),
          State('regime-analysis-mode', 'value'),
-         State('regime-bins-slider', 'value')],
+         State('regime-bins-slider', 'value'),
+         State('forward-time-value', 'value'),  # FIX: Correct ID
+         State('forward-time-unit', 'value')],  # FIX: Correct ID
         prevent_initial_call=True
     )
-    def perform_analysis(n_clicks, run_id, data_mode, feature, return_type, analysis_mode, n_bins):
+    def perform_analysis(n_clicks, run_id, data_mode, feature, return_type, analysis_mode, n_bins, time_value, time_unit):
         global _regime_service, _trade_entry_analyzer
         
         if not n_clicks or not all([run_id, feature]) or not data_mode:
             raise PreventUpdate
             
+        # FIX: Convert time range to periods (ohne 5000-Limit)
+        forward_periods = 1  # default
+        if return_type == 'forward_return_custom' and time_value and time_unit:
+            conversion_map = {
+                'minutes': 1,
+                'hours': 60,
+                'days': 1440,
+                'weeks': 10080,
+                'periods': 1
+            }
+            forward_periods = time_value * conversion_map.get(time_unit, 1)  # FIX: Entferne min(5000, ...)
+            
         try:
             if data_mode == 'trade_entry':
-                # FIX: Use trade entry analyzer for trade entry analysis
+                # Trade entry analysis doesn't use forward periods
                 if not _trade_entry_analyzer:
                     error_msg = html.Div("Trade Entry Analyzer not initialized", style={'color': '#dc2626'})
                     return error_msg, error_msg
@@ -194,11 +208,10 @@ def register_regime_analyzer_callbacks(app, repo):
                 if analysis_mode == 'bins':
                     bin_analysis = _trade_entry_analyzer.analyze_trade_entry_bins(feature, n_bins)
                     if bin_analysis:
-                        # Create trade entry specific bin table
                         bin_info_element = create_trade_entry_bin_table(bin_analysis, feature)
                 
             else:
-                # FIX: Use regime service for equity analysis (existing code)
+                # FIX: Use regime service for equity analysis with time-based forward periods
                 if not _regime_service:
                     error_msg = html.Div("Regime Service not initialized", style={'color': '#dc2626'})
                     return error_msg, error_msg
@@ -208,18 +221,21 @@ def register_regime_analyzer_callbacks(app, repo):
                     error_msg = html.Div(f"Failed to load data for run: {run_id}", style={'color': '#dc2626'})
                     return error_msg, error_msg
                 
-                # Generate regime analysis
-                fig1, fig2 = _regime_service.plot_regime_analysis(feature, analysis_mode, n_bins, return_type)
-                summary = _regime_service.get_performance_summary(feature, return_type)
+                # FIX: Pass calculated forward_periods to analysis functions
+                fig1, fig2 = _regime_service.plot_regime_analysis(feature, analysis_mode, n_bins, return_type, forward_periods)
+                summary = _regime_service.get_performance_summary(feature, return_type, forward_periods)
                 
-                # Create summary card
+                # Create summary card with time info
+                time_info = f" ({time_value} {time_unit})" if return_type == 'forward_return_custom' else ""
+                display_return_type = f"{return_type}{time_info}"
+                
                 from core.visualizing.dashboard.regime_analyzer.ui import create_summary_card, create_bin_info_table
-                summary_card = create_summary_card(summary, feature, return_type)
+                summary_card = create_summary_card(summary, feature, display_return_type)
                 
                 # Create bin info table for equity analysis
                 bin_info_element = html.Div()
                 if analysis_mode == 'bins':
-                    bin_analysis = _regime_service.analyze_regime_bins(feature, n_bins, return_type)
+                    bin_analysis = _regime_service.analyze_regime_bins(feature, n_bins, return_type, forward_periods)
                     bin_info_element = create_bin_info_table(bin_analysis, feature)
             
             # Create results layout (same for both modes)
@@ -240,7 +256,8 @@ def register_regime_analyzer_callbacks(app, repo):
             import traceback
             error_msg = html.Div([
                 html.H4("⚠️ Analysis Error", style={'color': '#dc2626'}),
-                html.P(f"Mode: {data_mode}, Error: {str(e)}", style={'color': '#64748b'})
+                html.P(f"Mode: {data_mode}, Error: {str(e)}", style={'color': '#64748b'}),
+                html.P(f"Time Range: {time_value} {time_unit} = {forward_periods} periods", style={'color': '#64748b', 'fontSize': '12px'})
             ], style={
                 'background': '#fef2f2',
                 'border': '1px solid #fecaca',
@@ -249,6 +266,35 @@ def register_regime_analyzer_callbacks(app, repo):
                 'margin': '20px 0'
             })
             return error_msg, error_msg
+
+    # FIX: Add callback for forward time preview (ohne 5000 Max-Limit)
+    @app.callback(
+        Output('forward-time-preview', 'children'),
+        [Input('forward-time-value', 'value'),
+         Input('forward-time-unit', 'value')],
+        prevent_initial_call=False
+    )
+    def update_time_preview(time_value, time_unit):
+        if not time_value or not time_unit:
+            return ""
+        
+        # Convert to periods (assuming 1-minute data)
+        conversion_map = {
+            'minutes': 1,
+            'hours': 60,
+            'days': 1440,  # 24 * 60
+            'weeks': 10080,  # 7 * 24 * 60
+            'periods': 1
+        }
+        
+        periods = time_value * conversion_map.get(time_unit, 1)
+        
+        # FIX: Entferne die 5000-Limit-Warnung, zeige nur die Konvertierung
+        preview_text = f"= {periods:,} data periods"
+        if time_unit != 'periods':
+            preview_text += f" ({time_value} {time_unit})"
+        
+        return preview_text
 
 def create_trade_entry_bin_table(bin_analysis: dict, feature: str):
     """Create bin information table specifically for trade entry analysis."""

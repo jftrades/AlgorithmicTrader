@@ -115,6 +115,8 @@ class RegimeService:
         merged['forward_return_1'] = merged['equity'].pct_change().shift(-1)  # Next period return
         merged['forward_return_5'] = merged['equity'].pct_change(5).shift(-5)  # 5-period forward return
         merged['cumulative_return'] = (merged['equity'] / merged['equity'].iloc[0]) - 1
+        # Store base data for forward_return_custom calculation
+        merged['equity_base'] = merged['equity']
         print(f"[SERVICE] After adding returns, shape: {merged.shape}")
 
         # Merge each indicator using nearest timestamp matching
@@ -137,14 +139,37 @@ class RegimeService:
         print(f"[SERVICE] Final merged data columns: {list(self.merged_data.columns)}")
         print(f"[SERVICE] Sample of merged data:\n{self.merged_data.head()}")
 
+    def calculate_forward_return_custom(self, periods: int) -> str:
+        """Calculate custom forward return for given periods."""
+        if self.merged_data is None:
+            return 'forward_return_1'  # fallback
+            
+        column_name = f'forward_return_{periods}'
+        
+        # Only calculate if not already exists
+        if column_name not in self.merged_data.columns:
+            if 'equity_base' in self.merged_data.columns:
+                # Calculate forward return for custom periods
+                self.merged_data[column_name] = self.merged_data['equity_base'].pct_change(periods).shift(-periods)
+                print(f"[SERVICE] Calculated {column_name} with {periods} periods")
+            else:
+                print(f"[SERVICE] Warning: equity_base not found, using forward_return_1")
+                return 'forward_return_1'
+        
+        return column_name
+
     def get_feature_names(self) -> List[str]:
         """Get list of available indicators."""
         return list(self.indicators.keys()) if self.indicators else []
 
-    def analyze_regime_bins(self, feature: str, n_bins: int = 10, return_type: str = 'forward_return_1') -> Dict:
-        """Analyze performance across binned indicator ranges."""
+    def analyze_regime_bins(self, feature: str, n_bins: int = 10, return_type: str = 'forward_return_1', forward_periods: int = 1) -> Dict:
+        """Analyze performance across binned indicator ranges with custom forward period support."""
         if self.merged_data is None or feature not in self.merged_data.columns:
             return {}
+
+        # Handle forward_return_custom  
+        if return_type == 'forward_return_custom':
+            return_type = self.calculate_forward_return_custom(forward_periods)
 
         data = self.merged_data.dropna(subset=[feature, return_type])
         
@@ -190,8 +215,13 @@ class RegimeService:
         }
 
     def plot_regime_analysis(self, feature: str, analysis_mode: str = 'bins', 
-                           n_bins: int = 10, return_type: str = 'forward_return_1') -> Tuple[go.Figure, go.Figure]:
-        """Create regime analysis plots."""
+                           n_bins: int = 10, return_type: str = 'forward_return_1', 
+                           forward_periods: int = 1) -> Tuple[go.Figure, go.Figure]:
+        """Create regime analysis plots with custom forward period support."""
+        
+        # Handle forward_return_custom
+        if return_type == 'forward_return_custom':
+            return_type = self.calculate_forward_return_custom(forward_periods)
         
         if analysis_mode == 'bins':
             return self._plot_bins_analysis(feature, n_bins, return_type)
@@ -478,10 +508,14 @@ class RegimeService:
 
         return fig1, fig2
 
-    def get_performance_summary(self, feature: str, return_type: str = 'forward_return_1') -> Dict:
-        """Get overall performance summary for the feature."""
+    def get_performance_summary(self, feature: str, return_type: str = 'forward_return_1', forward_periods: int = 1) -> Dict:
+        """Get overall performance summary for the feature with custom forward period support."""
         if self.merged_data is None or feature not in self.merged_data.columns:
             return {}
+
+        # Handle forward_return_custom
+        if return_type == 'forward_return_custom':
+            return_type = self.calculate_forward_return_custom(forward_periods)
 
         data = self.merged_data.dropna(subset=[feature, return_type])
         
