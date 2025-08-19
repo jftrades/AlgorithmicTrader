@@ -68,7 +68,7 @@ base_parameters:
     max_offset_downtrend: -1.8
 
 adaptive_percentile_window: 500
-
+adaptive_cache_update_frequency: 50  # we need this for performance reasons
 adaptive_factors:
   slope:
     enabled: true

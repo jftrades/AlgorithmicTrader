@@ -35,6 +35,7 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     base_parameters: dict
     adaptive_factors: dict
     adaptive_percentile_window: int = 200
+    adaptive_cache_update_frequency: int = 50
     
     # VWAP/ZScore Parameter
     vwap_anchor_on_kalman_cross: bool = True
@@ -81,7 +82,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.adaptive_manager = AdaptiveParameterManager(
             base_params=config.base_parameters,
             adaptive_factors=config.adaptive_factors,
-            adaptive_percentile_window=config.adaptive_percentile_window
+            adaptive_percentile_window=config.adaptive_percentile_window,
+            cache_update_frequency=config.adaptive_cache_update_frequency
         )
         
         adaptive_params, _, _, _ = self.adaptive_manager.get_adaptive_parameters()

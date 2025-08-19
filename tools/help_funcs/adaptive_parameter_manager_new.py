@@ -103,7 +103,7 @@ class AdaptiveParameterManager:
             return scale_factor
         
         return 1.0
-    def __init__(self, base_params: dict, adaptive_factors: dict, kalman_filter=None, adaptive_percentile_window: int = 200):
+    def __init__(self, base_params: dict, adaptive_factors: dict, kalman_filter=None, adaptive_percentile_window: int = 200, cache_update_frequency: int = 50):
         self.base_params = base_params
         self.adaptive_factors = adaptive_factors
         self.kalman = kalman_filter
@@ -113,6 +113,13 @@ class AdaptiveParameterManager:
         
         self.smoothed_combined_factor = 1.0
         self.factor_alpha = 0.2
+        
+        # Performance optimization: cache percentiles
+        self.slope_percentiles_cache = None
+        self.atr_percentiles_cache = None
+        self.last_slope_cache_update = 0
+        self.last_atr_cache_update = 0
+        self.cache_update_frequency = cache_update_frequency
         
         if self.adaptive_factors.get('atr', {}).get('enabled', False):
             atr_config = self.adaptive_factors['atr']
@@ -161,11 +168,30 @@ class AdaptiveParameterManager:
             return current_atr, percentile
         return None, self.current_atr_percentile
     
+    def _get_cached_percentiles(self, monitor, monitor_type: str) -> dict:
+        """Get cached percentiles or calculate new ones if cache is stale"""
+        current_count = len(monitor.values)
+        
+        if monitor_type == 'slope':
+            if (self.slope_percentiles_cache is None or 
+                current_count - self.last_slope_cache_update >= self.cache_update_frequency):
+                self.slope_percentiles_cache = monitor._calculate_weighted_percentiles([5, 95])
+                self.last_slope_cache_update = current_count
+            return self.slope_percentiles_cache
+        else:  # atr
+            if (self.atr_percentiles_cache is None or 
+                current_count - self.last_atr_cache_update >= self.cache_update_frequency):
+                self.atr_percentiles_cache = monitor._calculate_weighted_percentiles([5, 95])
+                self.last_atr_cache_update = current_count
+            return self.atr_percentiles_cache
+
     def _calculate_percentile_based_factor(self, value: float, monitor, is_absolute: bool = False) -> float:
         if len(monitor.values) < self.adaptive_percentile_window:
             return 0.5
         
-        percentiles = monitor._calculate_weighted_percentiles([5, 95])
+        # Use cached percentiles for performance
+        monitor_type = 'slope' if hasattr(monitor, 'add_slope') else 'atr'
+        percentiles = self._get_cached_percentiles(monitor, monitor_type)
         p5, p95 = percentiles[5], percentiles[95]
         
         if p5 is None or p95 is None or p95 <= p5:
@@ -592,7 +618,7 @@ class AdaptiveParameterManager:
             info['slope_scaling'] = 'dynamic_percentile'
             info['slope_samples'] = len(self.slope_monitor.values)
             
-            percentiles = self.slope_monitor._calculate_weighted_percentiles([5, 95])
+            percentiles = self._get_cached_percentiles(self.slope_monitor, 'slope')
             if percentiles[5] is not None and percentiles[95] is not None:
                 info['slope_p5'] = abs(percentiles[5])
                 info['slope_p95'] = abs(percentiles[95])
@@ -602,7 +628,7 @@ class AdaptiveParameterManager:
             info['atr_scaling'] = 'dynamic_percentile'
             info['atr_samples'] = len(self.atr_monitor.values)
             
-            percentiles = self.atr_monitor._calculate_weighted_percentiles([5, 95])
+            percentiles = self._get_cached_percentiles(self.atr_monitor, 'atr')
             if percentiles[5] is not None and percentiles[95] is not None:
                 info['atr_p5'] = percentiles[5]
                 info['atr_p95'] = percentiles[95]
