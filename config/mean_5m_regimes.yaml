@@ -9,7 +9,7 @@ only_trade_rth: true
 initialization_window: 250
 
 base_parameters:
-  ltf_kalman_process_var: 0.000001
+  ltf_kalman_process_var: 0.0000008
   ltf_kalman_measurement_var: 0.005
   ltf_kalman_zscore_window: 8
   
@@ -68,7 +68,7 @@ base_parameters:
     max_offset_downtrend: -1.8
 
 adaptive_percentile_window: 500
-adaptive_cache_update_frequency: 50  # we need this for performance reasons
+adaptive_cache_update_frequency: 100  # we need this for performance reasons
 adaptive_factors:
   slope:
     enabled: true
@@ -83,7 +83,6 @@ adaptive_factors:
     max: 1.8 # at 95th percentile of last "adaptive_percentile_window" bars
 
   combination:
-  
     use_log_space: true
     min_combined_factor: 0.6
     max_combined_factor: 2.0

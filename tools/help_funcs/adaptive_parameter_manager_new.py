@@ -226,15 +226,36 @@ class AdaptiveParameterManager:
                                        (1 - self.factor_alpha) * self.smoothed_combined_factor)
         return self.smoothed_combined_factor
     
+    def _get_percentile_based_slope(self, slope: float = None) -> float:
+        """Convert raw slope to percentile-based slope from -1 to +1"""
+        slope_to_use = slope if slope is not None else self.current_slope
+        
+        if slope_to_use is None:
+            return 0.0
+        
+        # Get direction: -1 for negative, +1 for positive, 0 for zero
+        direction = 1.0 if slope_to_use > 0 else (-1.0 if slope_to_use < 0 else 0.0)
+        
+        # Get strength from percentile system (0.5 to 1.4 range)
+        slope_factor = self.calculate_slope_factor(abs(slope_to_use))
+        
+        # Convert to 0-1 range: (slope_factor - 0.5) / 0.9
+        # Then scale to -1 to +1: * 2 - 1, but we handle direction separately
+        strength = (slope_factor - 0.5) / 0.9
+        
+        # Combine direction and strength: -1 to +1 range
+        percentile_slope = direction * strength
+        
+        return percentile_slope
+
     def calculate_slope_based_risk_factors(self, slope: float = None) -> tuple:
         slope_risk_config = self.base_params.get('slope_risk_scaling', {})
         
         if not slope_risk_config.get('enabled', False):
             return 1.0, 1.0
         
-        slope_to_use = slope if slope is not None else self.current_slope
-        slope_config = self.adaptive_factors.get('slope', {})
-        sensitivity = slope_config.get('sensitivity', 0.04)
+        # Use percentile-based slope instead of normalized slope
+        percentile_slope = self._get_percentile_based_slope(slope)
         
         base_long_risk = slope_risk_config.get('base_long_risk', 1.0)
         base_short_risk = slope_risk_config.get('base_short_risk', 1.0)
@@ -244,20 +265,17 @@ class AdaptiveParameterManager:
         max_short_risk_downtrend = slope_risk_config.get('max_short_risk_downtrend', 2.0)
         scaling_method = slope_risk_config.get('scaling_method', 'linear')
         
-        normalized_slope = slope_to_use / sensitivity
-        normalized_slope = np.clip(normalized_slope, -1.0, 1.0)
-        
         if scaling_method == 'linear':
-            if normalized_slope >= 0:
-                long_risk = base_long_risk + normalized_slope * (max_long_risk_uptrend - base_long_risk)
-                short_risk = base_short_risk + normalized_slope * (max_short_risk_uptrend - base_short_risk)
+            if percentile_slope >= 0:
+                long_risk = base_long_risk + percentile_slope * (max_long_risk_uptrend - base_long_risk)
+                short_risk = base_short_risk + percentile_slope * (max_short_risk_uptrend - base_short_risk)
             else:
-                long_risk = base_long_risk + abs(normalized_slope) * (max_long_risk_downtrend - base_long_risk)
-                short_risk = base_short_risk + abs(normalized_slope) * (max_short_risk_downtrend - base_short_risk)
+                long_risk = base_long_risk + abs(percentile_slope) * (max_long_risk_downtrend - base_long_risk)
+                short_risk = base_short_risk + abs(percentile_slope) * (max_short_risk_downtrend - base_short_risk)
         
         elif scaling_method == 'exponential':
-            exp_factor = np.exp(abs(normalized_slope)) - 1
-            if normalized_slope >= 0:
+            exp_factor = np.exp(abs(percentile_slope)) - 1
+            if percentile_slope >= 0:
                 long_risk = base_long_risk + exp_factor * (max_long_risk_uptrend - base_long_risk) / (np.e - 1)
                 short_risk = base_short_risk + exp_factor * (max_short_risk_uptrend - base_short_risk) / (np.e - 1)
             else:
@@ -265,8 +283,8 @@ class AdaptiveParameterManager:
                 short_risk = base_short_risk + exp_factor * (max_short_risk_downtrend - base_short_risk) / (np.e - 1)
         
         elif scaling_method == 'logarithmic':
-            log_factor = np.log1p(abs(normalized_slope)) / np.log(2)
-            if normalized_slope >= 0:
+            log_factor = np.log1p(abs(percentile_slope)) / np.log(2)
+            if percentile_slope >= 0:
                 long_risk = base_long_risk + log_factor * (max_long_risk_uptrend - base_long_risk)
                 short_risk = base_short_risk + log_factor * (max_short_risk_uptrend - base_short_risk)
             else:
@@ -288,9 +306,8 @@ class AdaptiveParameterManager:
             short_base = adaptive_exit_config.get('short_base_exit', -5.0)
             return long_base, short_base
         
-        slope_to_use = slope if slope is not None else self.current_slope
-        slope_config = self.adaptive_factors.get('slope', {})
-        sensitivity = slope_config.get('sensitivity', 0.04)
+        # Use percentile-based slope instead of normalized slope
+        percentile_slope = self._get_percentile_based_slope(slope)
         
         base_long_exit = slope_exit_config.get('base_long_exit', 5.0)
         base_short_exit = slope_exit_config.get('base_short_exit', -5.0)
@@ -300,20 +317,17 @@ class AdaptiveParameterManager:
         max_short_exit_downtrend = slope_exit_config.get('max_short_exit_downtrend', -20.0)
         scaling_method = slope_exit_config.get('scaling_method', 'linear')
         
-        normalized_slope = slope_to_use / sensitivity
-        normalized_slope = np.clip(normalized_slope, -1.0, 1.0)
-        
         if scaling_method == 'linear':
-            if normalized_slope >= 0:
-                long_exit = base_long_exit + normalized_slope * (max_long_exit_uptrend - base_long_exit)
-                short_exit = base_short_exit + normalized_slope * (max_short_exit_uptrend - base_short_exit)
+            if percentile_slope >= 0:
+                long_exit = base_long_exit + percentile_slope * (max_long_exit_uptrend - base_long_exit)
+                short_exit = base_short_exit + percentile_slope * (max_short_exit_uptrend - base_short_exit)
             else:
-                long_exit = base_long_exit + abs(normalized_slope) * (max_long_exit_downtrend - base_long_exit)
-                short_exit = base_short_exit + abs(normalized_slope) * (max_short_exit_downtrend - base_short_exit)
+                long_exit = base_long_exit + abs(percentile_slope) * (max_long_exit_downtrend - base_long_exit)
+                short_exit = base_short_exit + abs(percentile_slope) * (max_short_exit_downtrend - base_short_exit)
         
         elif scaling_method == 'exponential':
-            exp_factor = np.exp(abs(normalized_slope)) - 1
-            if normalized_slope >= 0:
+            exp_factor = np.exp(abs(percentile_slope)) - 1
+            if percentile_slope >= 0:
                 long_exit = base_long_exit + exp_factor * (max_long_exit_uptrend - base_long_exit) / (np.e - 1)
                 short_exit = base_short_exit + exp_factor * (max_short_exit_uptrend - base_short_exit) / (np.e - 1)
             else:
@@ -321,8 +335,8 @@ class AdaptiveParameterManager:
                 short_exit = base_short_exit + exp_factor * (max_short_exit_downtrend - base_short_exit) / (np.e - 1)
         
         elif scaling_method == 'logarithmic':
-            log_factor = np.log1p(abs(normalized_slope)) / np.log(2)
-            if normalized_slope >= 0:
+            log_factor = np.log1p(abs(percentile_slope)) / np.log(2)
+            if percentile_slope >= 0:
                 long_exit = base_long_exit + log_factor * (max_long_exit_uptrend - base_long_exit)
                 short_exit = base_short_exit + log_factor * (max_short_exit_uptrend - base_short_exit)
             else:
@@ -341,35 +355,31 @@ class AdaptiveParameterManager:
         if not slope_offset_config.get('enabled', False):
             return 0.0
         
-        slope_to_use = slope if slope is not None else self.current_slope
-        slope_config = self.adaptive_factors.get('slope', {})
-        sensitivity = slope_config.get('sensitivity', 0.04)
+        # Use percentile-based slope instead of normalized slope
+        percentile_slope = self._get_percentile_based_slope(slope)
         
         base_offset = slope_offset_config.get('base_offset', 0.0)
         max_offset_uptrend = slope_offset_config.get('max_offset_uptrend', 1.8)
         max_offset_downtrend = slope_offset_config.get('max_offset_downtrend', -1.8)
         scaling_method = slope_offset_config.get('scaling_method', 'linear')
         
-        normalized_slope = slope_to_use / sensitivity
-        normalized_slope = np.clip(normalized_slope, -1.0, 1.0)
-        
         # Calculate offset based on scaling method
         if scaling_method == 'linear':
-            if normalized_slope >= 0:
-                offset = base_offset + normalized_slope * (max_offset_uptrend - base_offset)
+            if percentile_slope >= 0:
+                offset = base_offset + percentile_slope * (max_offset_uptrend - base_offset)
             else:
-                offset = base_offset + abs(normalized_slope) * (max_offset_downtrend - base_offset)
+                offset = base_offset + abs(percentile_slope) * (max_offset_downtrend - base_offset)
         
         elif scaling_method == 'exponential':
-            exp_factor = np.exp(abs(normalized_slope)) - 1
-            if normalized_slope >= 0:
+            exp_factor = np.exp(abs(percentile_slope)) - 1
+            if percentile_slope >= 0:
                 offset = base_offset + exp_factor * (max_offset_uptrend - base_offset) / (np.e - 1)
             else:
                 offset = base_offset + exp_factor * (max_offset_downtrend - base_offset) / (np.e - 1)
         
         elif scaling_method == 'logarithmic':
-            log_factor = np.log1p(abs(normalized_slope)) / np.log(2)
-            if normalized_slope >= 0:
+            log_factor = np.log1p(abs(percentile_slope)) / np.log(2)
+            if percentile_slope >= 0:
                 offset = base_offset + log_factor * (max_offset_uptrend - base_offset)
             else:
                 offset = base_offset + log_factor * (max_offset_downtrend - base_offset)
