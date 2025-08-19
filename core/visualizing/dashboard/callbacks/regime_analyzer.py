@@ -140,28 +140,29 @@ def register_regime_analyzer_callbacks(app, repo):
         
         return options, default_value
 
-    # Main analysis callback - now handles both modes with forward periods
+    # Main analysis callback - now handles analysis type, modes and forward periods
     @app.callback(
         [Output('regime-summary-card', 'children'),
          Output('regime-analysis-results', 'children')],
         [Input('regime-analyze-btn', 'n_clicks')],
         [State('regime-run-selector', 'value'),
+         State('regime-analysis-type', 'value'),  # NEW: Analysis Type
          State('regime-data-mode', 'value'),
          State('regime-feature-selector', 'value'),
          State('regime-return-type', 'value'),
          State('regime-analysis-mode', 'value'),
          State('regime-bins-slider', 'value'),
-         State('forward-time-value', 'value'),  # FIX: Correct ID
-         State('forward-time-unit', 'value')],  # FIX: Correct ID
+         State('forward-time-value', 'value'),
+         State('forward-time-unit', 'value')],
         prevent_initial_call=True
     )
-    def perform_analysis(n_clicks, run_id, data_mode, feature, return_type, analysis_mode, n_bins, time_value, time_unit):
+    def perform_analysis(n_clicks, run_id, analysis_type, data_mode, feature, return_type, analysis_mode, n_bins, time_value, time_unit):
         global _regime_service, _trade_entry_analyzer
         
         if not n_clicks or not all([run_id, feature]) or not data_mode:
             raise PreventUpdate
             
-        # FIX: Convert time range to periods (ohne 5000-Limit)
+        # Convert time range to periods
         forward_periods = 1  # default
         if return_type == 'forward_return_custom' and time_value and time_unit:
             conversion_map = {
@@ -171,11 +172,11 @@ def register_regime_analyzer_callbacks(app, repo):
                 'weeks': 10080,
                 'periods': 1
             }
-            forward_periods = time_value * conversion_map.get(time_unit, 1)  # FIX: Entferne min(5000, ...)
+            forward_periods = time_value * conversion_map.get(time_unit, 1)
             
         try:
             if data_mode == 'trade_entry':
-                # Trade entry analysis doesn't use forward periods
+                # Trade entry analysis doesn't use forward periods or analysis type
                 if not _trade_entry_analyzer:
                     error_msg = html.Div("Trade Entry Analyzer not initialized", style={'color': '#dc2626'})
                     return error_msg, error_msg
@@ -201,17 +202,20 @@ def register_regime_analyzer_callbacks(app, repo):
                     'total_observations': summary.get('total_trades', 0),
                     'quartile_performance': summary.get('quartile_performance', {})
                 }
-                summary_card = create_summary_card(summary_card_data, feature, "Trade PnL")
+                
+                # NEW: Include analysis type in title
+                analysis_type_label = "📈 Index" if analysis_type == 'index' else "₿ Crypto"
+                summary_card = create_summary_card(summary_card_data, f"{feature} ({analysis_type_label})", "Trade PnL")
                 
                 # Create bin info table for trade entry if bins mode
                 bin_info_element = html.Div()
                 if analysis_mode == 'bins':
                     bin_analysis = _trade_entry_analyzer.analyze_trade_entry_bins(feature, n_bins)
                     if bin_analysis:
-                        bin_info_element = create_trade_entry_bin_table(bin_analysis, feature)
+                        bin_info_element = create_trade_entry_bin_table(bin_analysis, f"{feature} ({analysis_type_label})")
                 
             else:
-                # FIX: Use regime service for equity analysis with time-based forward periods
+                # Use regime service for equity analysis with analysis type and time-based forward periods
                 if not _regime_service:
                     error_msg = html.Div("Regime Service not initialized", style={'color': '#dc2626'})
                     return error_msg, error_msg
@@ -221,22 +225,26 @@ def register_regime_analyzer_callbacks(app, repo):
                     error_msg = html.Div(f"Failed to load data for run: {run_id}", style={'color': '#dc2626'})
                     return error_msg, error_msg
                 
-                # FIX: Pass calculated forward_periods to analysis functions
+                # Pass analysis type to the service for specialized handling
+                _regime_service.set_analysis_type(analysis_type)  # NEW: Set analysis type
+                
+                # Pass calculated forward_periods to analysis functions
                 fig1, fig2 = _regime_service.plot_regime_analysis(feature, analysis_mode, n_bins, return_type, forward_periods)
                 summary = _regime_service.get_performance_summary(feature, return_type, forward_periods)
                 
-                # Create summary card with time info
+                # Create summary card with analysis type and time info
+                analysis_type_label = "📈 Index" if analysis_type == 'index' else "₿ Crypto"
                 time_info = f" ({time_value} {time_unit})" if return_type == 'forward_return_custom' else ""
                 display_return_type = f"{return_type}{time_info}"
                 
                 from core.visualizing.dashboard.regime_analyzer.ui import create_summary_card, create_bin_info_table
-                summary_card = create_summary_card(summary, feature, display_return_type)
+                summary_card = create_summary_card(summary, f"{feature} ({analysis_type_label})", display_return_type)
                 
                 # Create bin info table for equity analysis
                 bin_info_element = html.Div()
                 if analysis_mode == 'bins':
                     bin_analysis = _regime_service.analyze_regime_bins(feature, n_bins, return_type, forward_periods)
-                    bin_info_element = create_bin_info_table(bin_analysis, feature)
+                    bin_info_element = create_bin_info_table(bin_analysis, f"{feature} ({analysis_type_label})")
             
             # Create results layout (same for both modes)
             from dash import dcc
@@ -256,7 +264,7 @@ def register_regime_analyzer_callbacks(app, repo):
             import traceback
             error_msg = html.Div([
                 html.H4("⚠️ Analysis Error", style={'color': '#dc2626'}),
-                html.P(f"Mode: {data_mode}, Error: {str(e)}", style={'color': '#64748b'}),
+                html.P(f"Type: {analysis_type}, Mode: {data_mode}, Error: {str(e)}", style={'color': '#64748b'}),
                 html.P(f"Time Range: {time_value} {time_unit} = {forward_periods} periods", style={'color': '#64748b', 'fontSize': '12px'})
             ], style={
                 'background': '#fef2f2',

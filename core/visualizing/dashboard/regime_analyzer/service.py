@@ -17,6 +17,13 @@ class RegimeService:
         self.merged_data = None
         self.available_runs = []
         self.current_run = None
+        self.analysis_type = 'crypto'  # NEW: Default to crypto
+
+    # NEW: Set analysis type method
+    def set_analysis_type(self, analysis_type: str):
+        """Set the analysis type (index or crypto) for specialized handling."""
+        self.analysis_type = analysis_type
+        print(f"[SERVICE] Analysis type set to: {analysis_type}")
 
     def get_available_runs(self) -> List[str]:
         """Get list of available run directories."""
@@ -241,6 +248,24 @@ class RegimeService:
         bin_stats = analysis['bin_stats']
         bin_ranges = analysis['bin_ranges']
         
+        # NEW: Customize colors and styling based on analysis type
+        if self.analysis_type == 'index':
+            theme_colors = {
+                'return': ['#dc2626' if val < 0 else '#16a34a' for val in bin_stats['return_mean']],  # Traditional red/green
+                'win_rate': '#1d4ed8',  # Traditional blue
+                'sharpe': ['#dc2626' if val < 0 else '#f59e0b' for val in bin_stats['sharpe']],
+                'count': '#7c3aed'
+            }
+            title_prefix = "Index Analysis"
+        else:  # crypto
+            theme_colors = {
+                'return': ['#ef4444' if val < 0 else '#10b981' for val in bin_stats['return_mean']],  # Crypto orange/green
+                'win_rate': '#3b82f6',  # Crypto blue
+                'sharpe': ['#ef4444' if val < 0 else '#f59e0b' for val in bin_stats['sharpe']],
+                'count': '#8b5cf6'  # Crypto purple
+            }
+            title_prefix = "Crypto Analysis"
+        
         # Create clean hover templates with range information
         def create_hover_info(bin_id, value_type):
             if bin_id < len(bin_ranges):
@@ -263,21 +288,13 @@ class RegimeService:
                    [{"secondary_y": False}, {"secondary_y": False}]]
         )
 
-        # Color coding for better visual appeal
-        colors = {
-            'return': ['#ef4444' if val < 0 else '#10b981' for val in bin_stats['return_mean']],  # Red for negative, green for positive
-            'win_rate': '#3b82f6',  # Blue
-            'sharpe': ['#ef4444' if val < 0 else '#f59e0b' for val in bin_stats['sharpe']],  # Red for negative, amber for positive
-            'count': '#8b5cf6'  # Purple
-        }
-
-        # Average Returns - clean bars with color coding
+        # Average Returns - with theme colors
         fig1.add_trace(
             go.Bar(
                 x=bin_stats.index, 
                 y=bin_stats['return_mean'], 
                 name='Avg Return', 
-                marker_color=colors['return'],
+                marker_color=theme_colors['return'],  # NEW: Theme-based colors
                 hovertemplate='<br>'.join([
                     '<b>Bin %{x}</b>',
                     'Range: ' + (bin_ranges[i]['range_label'] if i < len(bin_ranges) else 'N/A' for i in bin_stats.index).__next__(),
@@ -289,13 +306,13 @@ class RegimeService:
             row=1, col=1
         )
 
-        # Win Rate - clean bars
+        # Win Rate - with theme colors
         fig1.add_trace(
             go.Bar(
                 x=bin_stats.index, 
                 y=bin_stats['win_rate'], 
                 name='Win Rate', 
-                marker_color=colors['win_rate'],
+                marker_color=theme_colors['win_rate'],  # NEW: Theme-based colors
                 hovertemplate='<br>'.join([
                     '<b>Bin %{x}</b>',
                     'Range: ' + (bin_ranges[i]['range_label'] if i < len(bin_ranges) else 'N/A' for i in bin_stats.index).__next__(),
@@ -307,13 +324,13 @@ class RegimeService:
             row=1, col=2
         )
 
-        # Sharpe Ratio - clean bars with color coding
+        # Sharpe Ratio - with theme colors
         fig1.add_trace(
             go.Bar(
                 x=bin_stats.index, 
                 y=bin_stats['sharpe'], 
                 name='Sharpe', 
-                marker_color=colors['sharpe'],
+                marker_color=theme_colors['sharpe'],  # NEW: Theme-based colors
                 hovertemplate='<br>'.join([
                     '<b>Bin %{x}</b>',
                     'Range: ' + (bin_ranges[i]['range_label'] if i < len(bin_ranges) else 'N/A' for i in bin_stats.index).__next__(),
@@ -325,13 +342,13 @@ class RegimeService:
             row=2, col=1
         )
 
-        # Sample Count - clean bars
+        # Sample Count - with theme colors
         fig1.add_trace(
             go.Bar(
                 x=bin_stats.index, 
                 y=bin_stats['count'], 
                 name='Count', 
-                marker_color=colors['count'],
+                marker_color=theme_colors['count'],  # NEW: Theme-based colors
                 hovertemplate='<br>'.join([
                     '<b>Bin %{x}</b>',
                     'Range: ' + (bin_ranges[i]['range_label'] if i < len(bin_ranges) else 'N/A' for i in bin_stats.index).__next__(),
@@ -343,11 +360,11 @@ class RegimeService:
             row=2, col=2
         )
 
-        # Update layout with cleaner styling
+        # Update layout with analysis type in title
         fig1.update_layout(
             height=600,
             showlegend=False,
-            title_text=f"Regime Analysis: {feature} vs {return_type}<br><sub>Feature range: [{analysis['feature_range'][0]:.4f}, {analysis['feature_range'][1]:.4f}], {n_bins} bins</sub>",
+            title_text=f"{title_prefix}: {feature} vs {return_type}<br><sub>Feature range: [{analysis['feature_range'][0]:.4f}, {analysis['feature_range'][1]:.4f}], {n_bins} bins</sub>",  # NEW: Include analysis type
             paper_bgcolor='white',
             plot_bgcolor='white',
             font=dict(size=12)
@@ -367,19 +384,25 @@ class RegimeService:
                     row=i, col=j
                 )
 
-        # Enhanced scatter plot with bin boundaries
+        # Enhanced scatter plot with analysis type theme
         fig2 = go.Figure()
         
         raw_data = analysis['raw_data']
         
-        # Add scatter plot with better colors
+        # NEW: Choose colorscale based on analysis type
+        if self.analysis_type == 'index':
+            colorscale = 'RdYlGn'  # Traditional finance colors
+        else:
+            colorscale = 'viridis'  # Crypto tech colors
+        
+        # Add scatter plot with theme-based colors
         fig2.add_trace(go.Scatter(
             x=raw_data[feature],
             y=raw_data[return_type],
             mode='markers',
             marker=dict(
                 color=raw_data['feature_bin'],
-                colorscale='viridis',  # Better colorscale
+                colorscale=colorscale,  # NEW: Theme-based colorscale
                 showscale=True,
                 colorbar=dict(
                     title="Bin ID",
@@ -426,7 +449,7 @@ class RegimeService:
             )
 
         fig2.update_layout(
-            title=f'Scatter Plot: {feature} vs {return_type}<br><sub>Dashed lines show bin boundaries</sub>',
+            title=f'{title_prefix}: {feature} vs {return_type}<br><sub>Dashed lines show bin boundaries</sub>',
             xaxis_title=feature,
             yaxis_title=return_type,
             height=500,
@@ -475,7 +498,7 @@ class RegimeService:
         # Returns over time
         fig1.add_trace(
             go.Scatter(x=data['timestamp'], y=data[return_type], 
-                      name={return_type}, line=dict(color='green')),
+                      name=return_type, line=dict(color='green')),
             row=2, col=1
         )
 

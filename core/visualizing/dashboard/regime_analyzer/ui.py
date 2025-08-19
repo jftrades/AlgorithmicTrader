@@ -84,7 +84,31 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                             'marginBottom': '16px'
                         }
                     )
-                ], style={'width': '22%', 'display': 'inline-block', 'marginRight': '2%'}),
+                ], style={'width': '18%', 'display': 'inline-block', 'marginRight': '2%'}),  # FIX: Reduced width
+                
+                html.Div([
+                    html.Label("Analysis Type", style={
+                        'fontWeight': '500',
+                        'color': '#d1d5db',
+                        'display': 'block',
+                        'marginBottom': '8px',
+                        'fontSize': '13px',
+                        'textTransform': 'uppercase',
+                        'letterSpacing': '0.5px'
+                    }),
+                    dcc.Dropdown(
+                        id='regime-analysis-type',
+                        options=[
+                            {'label': '📈 Index Analysis', 'value': 'index'},
+                            {'label': '₿ Crypto Analysis', 'value': 'crypto'}
+                        ],
+                        value='crypto',
+                        className="regime-dropdown",
+                        style={
+                            'marginBottom': '16px'
+                        }
+                    )
+                ], style={'width': '18%', 'display': 'inline-block', 'marginRight': '2%'}),  # NEW: Analysis Type
                 
                 html.Div([
                     html.Label("Analysis Mode", style={
@@ -108,7 +132,7 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                             'marginBottom': '16px'
                         }
                     )
-                ], style={'width': '22%', 'display': 'inline-block', 'marginRight': '2%'}),
+                ], style={'width': '18%', 'display': 'inline-block', 'marginRight': '2%'}),  # FIX: Reduced width
                 
                 html.Div([
                     html.Label("Feature Selection", style={
@@ -130,7 +154,7 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                             'marginBottom': '16px'
                         }
                     )
-                ], style={'width': '22%', 'display': 'inline-block', 'marginRight': '2%'}),
+                ], style={'width': '18%', 'display': 'inline-block', 'marginRight': '2%'}),  # FIX: Reduced width
                 
                 html.Div([
                     html.Label("Return Configuration", style={
@@ -215,7 +239,7 @@ def build_regime_layout(runs_df: Optional[pd.DataFrame] = None,
                             'fontStyle': 'italic'
                         })
                     ], style={'marginTop': '8px'})
-                ], style={'width': '22%', 'display': 'inline-block'})
+                ], style={'width': '20%', 'display': 'inline-block'})  # FIX: Adjusted width
             ]),
             
             # Row 2: Secondary Controls
