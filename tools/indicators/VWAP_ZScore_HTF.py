@@ -149,24 +149,22 @@ class VWAPZScoreHTFAnchored:
             
         bars_since_last_anchor = self.total_bar_count - self.last_anchor_bar
         
-        # Always apply grace period for all methods
-        if bars_since_last_anchor < self.reset_grace_period:
-            return False, 'grace_period_active'
-        
         # Check anchor conditions based on method
         if self.anchor_method == "kalman_cross":
-            # For kalman_cross: check both grace period and trade requirement
+            # For kalman_cross: apply grace period AND trade requirement
+            if bars_since_last_anchor < self.reset_grace_period:
+                return False, 'grace_period_active'
             if self.require_trade_for_reset and not self.trade_occurred_since_reset:
                 return False, 'no_trade_since_reset'
             
             if self.kalman_exit_mean is not None and self._detect_kalman_cross(current_price, open_price):
                 return True, 'kalman_cross'
         elif self.anchor_method == "daily":
-            # For daily: grace period already checked above, now check day change
+            # For daily: IGNORE grace period - daily resets are mandatory for clean ZScore evolution
             if self._detect_new_day(bar):
                 return True, 'new_day'
         elif self.anchor_method == "weekly":
-            # For weekly: grace period already checked above, now check week change
+            # For weekly: IGNORE grace period - weekly resets are mandatory  
             if self._detect_new_week(bar):
                 return True, 'new_week'
             
@@ -182,24 +180,19 @@ class VWAPZScoreHTFAnchored:
             'vwap_value': None
         }
         
-        # Clear history for ALL anchor types to ensure clean reset
         self.segment_diff_history = []
         self.segment_atr_history = []
         
-        # Reset all relevant state variables for hard reset
         self.last_anchor_bar = self.total_bar_count
         self.trade_occurred_since_reset = False
         
-        # Reset Z-score related state
+        # Force ZScore to None for clean reset - it will start at 0.0 once calculated
         self.current_zscore = None
         
-        # Log the anchor event if callback is provided
-        if self.log_callback and reason != 'initial':
-            if reason == 'new_day':
-                self.log_callback("Daily VWAP anchor: New trading day detected | VWAP reset")
-            elif reason == 'new_week':
-                self.log_callback("Weekly VWAP anchor: New week detected | VWAP reset")
-            # Note: kalman_cross logging is handled in the strategy
+        # For daily and weekly anchoring, ensure complete clean reset
+        if reason in ['new_day', 'new_week']:
+            self.gap_offsets = []
+            self.cumulative_gap = 0.0
 
     def _calculate_segment_vwap(self) -> Optional[float]:
         if self.anchor_method == "rolling":
@@ -224,15 +217,39 @@ class VWAPZScoreHTFAnchored:
         else:
             price_data = [price for price, _, _, _ in self.current_segment['price_volume_data']]
             
-        if len(price_data) < 10:
-            base_zscore = ((current_price - vwap_value) / vwap_value) * 100
+        bars_available = len(price_data)
+        
+        # More aggressive early ZScore calculation - allow calculation from bar 2 onwards
+        if bars_available < 2:
+            base_zscore = 0.0
         else:
-            std_price = np.std(price_data)
+            # Calculate standard deviation
+            std_price = np.std(price_data, ddof=1) if bars_available > 1 else abs(current_price - vwap_value)
             
-            if std_price == 0:
-                base_zscore = 0.0
+            # Ultra-aggressive scaling that starts immediately with substantial values
+            if bars_available < 10:
+                # Start at 0.8 and reach 1.0 by bar 10 - much more aggressive evolution
+                scaling_factor = 0.8 + (0.2 * (bars_available - 2) / 8)
+                scaling_factor = max(0.8, min(1.0, scaling_factor))
             else:
-                base_zscore = (current_price - vwap_value) / std_price
+                scaling_factor = 1.0
+            
+            # Make threshold much more lenient - use relative threshold based on price level
+            # For SPY ~500, this gives threshold ~0.05 instead of ~0.5
+            threshold = vwap_value * 0.0001  # 10x more sensitive threshold
+            
+            if std_price == 0 or std_price < threshold:
+                # Even if std is small, force some ZScore if there's price difference
+                if bars_available >= 2 and abs(current_price - vwap_value) > (vwap_value * 0.00001):
+                    base_zscore = (current_price - vwap_value) * scaling_factor * 10  # Force evolution
+                else:
+                    base_zscore = 0.0
+            else:
+                # Calculate raw ZScore
+                raw_zscore = (current_price - vwap_value) / std_price
+                
+                # Apply scaling factor - much more aggressive
+                base_zscore = raw_zscore * scaling_factor
         
         return base_zscore + asymmetric_offset
 
@@ -250,6 +267,7 @@ class VWAPZScoreHTFAnchored:
             return self._calculate_simple_zscore(current_price, vwap_value, asymmetric_offset)
         else:
             return self._calculate_simple_zscore(current_price, vwap_value, asymmetric_offset)
+            return self._calculate_simple_zscore(current_price, vwap_value, asymmetric_offset)
 
     def update(self, bar, asymmetric_offset: float = 0.0) -> Tuple[Optional[float], Optional[float]]:
         price = float(bar.close)
@@ -257,15 +275,17 @@ class VWAPZScoreHTFAnchored:
         high = float(bar.high)
         low = float(bar.low)
         
-        if self.last_close is not None:
+        # Only apply gap detection for kalman_cross and rolling methods
+        if self.anchor_method in ["kalman_cross", "rolling"] and self.last_close is not None:
             gap = float(bar.open) - float(self.last_close)
             gap_pct = abs(gap) / float(self.last_close) * 100
             if gap_pct > self.gap_threshold_pct:
                 self.cumulative_gap += gap
                 self.gap_offsets.append((self.total_bar_count, self.cumulative_gap))
 
+        # Only apply gap offset for kalman_cross and rolling methods
         offset = 0.0
-        if self.gap_offsets:
+        if self.anchor_method in ["kalman_cross", "rolling"] and self.gap_offsets:
             for idx, gap in reversed(self.gap_offsets):
                 if idx <= self.total_bar_count:
                     offset = gap
@@ -297,25 +317,25 @@ class VWAPZScoreHTFAnchored:
             self.rolling_price_volume_data.append((adj_price, adj_volume, price, volume))
         else:
             should_anchor, anchor_reason = self._should_anchor_new_segment(bar, adj_price, adj_open)
+            
             if should_anchor:
-                # Start new segment FIRST
                 self._start_new_segment(anchor_reason)
                 
-                # Clear gap offsets on anchor to ensure clean VWAP calculation
-                if anchor_reason in ['new_day', 'new_week', 'kalman_cross']:
+                # For daily and weekly anchoring, ensure completely clean start
+                if anchor_reason in ['new_day', 'new_week']:
                     self.gap_offsets = []
                     self.cumulative_gap = 0.0
-                    # Recalculate adjusted values without gap offset for new segment
                     adj_price = price
                     adj_high = high
                     adj_low = low
-                    # Also recalculate adj_volume for consistency
+                    adj_open = float(bar.open)
                     if is_rth:
                         adj_volume = volume
                     else:
                         avg_rth_volume = np.mean(self.rth_session_volumes) if self.rth_session_volumes else volume
                         adj_volume = avg_rth_volume
             
+            bars_before = self.current_segment['bars_in_segment']
             self.current_segment['price_volume_data'].append((adj_price, adj_volume, price, volume))
             self.current_segment['bars_in_segment'] += 1
 
@@ -387,3 +407,6 @@ class VWAPZScoreHTFAnchored:
         
     def reset_kalman_state(self):
         self.last_price_above_kalman = None
+
+# Backward compatibility alias
+VWAPZScoreHTF = VWAPZScoreHTFAnchored

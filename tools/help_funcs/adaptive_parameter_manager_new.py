@@ -578,7 +578,11 @@ class AdaptiveParameterManager:
         
         return base_value + trend_adjustment + vol_adjustment
     
-    def get_asymmetric_offset(self, base_mean: float = None) -> float:
+    def get_asymmetric_offset(self, base_mean: float = None, force_reset: bool = False) -> float:
+        # If force_reset is True (e.g., on VWAP daily/weekly reset), return 0
+        if force_reset:
+            return 0.0
+            
         # Check if slope-based asymmetric offset is enabled
         slope_offset_config = self.base_params.get('slope_asymmetric_offset', {})
         if slope_offset_config.get('enabled', False):
@@ -760,3 +764,13 @@ class AdaptiveParameterManager:
         # This will be called from strategy context, so we'll return the message
         # and let the strategy log it with proper color
         return message
+
+    def reset_trend_state_for_vwap_anchor(self):
+        """Reset trend-related state when VWAP anchors for daily/weekly resets"""
+        # Reset smoothed combined factor to neutral
+        self.smoothed_combined_factor = 1.0
+        
+        # Reset current slope to neutral if we have insufficient data for new trend
+        # This prevents carrying over trend information from before the anchor
+        if hasattr(self, 'current_slope'):
+            self.current_slope = 0.0

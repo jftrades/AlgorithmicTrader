@@ -73,6 +73,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.current_slope_factor = None
         self.current_atr_factor = None
 
+        # Track VWAP reset state to handle asymmetric offset properly
+        self.last_vwap_segment_start_bar = -1
+        self.vwap_just_reset = False
+        self.bars_since_vwap_reset = 0  # Track bars since last VWAP reset
+
         # General initialization window for all indicators/datapoints
         self.initialization_window = getattr(config, 'initialization_window', 30)
         self._init_slope_buffer = []  # Buffer for slope initialization
@@ -310,9 +315,30 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         
         self.additional_zscore_min_gain = elastic_base['additional_zscore_min_gain']
         self.recovery_delta_reentry = elastic_base['recovery_delta_reentry']
+        
+        # Check if VWAP has reset by comparing segment start bar
+        current_segment_info = self.vwap_zscore.get_segment_info()
+        if hasattr(current_segment_info, 'get') and 'segment_start_bar' in current_segment_info:
+            current_segment_start = current_segment_info['segment_start_bar']
+            if current_segment_start != self.last_vwap_segment_start_bar:
+                self.vwap_just_reset = True
+                self.last_vwap_segment_start_bar = current_segment_start
+                self.bars_since_vwap_reset = 0  # Reset counter on new VWAP segment
+                if current_segment_info.get('anchor_reason') in ['new_day', 'new_week']:
+                    self.log.info(f"VWAP Reset Detected: {current_segment_info.get('anchor_reason')} - Asymmetric offset and trend state reset", color=LogColor.YELLOW)
+                    # Reset trend state in adaptive manager to prevent carrying over previous trends
+                    self.adaptive_manager.reset_trend_state_for_vwap_anchor()
+            else:
+                self.vwap_just_reset = False
+                self.bars_since_vwap_reset += 1  # Increment counter
+        else:
+            self.vwap_just_reset = False
+            self.bars_since_vwap_reset += 1  # Increment counter
             
-        # Update VWAP with asymmetric offset
+        # Calculate asymmetric offset - REMOVED grace period to allow natural evolution after min_bars_for_zscore
+        # ZScore should evolve naturally once the indicator's min_bars_for_zscore threshold is met
         asymmetric_offset = self.adaptive_manager.get_asymmetric_offset(self.current_ltf_kalman_mean)
+            
         vwap_value, zscore = self.vwap_zscore.update(bar, asymmetric_offset=asymmetric_offset)
         self.current_zscore = zscore
 
@@ -343,6 +369,16 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                     self.order_types.close_position_by_market_order()
                 else:
                     if self.current_ltf_kalman_mean is not None and zscore is not None:
+                        # Get VWAP segment info to check early evolution period
+                        vwap_segment_info = self.vwap_zscore.get_segment_info()
+                        bars_in_current_segment = vwap_segment_info.get('bars_in_segment', 0)
+                        
+                        # Prevent trading during early ZScore evolution (first 25 bars after reset)
+                        if bars_in_current_segment < 25:
+                            if self.bar_counter % 15 == 0:  # Log every 15 bars to avoid spam
+                                self.log.info(f"Trading blocked - ZScore evolution period: {bars_in_current_segment}/25 bars since VWAP reset", color=LogColor.CYAN)
+                            return  # Skip trading during early ZScore evolution
+                        
                         self.current_long_risk_factor = adaptive_params['long_risk_factor']
                         self.current_short_risk_factor = adaptive_params['short_risk_factor']
                         
