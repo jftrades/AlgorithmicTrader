@@ -96,33 +96,20 @@ class AdaptiveParameterManager:
         slope_config = self.adaptive_factors['slope']
         
         if self.slope_monitor and len(self.slope_monitor.values) >= self.adaptive_percentile_window:
-            # Get the actual 5th and 95th percentiles
-            percentiles = self._get_cached_percentiles(self.slope_monitor, 'slope')
-            p5, p95 = percentiles[5], percentiles[95]
+            # Get recent slope values for percentile calculation
+            recent_values = list(self.slope_monitor.values)[-self.adaptive_percentile_window:]
+            abs_recent_values = [abs(v) for v in recent_values]
+            abs_current_slope = abs(slope)
             
-            if p5 is None or p95 is None:
-                return 1.0
-                
-            # Use absolute values for slope comparison
-            abs_slope = abs(slope)
-            abs_p5 = abs(p5)
-            abs_p95 = abs(p95)
+            # Calculate what percentile the current slope represents
+            values_below = sum(1 for v in abs_recent_values if v <= abs_current_slope)
+            current_percentile = (values_below / len(abs_recent_values)) * 100
             
-            # Ensure p5 < p95 for proper scaling
-            if abs_p5 > abs_p95:
-                abs_p5, abs_p95 = abs_p95, abs_p5
-                
-            # Map slope directly to min/max range based on percentile position
-            if abs_slope <= abs_p5:
-                # Below 5th percentile -> use min value
-                return slope_config['min']
-            elif abs_slope >= abs_p95:
-                # Above 95th percentile -> use max value
-                return slope_config['max']
-            else:
-                # Between 5th and 95th percentile -> linear interpolation
-                percentile_position = (abs_slope - abs_p5) / (abs_p95 - abs_p5)
-                return slope_config['min'] + percentile_position * (slope_config['max'] - slope_config['min'])
+            # Map percentile to min/max range from YAML
+            # 0th percentile -> min, 100th percentile -> max
+            factor = slope_config['min'] + (current_percentile / 100.0) * (slope_config['max'] - slope_config['min'])
+            
+            return factor
         
         return 1.0
     def __init__(self, base_params: dict, adaptive_factors: dict, kalman_filter=None, adaptive_percentile_window: int = 200, cache_update_frequency: int = 50):
@@ -197,13 +184,31 @@ class AdaptiveParameterManager:
         if monitor_type == 'slope':
             if (self.slope_percentiles_cache is None or 
                 current_count - self.last_slope_cache_update >= self.cache_update_frequency):
-                self.slope_percentiles_cache = monitor._calculate_weighted_percentiles([5, 95])
+                # Use simple percentiles over the rolling window, not exponentially weighted
+                recent_values = list(monitor.values)[-self.adaptive_percentile_window:]
+                if len(recent_values) >= self.adaptive_percentile_window:
+                    import numpy as np
+                    self.slope_percentiles_cache = {
+                        5: np.percentile(recent_values, 5),
+                        95: np.percentile(recent_values, 95)
+                    }
+                else:
+                    self.slope_percentiles_cache = {5: None, 95: None}
                 self.last_slope_cache_update = current_count
             return self.slope_percentiles_cache
         else:  # atr
             if (self.atr_percentiles_cache is None or 
                 current_count - self.last_atr_cache_update >= self.cache_update_frequency):
-                self.atr_percentiles_cache = monitor._calculate_weighted_percentiles([5, 95])
+                # Use simple percentiles over the rolling window, not exponentially weighted
+                recent_values = list(monitor.values)[-self.adaptive_percentile_window:]
+                if len(recent_values) >= self.adaptive_percentile_window:
+                    import numpy as np
+                    self.atr_percentiles_cache = {
+                        5: np.percentile(recent_values, 5),
+                        95: np.percentile(recent_values, 95)
+                    }
+                else:
+                    self.atr_percentiles_cache = {5: None, 95: None}
                 self.last_atr_cache_update = current_count
             return self.atr_percentiles_cache
 
@@ -421,26 +426,19 @@ class AdaptiveParameterManager:
             return 1.0
         
         if self.atr_monitor and len(self.atr_monitor.values) >= self.adaptive_percentile_window:
-            # Get the actual 5th and 95th percentiles
-            percentiles = self._get_cached_percentiles(self.atr_monitor, 'atr')
-            p5, p95 = percentiles[5], percentiles[95]
-            
-            if p5 is None or p95 is None or p95 <= p5:
-                return 1.0
-                
+            # Get recent ATR values for percentile calculation
+            recent_values = list(self.atr_monitor.values)[-self.adaptive_percentile_window:]
             current_atr = self.atr_calculator.current_atr
             
-            # Map ATR directly to min/max range based on percentile position
-            if current_atr <= p5:
-                # Below 5th percentile -> use min value
-                return atr_config['min']
-            elif current_atr >= p95:
-                # Above 95th percentile -> use max value
-                return atr_config['max']
-            else:
-                # Between 5th and 95th percentile -> linear interpolation
-                percentile_position = (current_atr - p5) / (p95 - p5)
-                return atr_config['min'] + percentile_position * (atr_config['max'] - atr_config['min'])
+            # Calculate what percentile the current ATR represents
+            values_below = sum(1 for v in recent_values if v <= current_atr)
+            current_percentile = (values_below / len(recent_values)) * 100
+            
+            # Map percentile to min/max range from YAML
+            # 0th percentile -> min, 100th percentile -> max
+            factor = atr_config['min'] + (current_percentile / 100.0) * (atr_config['max'] - atr_config['min'])
+            
+            return factor
         
         return 1.0
     

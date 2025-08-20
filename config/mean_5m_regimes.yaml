@@ -2,19 +2,19 @@ symbol: "SPY"
 venue: "ARCA"
 instrument_id: "SPY.ARCA"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
-start_date: "2024-06-01T00:00:00Z"
-end_date: "2024-12-01T23:59:59Z"
+start_date: "2024-09-01T00:00:00Z"
+end_date: "2024-12-29T23:59:59Z"
 
 only_trade_rth: true
 initialization_window: 250
 
 base_parameters:
-  ltf_kalman_process_var: 0.00001
-  ltf_kalman_measurement_var: 0.03
+  ltf_kalman_process_var: 0.000001
+  ltf_kalman_measurement_var: 0.05
   ltf_kalman_zscore_window: 25
   
   htf_kalman_process_var: 0.0000001
-  htf_kalman_measurement_var: 0.06
+  htf_kalman_measurement_var: 0.05
   htf_kalman_zscore_window: 25
  
   vwap: # Anchor method options: "kalman_cross","daily", "weekly", "rolling" 
@@ -26,30 +26,30 @@ base_parameters:
 
   # only uses combined factor
   elastic_entry:
-    zscore_long_threshold: -2.3
-    zscore_short_threshold: 2.8
-    recovery_delta: 0.7
-    long_min_distance_from_kalman: -2
-    short_min_distance_from_kalman: 2
+    zscore_long_threshold: -2.6
+    zscore_short_threshold: 2.6
+    recovery_delta: 0.8
+    long_min_distance_from_kalman: -0.5
+    short_min_distance_from_kalman: 0.5
     allow_multiple_recoveries: true
-    recovery_cooldown_bars: 10
+    recovery_cooldown_bars: 15
     alllow_stacking: true
     max_long_stacked_positions: 4
     max_short_stacked_positions: 2
-    additional_zscore_min_gain: 1.5
-    recovery_delta_reentry: 0.8
-    stacking_bar_cooldown: 10
+    additional_zscore_min_gain: 1.8
+    recovery_delta_reentry: 1.0
+    stacking_bar_cooldown: 12
 
   # only uses slope factor (interpolation) - can use "linear", "exponential" and "logarithmic"
   slope_exit_scaling:
     enabled: true
-    scaling_method: "logarithmic"
-    base_long_exit: 2.2
-    base_short_exit: 2.2
-    max_long_exit_uptrend: 8.0
-    max_long_exit_downtrend: -10.0
-    max_short_exit_uptrend: 10.0
-    max_short_exit_downtrend: -8.0
+    scaling_method: "linear"
+    base_long_exit: 0.0
+    base_short_exit: 0.0
+    max_long_exit_uptrend: 4.0
+    max_long_exit_downtrend: -4.0
+    max_short_exit_uptrend: 4.0
+    max_short_exit_downtrend: -4.0
 
   slope_risk_scaling:
     enabled: true
@@ -65,27 +65,27 @@ base_parameters:
     enabled: true
     scaling_method: "linear"
     base_offset: 0.0
-    max_offset_uptrend: 1.8
-    max_offset_downtrend: -1.8
+    max_offset_uptrend: 4.0
+    max_offset_downtrend: -4.0
 
 adaptive_percentile_window: 1000
-adaptive_cache_update_frequency: 50 # we need this for performance reasons
+adaptive_cache_update_frequency: 100 # we need this for performance reasons
 adaptive_factors:
   slope:
     enabled: true
-    min: 0.5  # at 5th percentile of last "adaptive_percentile_window" bars
-    max: 1.4 # at 95th percentile of last "adaptive_percentile_window" bars
+    min: 0.8 # at 5th percentile of last "adaptive_percentile_window" bars
+    max: 1.5 # at 95th percentile of last "adaptive_percentile_window" bars
 
   atr:
     enabled: true
     window: 14
     outlier_threshold: 2.0
-    min: 0.5 # at 5th percentile of last "adaptive_percentile_window" bars
-    max: 1.8 # at 95th percentile of last "adaptive_percentile_window" bars
+    min: 0.8 # at 5th percentile of last "adaptive_percentile_window" bars
+    max: 1.5 # at 95th percentile of last "adaptive_percentile_window" bars
 
   combination:
     use_log_space: true
-    min_combined_factor: 0.5
+    min_combined_factor: 0.6
     max_combined_factor: 2.0
   
   distribution_monitor:
@@ -94,7 +94,7 @@ adaptive_factors:
     atr_distribution:
       enabled: false
 
-gap_threshold_pct: 0.2
+gap_threshold_pct: 0.1  
 vix_fear_threshold: 38
 
 invest_percent: 3.0
