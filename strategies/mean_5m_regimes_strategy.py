@@ -68,10 +68,14 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         # Dashboard indicators
         self.current_ltf_kalman_mean = None
         self.current_htf_kalman_mean = None
-        self.current_combined_factor = None
-        self.entry_combined_factor = None
+        self.entry_atr_factor = None  # Track ATR factor used for entries
         self.current_slope_factor = None
         self.current_atr_factor = None
+        self.current_asymmetric_offset = None  # Track ZScore offset
+        self.current_long_risk_factor = None
+        self.current_short_risk_factor = None
+        self.current_long_exit = None
+        self.current_short_exit = None
 
         # Track VWAP reset state to handle asymmetric offset properly
         self.last_vwap_segment_start_bar = -1
@@ -91,7 +95,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             cache_update_frequency=config.adaptive_cache_update_frequency
         )
         
-        adaptive_params, _, _, _ = self.adaptive_manager.get_adaptive_parameters()
+        adaptive_params, _, _ = self.adaptive_manager.get_adaptive_parameters()
         vwap_params = adaptive_params.get('vwap', {})
         
         # SAFETY FIX: If anchor_method is missing but we have vwap_anchor_on_kalman_cross, fix it
@@ -205,18 +209,23 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.order_types = OrderTypes(self)
 
         self.collector.initialise_logging_indicator("ltf_kalman_mean", 0)
+        self.collector.initialise_logging_indicator("ltf_kalman_mean", 0)
         self.collector.initialise_logging_indicator("htf_kalman_mean", 0)
         self.collector.initialise_logging_indicator("vwap", 0)
-        self.collector.initialise_logging_indicator("combined_factor", 1)
+        self.collector.initialise_logging_indicator("atr_factor", 1)
         self.collector.initialise_logging_indicator("vwap_zscore", 2)
         self.collector.initialise_logging_indicator("slope_factor", 3)
-        self.collector.initialise_logging_indicator("atr_factor", 4)
+        self.collector.initialise_logging_indicator("zscore_offset", 4)
         self.collector.initialise_logging_indicator("kalman_zscore", 5)
-        self.collector.initialise_logging_indicator("vix", 6)
-        self.collector.initialise_logging_indicator("position", 7)
-        self.collector.initialise_logging_indicator("realized_pnl", 8)
-        self.collector.initialise_logging_indicator("unrealized_pnl", 9)
-        self.collector.initialise_logging_indicator("equity", 10)
+        self.collector.initialise_logging_indicator("long_risk", 6)
+        self.collector.initialise_logging_indicator("short_risk", 7)
+        self.collector.initialise_logging_indicator("long_exit", 8)
+        self.collector.initialise_logging_indicator("short_exit", 9)
+        self.collector.initialise_logging_indicator("vix", 10)
+        self.collector.initialise_logging_indicator("position", 11)
+        self.collector.initialise_logging_indicator("realized_pnl", 12)
+        self.collector.initialise_logging_indicator("unrealized_pnl", 13)
+        self.collector.initialise_logging_indicator("equity", 14)
 
 
     def get_position(self):
@@ -271,17 +280,29 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if not self._init_window_complete:
             slope_factor = 1.0
             atr_factor = 1.0
-            combined_factor = 1.0
             # Still get adaptive_params for configuration values (using defaults)
-            adaptive_params, _, _, _ = self.adaptive_manager.get_adaptive_parameters()
+            adaptive_params, _, _ = self.adaptive_manager.get_adaptive_parameters()
             if self.bar_counter % 50 == 0:  # Log every 50 bars to avoid spam
-                self.log.info(f"Using default factors during init: slope={slope_factor}, atr={atr_factor}, combined={combined_factor} (bar {len(self._init_slope_buffer)}/{self.initialization_window})", color=LogColor.CYAN)
+                self.log.info(f"Using default factors during init: slope={slope_factor}, atr={atr_factor} (bar {len(self._init_slope_buffer)}/{self.initialization_window})", color=LogColor.CYAN)
         else:
-            adaptive_params, slope_factor, atr_factor, combined_factor = self.adaptive_manager.get_adaptive_parameters()
+            adaptive_params, slope_factor, atr_factor = self.adaptive_manager.get_adaptive_parameters()
         
-        self.current_combined_factor = combined_factor
         self.current_slope_factor = slope_factor
         self.current_atr_factor = atr_factor
+
+        # Calculate and store risk factors and exit thresholds for visualization
+        if self._init_window_complete:
+            self.current_long_risk_factor = adaptive_params.get('long_risk_factor', 1.0)
+            self.current_short_risk_factor = adaptive_params.get('short_risk_factor', 1.0)
+            long_exit, short_exit = self.adaptive_manager.get_adaptive_exit_thresholds()
+            self.current_long_exit = long_exit
+            self.current_short_exit = short_exit
+        else:
+            # Use default values during initialization
+            self.current_long_risk_factor = 1.0
+            self.current_short_risk_factor = 1.0
+            self.current_long_exit = None
+            self.current_short_exit = None
 
         linear_config = self.adaptive_manager.adaptive_factors.get('linear_adjustments', {})
         trend_sensitivity = linear_config.get('trend_sensitivity', 0.3)
@@ -338,6 +359,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         # Calculate asymmetric offset - REMOVED grace period to allow natural evolution after min_bars_for_zscore
         # ZScore should evolve naturally once the indicator's min_bars_for_zscore threshold is met
         asymmetric_offset = self.adaptive_manager.get_asymmetric_offset(self.current_ltf_kalman_mean)
+        self.current_asymmetric_offset = asymmetric_offset  # Store for visualization
             
         vwap_value, zscore = self.vwap_zscore.update(bar, asymmetric_offset=asymmetric_offset)
         self.current_zscore = zscore
@@ -533,7 +555,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             
             self.order_types.submit_long_market_order(qty, price=bar.close)
             self.long_positions_since_cross += 1
-            self.entry_combined_factor = self.current_combined_factor
+            self.entry_atr_factor = self.current_atr_factor  # Track ATR factor used for entry
             
             # Track entry ZScore for stacking - deque automatically manages memory
             self.long_entry_zscores.append(zscore)
@@ -580,7 +602,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             
             self.order_types.submit_short_market_order(qty, price=bar.close)
             self.short_positions_since_cross += 1
-            self.entry_combined_factor = self.current_combined_factor
+            self.entry_atr_factor = self.current_atr_factor  # Track ATR factor used for entry
             
             # Track entry ZScore for stacking - deque automatically manages memory
             self.short_entry_zscores.append(zscore)
@@ -599,7 +621,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         net_pos = self.portfolio.net_position(self.instrument_id)
         
         if net_pos is not None and net_pos > 0 and self.current_ltf_kalman_zscore is not None:
-            long_exit, _ = self.adaptive_manager.get_adaptive_exit_thresholds(self.entry_combined_factor)
+            long_exit, _ = self.adaptive_manager.get_adaptive_exit_thresholds()  # Uses slope-based exits
             
             if self.current_ltf_kalman_zscore >= long_exit:
                 self._notify_vwap_exit_if_needed()
@@ -618,7 +640,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         net_pos = self.portfolio.net_position(self.instrument_id)
         
         if net_pos is not None and net_pos < 0 and self.current_ltf_kalman_zscore is not None:
-            _, short_exit = self.adaptive_manager.get_adaptive_exit_thresholds(self.entry_combined_factor)
+            _, short_exit = self.adaptive_manager.get_adaptive_exit_thresholds()  # Uses slope-based exits
             
             if self.current_ltf_kalman_zscore <= short_exit:
                 self._notify_vwap_exit_if_needed()
@@ -650,16 +672,19 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="ltf_kalman_mean", value=self.current_ltf_kalman_mean)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="htf_kalman_mean", value=self.current_htf_kalman_mean)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap", value=vwap_value)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="combined_factor", value=self.current_combined_factor)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="atr_factor", value=self.current_atr_factor)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vwap_zscore", value=self.current_zscore)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="slope_factor", value=self.current_slope_factor)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="atr_factor", value=self.current_atr_factor)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="kalman_zscore", value=self.current_ltf_kalman_zscore)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="vix", value=self.current_vix_value)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
         self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="equity", value=equity)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="long_risk", value=self.current_long_risk_factor)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="short_risk", value=self.current_short_risk_factor)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="long_exit", value=self.current_long_exit)
+        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="short_exit", value=self.current_short_exit)
 
         logging_message = self.collector.save_data()
         self.log.info(logging_message, color=LogColor.GREEN)
@@ -700,16 +725,20 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.collector.add_indicator(timestamp=bar.ts_event, name="ltf_kalman_mean", value=self.current_ltf_kalman_mean)
         self.collector.add_indicator(timestamp=bar.ts_event, name="htf_kalman_mean", value=self.current_htf_kalman_mean)
         self.collector.add_indicator(timestamp=bar.ts_event, name="vwap", value=vwap_value)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="combined_factor", value=self.current_combined_factor)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="atr_factor", value=self.current_atr_factor)
         self.collector.add_indicator(timestamp=bar.ts_event, name="vwap_zscore", value=self.current_zscore)
         self.collector.add_indicator(timestamp=bar.ts_event, name="slope_factor", value=self.current_slope_factor)
-        self.collector.add_indicator(timestamp=bar.ts_event, name="atr_factor", value=self.current_atr_factor)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="zscore_offset", value=self.current_asymmetric_offset)
         self.collector.add_indicator(timestamp=bar.ts_event, name="kalman_zscore", value=self.current_ltf_kalman_zscore)
         self.collector.add_indicator(timestamp=bar.ts_event, name="vix", value=self.current_vix_value)
         self.collector.add_indicator(timestamp=bar.ts_event, name="position", value=net_position)
         self.collector.add_indicator(timestamp=bar.ts_event, name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
         self.collector.add_indicator(timestamp=bar.ts_event, name="equity", value=equity)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="long_risk", value=self.current_long_risk_factor)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="short_risk", value=self.current_short_risk_factor)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="long_exit", value=self.current_long_exit)
+        self.collector.add_indicator(timestamp=bar.ts_event, name="short_exit", value=self.current_short_exit)
         self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
 
 

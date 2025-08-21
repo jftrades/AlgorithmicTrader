@@ -120,7 +120,6 @@ class AdaptiveParameterManager:
         self.current_slope = 0.0
         self.current_kalman_mean = None
         
-        self.smoothed_combined_factor = 1.0
         self.factor_alpha = 0.2
         
         # Performance optimization: cache percentiles
@@ -238,20 +237,6 @@ class AdaptiveParameterManager:
         else:
             normalized = (comparison_value - p5) / (p95 - p5)
             return max(0.0, min(1.0, normalized))
-    
-    def _robust_factor_combination(self, slope_factor: float, atr_factor: float) -> float:
-        combination_config = self.adaptive_factors.get('combination', {})
-        min_combined = combination_config.get('min_combined_factor', 0.3)
-        max_combined = combination_config.get('max_combined_factor', 3.0)
-        
-        slope_weight = 0.7
-        atr_weight = 0.3
-        
-        raw_combined_factor = (slope_factor * slope_weight) + (atr_factor * atr_weight)
-        raw_combined_factor = np.clip(raw_combined_factor, min_combined, max_combined)
-        self.smoothed_combined_factor = (self.factor_alpha * raw_combined_factor + 
-                                       (1 - self.factor_alpha) * self.smoothed_combined_factor)
-        return self.smoothed_combined_factor
     
     def _get_percentile_based_slope(self, slope: float = None) -> float:
         """Convert raw slope to percentile-based slope from -1 to +1"""
@@ -442,7 +427,7 @@ class AdaptiveParameterManager:
         
         return 1.0
     
-    def get_adaptive_exit_thresholds(self, entry_combined_factor: float = None, slope: float = None) -> tuple:
+    def get_adaptive_exit_thresholds(self, entry_atr_factor: float = None, slope: float = None) -> tuple:
         slope_exit_config = self.base_params.get('slope_exit_scaling', {})
         
         if slope_exit_config.get('enabled', False):
@@ -461,10 +446,10 @@ class AdaptiveParameterManager:
         short_base = adaptive_exit_config.get('short_base_exit', -0.01)
         short_max = adaptive_exit_config.get('short_max_extension', -1.0)
         
-        if entry_combined_factor is None or entry_combined_factor < extension_threshold:
+        if entry_atr_factor is None or entry_atr_factor < extension_threshold:
             return long_base, short_base
         
-        extension_factor = min((entry_combined_factor - 1.0) / (extension_threshold - 1.0), 1.0)
+        extension_factor = min((entry_atr_factor - 1.0) / (extension_threshold - 1.0), 1.0)
         long_exit = long_base + extension_factor * (long_max - long_base)
         short_exit = short_base + extension_factor * (short_max - short_base)
         
@@ -476,20 +461,18 @@ class AdaptiveParameterManager:
         slope_factor = self.calculate_slope_factor(slope_to_use)
         atr_factor = self.calculate_atr_factor()
         
-        # Use robust combination instead of simple multiplication
-        combined_factor = self._robust_factor_combination(slope_factor, atr_factor)
-        
         adaptive_params = {}
         
+        # Use ATR factor directly for elastic entry - higher volatility = more extreme zscores needed
         elastic_base = self.base_params['elastic_entry']
         adaptive_params['elastic_entry'] = {
-            'zscore_long_threshold': elastic_base['zscore_long_threshold'] * combined_factor,
-            'zscore_short_threshold': elastic_base['zscore_short_threshold'] * combined_factor,
-            'recovery_delta': elastic_base['recovery_delta'] * combined_factor,
-            'long_min_distance_from_kalman': elastic_base['long_min_distance_from_kalman'] * combined_factor,
-            'short_min_distance_from_kalman': elastic_base['short_min_distance_from_kalman'] * combined_factor,
-            'additional_zscore_min_gain': elastic_base['additional_zscore_min_gain'] * combined_factor,
-            'recovery_delta_reentry': elastic_base['recovery_delta_reentry'] * combined_factor,
+            'zscore_long_threshold': elastic_base['zscore_long_threshold'] * atr_factor,
+            'zscore_short_threshold': elastic_base['zscore_short_threshold'] * atr_factor,
+            'recovery_delta': elastic_base['recovery_delta'] * atr_factor,
+            'long_min_distance_from_kalman': elastic_base['long_min_distance_from_kalman'] * atr_factor,
+            'short_min_distance_from_kalman': elastic_base['short_min_distance_from_kalman'] * atr_factor,
+            'additional_zscore_min_gain': elastic_base['additional_zscore_min_gain'] * atr_factor,
+            'recovery_delta_reentry': elastic_base['recovery_delta_reentry'] * atr_factor,
             'allow_multiple_recoveries': elastic_base['allow_multiple_recoveries'],
             'recovery_cooldown_bars': elastic_base['recovery_cooldown_bars'],
             'stacking_bar_cooldown': elastic_base['stacking_bar_cooldown'],
@@ -502,10 +485,12 @@ class AdaptiveParameterManager:
         if adaptive_exit_config.get('enabled', False):
             adaptive_params['adaptive_exit'] = adaptive_exit_config
         
-        long_exit, short_exit = self.get_adaptive_exit_thresholds(combined_factor, slope_to_use)
+        # Keep slope-based exit thresholds using slope factor (not combined factor)
+        long_exit, short_exit = self.get_adaptive_exit_thresholds(None, slope_to_use)
         adaptive_params['kalman_zscore_exit_long'] = long_exit
         adaptive_params['kalman_zscore_exit_short'] = short_exit
         
+        # Keep slope-based risk factors using slope factor
         adaptive_params['long_risk_factor'], adaptive_params['short_risk_factor'] = self.calculate_slope_based_risk_factors(slope_to_use)
         
         vwap_base = self.base_params.get('vwap', {})
@@ -529,7 +514,7 @@ class AdaptiveParameterManager:
         adaptive_params['htf_kalman_measurement_var'] = self.base_params['htf_kalman_measurement_var']
         adaptive_params['htf_kalman_zscore_window'] = self.base_params['htf_kalman_zscore_window']
         
-        return adaptive_params, slope_factor, atr_factor, combined_factor
+        return adaptive_params, slope_factor, atr_factor
     
     def get_trend_factor(self, slope: float = None) -> float:
         slope_to_use = slope if slope is not None else self.current_slope
@@ -755,10 +740,10 @@ class AdaptiveParameterManager:
                        long_positions: int, short_positions: int, allow_stacking: bool):
         
         # Get the actual calculated factors (same as used in strategy)
-        _, slope_factor, atr_factor, combined_factor = self.get_adaptive_parameters()
+        _, slope_factor, atr_factor = self.get_adaptive_parameters()
         
         # Create slim log message matching the adaptive factors format
-        message = f"{trade_type.upper()} ${price:.2f} | ZScore: {zscore:.3f} | Adaptive factors: slope={slope_factor:.3f}, atr={atr_factor:.3f}, combined={combined_factor:.3f}"
+        message = f"{trade_type.upper()} ${price:.2f} | ZScore: {zscore:.3f} | Adaptive factors: slope={slope_factor:.3f}, atr={atr_factor:.3f}"
         
         # Note: LogColor.MAGENTA is typically purple in most terminals
         # This will be called from strategy context, so we'll return the message
@@ -767,9 +752,6 @@ class AdaptiveParameterManager:
 
     def reset_trend_state_for_vwap_anchor(self):
         """Reset trend-related state when VWAP anchors for daily/weekly resets"""
-        # Reset smoothed combined factor to neutral
-        self.smoothed_combined_factor = 1.0
-        
         # Reset current slope to neutral if we have insufficient data for new trend
         # This prevents carrying over trend information from before the anchor
         if hasattr(self, 'current_slope'):
