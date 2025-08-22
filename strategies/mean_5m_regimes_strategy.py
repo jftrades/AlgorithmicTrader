@@ -234,7 +234,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         return self.base_get_position()
 
     def _notify_vwap_exit_if_needed(self):
-        adaptive_params = self.adaptive_manager.get_adaptive_parameters()[0]
+        adaptive_params = self.adaptive_manager.get_adaptive_parameters(slope=self.current_htf_kalman_slope)[0]
         anchor_method = adaptive_params.get('vwap', {}).get('anchor_method', 'kalman_cross')
         if anchor_method == 'kalman_cross':
             self.vwap_zscore.notify_exit_trade_occurred()
@@ -360,7 +360,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             
         # Calculate asymmetric offset - REMOVED grace period to allow natural evolution after min_bars_for_zscore
         # ZScore should evolve naturally once the indicator's min_bars_for_zscore threshold is met
-        asymmetric_offset = self.adaptive_manager.get_asymmetric_offset(self.current_ltf_kalman_mean)
+        asymmetric_offset = self.adaptive_manager.get_asymmetric_offset(self.current_ltf_kalman_mean, slope=self.current_htf_kalman_slope)
         self.current_asymmetric_offset = asymmetric_offset  # Store for visualization
             
         vwap_value, zscore = self.vwap_zscore.update(bar, asymmetric_offset=asymmetric_offset)
@@ -678,7 +678,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         net_pos = self.portfolio.net_position(self.instrument_id)
         
         if net_pos is not None and net_pos > 0 and self.current_ltf_kalman_zscore is not None:
-            long_exit, _ = self.adaptive_manager.get_adaptive_exit_thresholds()  # Uses slope-based exits
+            long_exit, _ = self.adaptive_manager.get_adaptive_exit_thresholds(slope=self.current_htf_kalman_slope)  # Uses slope-based exits
             
             if self.current_ltf_kalman_zscore >= long_exit:
                 self._notify_vwap_exit_if_needed()
@@ -697,7 +697,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         net_pos = self.portfolio.net_position(self.instrument_id)
         
         if net_pos is not None and net_pos < 0 and self.current_ltf_kalman_zscore is not None:
-            _, short_exit = self.adaptive_manager.get_adaptive_exit_thresholds()  # Uses slope-based exits
+            _, short_exit = self.adaptive_manager.get_adaptive_exit_thresholds(slope=self.current_htf_kalman_slope)  # Uses slope-based exits
             
             if self.current_ltf_kalman_zscore <= short_exit:
                 self._notify_vwap_exit_if_needed()

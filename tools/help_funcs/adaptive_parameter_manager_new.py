@@ -217,29 +217,29 @@ class AdaptiveParameterManager:
         scaling_method = slope_risk_config.get('scaling_method', 'linear')
         
         if scaling_method == 'linear':
-            if normalized_slope >= 0:
+            if normalized_slope >= 0:  # Uptrend
                 long_risk = base_long_risk + normalized_slope * (max_long_risk_uptrend - base_long_risk)
-                short_risk = base_short_risk + normalized_slope * (max_short_risk_uptrend - base_short_risk)
-            else:
-                long_risk = base_long_risk + abs(normalized_slope) * (max_long_risk_downtrend - base_long_risk)
+                short_risk = base_short_risk - normalized_slope * (base_short_risk - max_short_risk_uptrend)
+            else:  # Downtrend  
+                long_risk = base_long_risk - abs(normalized_slope) * (base_long_risk - max_long_risk_downtrend)
                 short_risk = base_short_risk + abs(normalized_slope) * (max_short_risk_downtrend - base_short_risk)
         
         elif scaling_method == 'exponential':
             exp_factor = np.exp(abs(normalized_slope)) - 1
-            if normalized_slope >= 0:
+            if normalized_slope >= 0:  # Uptrend
                 long_risk = base_long_risk + exp_factor * (max_long_risk_uptrend - base_long_risk) / (np.e - 1)
-                short_risk = base_short_risk + exp_factor * (max_short_risk_uptrend - base_short_risk) / (np.e - 1)
-            else:
-                long_risk = base_long_risk + exp_factor * (max_long_risk_downtrend - base_long_risk) / (np.e - 1)
+                short_risk = base_short_risk - exp_factor * (base_short_risk - max_short_risk_uptrend) / (np.e - 1)
+            else:  # Downtrend
+                long_risk = base_long_risk - exp_factor * (base_long_risk - max_long_risk_downtrend) / (np.e - 1)
                 short_risk = base_short_risk + exp_factor * (max_short_risk_downtrend - base_short_risk) / (np.e - 1)
         
         elif scaling_method == 'logarithmic':
             log_factor = np.log1p(abs(normalized_slope)) / np.log(2)
-            if normalized_slope >= 0:
+            if normalized_slope >= 0:  # Uptrend
                 long_risk = base_long_risk + log_factor * (max_long_risk_uptrend - base_long_risk)
-                short_risk = base_short_risk + log_factor * (max_short_risk_uptrend - base_short_risk)
-            else:
-                long_risk = base_long_risk + log_factor * (max_long_risk_downtrend - base_long_risk)
+                short_risk = base_short_risk - log_factor * (base_short_risk - max_short_risk_uptrend)
+            else:  # Downtrend
+                long_risk = base_long_risk - log_factor * (base_long_risk - max_long_risk_downtrend)
                 short_risk = base_short_risk + log_factor * (max_short_risk_downtrend - base_short_risk)
         
         else:
@@ -269,29 +269,29 @@ class AdaptiveParameterManager:
         scaling_method = slope_exit_config.get('scaling_method', 'linear')
         
         if scaling_method == 'linear':
-            if normalized_slope >= 0:
+            if normalized_slope >= 0:  # Uptrend
                 long_exit = base_long_exit + normalized_slope * (max_long_exit_uptrend - base_long_exit)
-                short_exit = base_short_exit + normalized_slope * (max_short_exit_uptrend - base_short_exit)
-            else:
-                long_exit = base_long_exit + abs(normalized_slope) * (max_long_exit_downtrend - base_long_exit)
+                short_exit = base_short_exit - normalized_slope * (base_short_exit - max_short_exit_uptrend)
+            else:  # Downtrend
+                long_exit = base_long_exit - abs(normalized_slope) * (base_long_exit - max_long_exit_downtrend)
                 short_exit = base_short_exit + abs(normalized_slope) * (max_short_exit_downtrend - base_short_exit)
         
         elif scaling_method == 'exponential':
             exp_factor = np.exp(abs(normalized_slope)) - 1
-            if normalized_slope >= 0:
+            if normalized_slope >= 0:  # Uptrend
                 long_exit = base_long_exit + exp_factor * (max_long_exit_uptrend - base_long_exit) / (np.e - 1)
-                short_exit = base_short_exit + exp_factor * (max_short_exit_uptrend - base_short_exit) / (np.e - 1)
-            else:
-                long_exit = base_long_exit + exp_factor * (max_long_exit_downtrend - base_long_exit) / (np.e - 1)
+                short_exit = base_short_exit - exp_factor * (base_short_exit - max_short_exit_uptrend) / (np.e - 1)
+            else:  # Downtrend
+                long_exit = base_long_exit - exp_factor * (base_long_exit - max_long_exit_downtrend) / (np.e - 1)
                 short_exit = base_short_exit + exp_factor * (max_short_exit_downtrend - base_short_exit) / (np.e - 1)
         
         elif scaling_method == 'logarithmic':
             log_factor = np.log1p(abs(normalized_slope)) / np.log(2)
-            if normalized_slope >= 0:
+            if normalized_slope >= 0:  # Uptrend
                 long_exit = base_long_exit + log_factor * (max_long_exit_uptrend - base_long_exit)
-                short_exit = base_short_exit + log_factor * (max_short_exit_uptrend - base_short_exit)
-            else:
-                long_exit = base_long_exit + log_factor * (max_long_exit_downtrend - base_long_exit)
+                short_exit = base_short_exit - log_factor * (base_short_exit - max_short_exit_uptrend)
+            else:  # Downtrend
+                long_exit = base_long_exit - log_factor * (base_long_exit - max_long_exit_downtrend)
                 short_exit = base_short_exit + log_factor * (max_short_exit_downtrend - base_short_exit)
         
         else:
@@ -494,7 +494,7 @@ class AdaptiveParameterManager:
         
         return base_value + trend_adjustment + vol_adjustment
     
-    def get_asymmetric_offset(self, base_mean: float = None, force_reset: bool = False) -> float:
+    def get_asymmetric_offset(self, base_mean: float = None, force_reset: bool = False, slope: float = None) -> float:
         # If force_reset is True (e.g., on VWAP daily/weekly reset), return 0
         if force_reset:
             return 0.0
@@ -502,7 +502,9 @@ class AdaptiveParameterManager:
         # Check if slope-based asymmetric offset is enabled
         slope_offset_config = self.base_params.get('slope_asymmetric_offset', {})
         if slope_offset_config.get('enabled', False):
-            return self.calculate_slope_based_asymmetric_offset()
+            # Use passed slope or fall back to current slope
+            effective_slope = slope if slope is not None else self.current_slope
+            return self.calculate_slope_based_asymmetric_offset(effective_slope)
         
         # Fallback to old method if slope-based offset is disabled
         offset_config = self.adaptive_factors.get('asymmetric_offset', {})
