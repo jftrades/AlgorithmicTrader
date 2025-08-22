@@ -34,8 +34,6 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     # New adaptive system
     base_parameters: dict
     adaptive_factors: dict
-    adaptive_percentile_window: int = 200
-    adaptive_cache_update_frequency: int = 50
     
     # VWAP/ZScore Parameter
     vwap_anchor_on_kalman_cross: bool = True
@@ -90,9 +88,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         
         self.adaptive_manager = AdaptiveParameterManager(
             base_params=config.base_parameters,
-            adaptive_factors=config.adaptive_factors,
-            adaptive_percentile_window=config.adaptive_percentile_window,
-            cache_update_frequency=config.adaptive_cache_update_frequency
+            adaptive_factors=config.adaptive_factors
         )
         
         adaptive_params, _, _ = self.adaptive_manager.get_adaptive_parameters()
@@ -167,6 +163,12 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.additional_zscore_min_gain = adaptive_elastic_params.get('additional_zscore_min_gain', 0.5)
         self.recovery_delta_reentry = adaptive_elastic_params.get('recovery_delta_reentry', 0.3)
         self.stacking_bar_cooldown = adaptive_elastic_params.get('stacking_bar_cooldown', 10)
+        
+        # Daily stacking reset configuration
+        self.allow_daily_stacking_reset = adaptive_elastic_params.get('allow_daily_stacking_reset', False)
+        self.current_trading_day = None  # Track current trading day
+        self.daily_long_stacking_reset = False  # Track if long stacking was reset today
+        self.daily_short_stacking_reset = False  # Track if short stacking was reset today
         
         self.long_positions_since_cross = 0
         self.short_positions_since_cross = 0
@@ -368,6 +370,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if zscore is not None:
             self.elastic_entry.update_state(zscore)
 
+        # Check for daily stacking reset if enabled
+        self._check_daily_stacking_reset(bar, zscore, adaptive_params)
+
         self._check_kalman_cross_for_stacking(bar)
         self.bar_counter += 1
 
@@ -455,6 +460,40 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         
         self.last_kalman_cross_direction = current_direction
     
+    def _check_daily_stacking_reset(self, bar, zscore, adaptive_params):
+        """Check if we should reset stacking on a new trading day when thresholds are hit."""
+        if not self.allow_daily_stacking_reset:
+            return
+            
+        # Get current trading day (date only, ignore time)
+        current_day = bar.ts_event.date()
+        
+        # Check if it's a new trading day
+        if self.current_trading_day != current_day:
+            self.current_trading_day = current_day
+            # Reset daily flags on new day
+            self.daily_long_stacking_reset = False
+            self.daily_short_stacking_reset = False
+            return
+        
+        # Use the zscore parameter passed to the method
+        if zscore is None:
+            return
+            
+        # Check long threshold hit (-2.5) - extreme oversold
+        if (zscore <= -2.5 and 
+            not self.daily_long_stacking_reset and 
+            self.long_positions_since_cross > 0):
+            self.daily_long_stacking_reset = True
+            self.log.info(f"Daily stacking reset triggered for LONG positions at zscore {zscore:.3f}", color=LogColor.GREEN)
+            
+        # Check short threshold hit (+2.5) - extreme overbought  
+        if (zscore >= 2.5 and 
+            not self.daily_short_stacking_reset and 
+            self.short_positions_since_cross > 0):
+            self.daily_short_stacking_reset = True
+            self.log.info(f"Daily stacking reset triggered for SHORT positions at zscore {zscore:.3f}", color=LogColor.RED)
+    
     def can_stack_long(self, current_zscore: float) -> bool:
         # Erste Position ist immer erlaubt, auch wenn Stacking deaktiviert ist
         if self.long_positions_since_cross == 0:
@@ -463,6 +502,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         # Wenn Stacking deaktiviert ist, keine weiteren Positionen erlauben
         if not self.allow_stacking:
             return False
+
+        # Check daily stacking reset - if triggered, treat as if no positions yet
+        if self.daily_long_stacking_reset:
+            return True
         
         if self.long_positions_since_cross >= self.max_long_stacked_positions:
             return False
@@ -487,6 +530,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         # Wenn Stacking deaktiviert ist, keine weiteren Positionen erlauben
         if not self.allow_stacking:
             return False
+
+        # Check daily stacking reset - if triggered, treat as if no positions yet
+        if self.daily_short_stacking_reset:
+            return True
         
         if self.short_positions_since_cross >= self.max_short_stacked_positions:
             return False
@@ -557,6 +604,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.long_positions_since_cross += 1
             self.entry_atr_factor = self.current_atr_factor  # Track ATR factor used for entry
             
+            # If daily stacking reset was active, clear it since we took a position
+            if self.daily_long_stacking_reset:
+                self.daily_long_stacking_reset = False
+                self.log.info("Daily long stacking reset flag cleared after position entry", color=LogColor.GREEN)
+            
             # Track entry ZScore for stacking - deque automatically manages memory
             self.long_entry_zscores.append(zscore)
             self.bars_since_last_long_entry = 0
@@ -603,6 +655,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.order_types.submit_short_market_order(qty, price=bar.close)
             self.short_positions_since_cross += 1
             self.entry_atr_factor = self.current_atr_factor  # Track ATR factor used for entry
+            
+            # If daily stacking reset was active, clear it since we took a position
+            if self.daily_short_stacking_reset:
+                self.daily_short_stacking_reset = False
+                self.log.info("Daily short stacking reset flag cleared after position entry", color=LogColor.RED)
             
             # Track entry ZScore for stacking - deque automatically manages memory
             self.short_entry_zscores.append(zscore)

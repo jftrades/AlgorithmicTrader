@@ -1,6 +1,6 @@
 import numpy as np
 from collections import deque
-from tools.help_funcs.distrubition_monitor import SlopeDistributionMonitor, ATRDistributionMonitor
+from tools.help_funcs.distrubition_monitor import ATRDistributionMonitor, SlopeDistributionMonitor
 
 
 class RobustATRCalculator:
@@ -9,31 +9,13 @@ class RobustATRCalculator:
         self.percentile_window = percentile_window
         self.outlier_threshold = outlier_threshold
         
-        self.tr_history = deque(maxlen=atr_window)
+        # For standard ATR calculation with minimal smoothing
+        self.alpha = 2.0 / (atr_window + 1) 
         self.atr_history = deque(maxlen=percentile_window)
         self.current_atr = None
         self.current_percentile = 0.5
+        self.prev_close = None
         
-    def _winsorize_tr(self, tr_values: list, threshold: float = 3.0) -> list:
-        """Apply winsorization to remove outliers from True Range values"""
-        if len(tr_values) < 3:
-            return tr_values
-            
-        tr_array = np.array(tr_values)
-        median = np.median(tr_array)
-        mad = np.median(np.abs(tr_array - median))
-        
-        # Modified Z-score using median absolute deviation
-        if mad == 0:
-            return tr_values
-        
-        # Winsorize outliers
-        upper_limit = median + threshold * mad / 0.6745
-        lower_limit = max(0, median - threshold * mad / 0.6745)
-        
-        winsorized = np.clip(tr_array, lower_limit, upper_limit)
-        return winsorized.tolist()
-    
     def _soft_clamp(self, value: float, min_val: float = 0.05, max_val: float = 0.95, steepness: float = 10.0) -> float:
         """Soft clamping using sigmoid function"""
         if value <= min_val:
@@ -60,72 +42,46 @@ class RobustATRCalculator:
         return left / len(sorted_history)
     
     def update(self, high: float, low: float, prev_close: float = None) -> tuple:
-        """Update ATR calculation with robust outlier handling"""
+        """Update ATR calculation using standard EMA-based method with minimal smoothing"""
         # Calculate True Range
         if prev_close is not None:
             tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+        elif self.prev_close is not None:
+            tr = max(high - low, abs(high - self.prev_close), abs(low - self.prev_close))
         else:
             tr = high - low
         
-        self.tr_history.append(tr)
-        
-        # Apply winsorization if we have enough data
-        if len(self.tr_history) >= 5:
-            winsorized_tr = self._winsorize_tr(list(self.tr_history))
-            current_atr = np.mean(winsorized_tr)
+        # Standard ATR calculation using EMA (much less smoothing than before)
+        if self.current_atr is None:
+            self.current_atr = tr  # First value
         else:
-            current_atr = np.mean(self.tr_history)
+            self.current_atr = self.alpha * tr + (1 - self.alpha) * self.current_atr
         
-        self.current_atr = current_atr
-        self.atr_history.append(current_atr)
+        self.atr_history.append(self.current_atr)
+        self.prev_close = prev_close if prev_close is not None else high  # Use close or high as fallback
         
         # Calculate percentile efficiently
         if len(self.atr_history) > 10:
             sorted_history = sorted(list(self.atr_history))
-            percentile = self._calculate_percentile_efficient(current_atr, sorted_history)
+            percentile = self._calculate_percentile_efficient(self.current_atr, sorted_history)
             self.current_percentile = self._soft_clamp(percentile)
         
-        return current_atr, self.current_percentile
+        return self.current_atr, self.current_percentile
 
 
 class AdaptiveParameterManager:
-    def calculate_slope_factor(self, slope: float) -> float:
-        if not self.adaptive_factors.get('slope', {}).get('enabled', False):
-            return 1.0
-        
-        slope_config = self.adaptive_factors['slope']
-        
-        if self.slope_monitor and len(self.slope_monitor.values) >= self.adaptive_percentile_window:
-            # Get recent slope values for percentile calculation
-            recent_values = list(self.slope_monitor.values)[-self.adaptive_percentile_window:]
-            abs_recent_values = [abs(v) for v in recent_values]
-            abs_current_slope = abs(slope)
-            
-            # Calculate what percentile the current slope represents
-            values_below = sum(1 for v in abs_recent_values if v <= abs_current_slope)
-            current_percentile = (values_below / len(abs_recent_values)) * 100
-            
-            # Map percentile to min/max range from YAML
-            # 0th percentile -> min, 100th percentile -> max
-            factor = slope_config['min'] + (current_percentile / 100.0) * (slope_config['max'] - slope_config['min'])
-            
-            return factor
-        
-        return 1.0
-    def __init__(self, base_params: dict, adaptive_factors: dict, kalman_filter=None, adaptive_percentile_window: int = 200, cache_update_frequency: int = 50):
+    def __init__(self, base_params: dict, adaptive_factors: dict, kalman_filter=None, cache_update_frequency: int = 50):
         self.base_params = base_params
         self.adaptive_factors = adaptive_factors
         self.kalman = kalman_filter
-        self.adaptive_percentile_window = adaptive_percentile_window
         self.current_slope = 0.0
         self.current_kalman_mean = None
         
         self.factor_alpha = 0.2
         
-        # Performance optimization: cache percentiles
-        self.slope_percentiles_cache = None
+        self.atr_percentile_window = self.adaptive_factors.get('atr', {}).get('percentile_window', 500)
+        
         self.atr_percentiles_cache = None
-        self.last_slope_cache_update = 0
         self.last_atr_cache_update = 0
         self.cache_update_frequency = cache_update_frequency
         
@@ -133,7 +89,7 @@ class AdaptiveParameterManager:
             atr_config = self.adaptive_factors['atr']
             self.atr_calculator = RobustATRCalculator(
                 atr_window=atr_config.get('window', 14),
-                percentile_window=self.adaptive_percentile_window,
+                percentile_window=self.atr_percentile_window,
                 outlier_threshold=atr_config.get('outlier_threshold', 3.0)
             )
             self.current_atr_percentile = 0.5
@@ -141,23 +97,24 @@ class AdaptiveParameterManager:
             self.atr_calculator = None
             self.current_atr_percentile = 0.5
         
-        # Slope Distribution Monitor - always create if slope factors are enabled
-        if self.adaptive_factors.get('slope', {}).get('enabled', False):
-            self.slope_monitor = SlopeDistributionMonitor(max_values=100000)  # Conservative limit
-        else:
-            self.slope_monitor = None
-        
-        # ATR Distribution Monitor - always create if ATR factors are enabled  
-        if self.adaptive_factors.get('atr', {}).get('enabled', False):
-            self.atr_monitor = ATRDistributionMonitor(max_values=100000)  # Conservative limit
+        # Initialize ATR distribution monitor if enabled
+        if self.adaptive_factors.get('distribution_monitor', {}).get('atr_distribution', {}).get('enabled', False):
+            self.atr_monitor = ATRDistributionMonitor(max_values=100000)
         else:
             self.atr_monitor = None
+        
+        # Initialize slope distribution monitor if enabled
+        if self.adaptive_factors.get('distribution_monitor', {}).get('slope_distribution', {}).get('enabled', False):
+            self.slope_monitor = SlopeDistributionMonitor(max_values=100000)
+        else:
+            self.slope_monitor = None
     
     def update_slope(self, ltf_kalman_mean: float, htf_kalman_slope: float):
         if ltf_kalman_mean is not None:
             self.current_kalman_mean = ltf_kalman_mean
         if htf_kalman_slope is not None:
             self.current_slope = htf_kalman_slope
+            # Add slope to distribution monitor if enabled
             if self.slope_monitor is not None:
                 self.slope_monitor.add_slope(htf_kalman_slope)
         return ltf_kalman_mean, htf_kalman_slope
@@ -177,47 +134,27 @@ class AdaptiveParameterManager:
         return None, self.current_atr_percentile
     
     def _get_cached_percentiles(self, monitor, monitor_type: str) -> dict:
-        """Get cached percentiles or calculate new ones if cache is stale"""
         current_count = len(monitor.values)
         
-        if monitor_type == 'slope':
-            if (self.slope_percentiles_cache is None or 
-                current_count - self.last_slope_cache_update >= self.cache_update_frequency):
-                # Use simple percentiles over the rolling window, not exponentially weighted
-                recent_values = list(monitor.values)[-self.adaptive_percentile_window:]
-                if len(recent_values) >= self.adaptive_percentile_window:
-                    import numpy as np
-                    self.slope_percentiles_cache = {
-                        5: np.percentile(recent_values, 5),
-                        95: np.percentile(recent_values, 95)
-                    }
-                else:
-                    self.slope_percentiles_cache = {5: None, 95: None}
-                self.last_slope_cache_update = current_count
-            return self.slope_percentiles_cache
-        else:  # atr
-            if (self.atr_percentiles_cache is None or 
-                current_count - self.last_atr_cache_update >= self.cache_update_frequency):
-                # Use simple percentiles over the rolling window, not exponentially weighted
-                recent_values = list(monitor.values)[-self.adaptive_percentile_window:]
-                if len(recent_values) >= self.adaptive_percentile_window:
-                    import numpy as np
-                    self.atr_percentiles_cache = {
-                        5: np.percentile(recent_values, 5),
-                        95: np.percentile(recent_values, 95)
-                    }
-                else:
-                    self.atr_percentiles_cache = {5: None, 95: None}
-                self.last_atr_cache_update = current_count
-            return self.atr_percentiles_cache
+        if (self.atr_percentiles_cache is None or 
+            current_count - self.last_atr_cache_update >= self.cache_update_frequency):
+            recent_values = list(monitor.values)[-self.atr_percentile_window:]
+            if len(recent_values) >= self.atr_percentile_window:
+                import numpy as np
+                self.atr_percentiles_cache = {
+                    5: np.percentile(recent_values, 5),
+                    95: np.percentile(recent_values, 95)
+                }
+            else:
+                self.atr_percentiles_cache = {5: None, 95: None}
+            self.last_atr_cache_update = current_count
+        return self.atr_percentiles_cache
 
     def _calculate_percentile_based_factor(self, value: float, monitor, is_absolute: bool = False) -> float:
-        if len(monitor.values) < self.adaptive_percentile_window:
+        if len(monitor.values) < self.atr_percentile_window:
             return 0.5
         
-        # Use cached percentiles for performance
-        monitor_type = 'slope' if hasattr(monitor, 'add_slope') else 'atr'
-        percentiles = self._get_cached_percentiles(monitor, monitor_type)
+        percentiles = self._get_cached_percentiles(monitor, 'atr')
         p5, p95 = percentiles[5], percentiles[95]
         
         if p5 is None or p95 is None or p95 <= p5:
@@ -238,27 +175,29 @@ class AdaptiveParameterManager:
             normalized = (comparison_value - p5) / (p95 - p5)
             return max(0.0, min(1.0, normalized))
     
-    def _get_percentile_based_slope(self, slope: float = None) -> float:
-        """Convert raw slope to percentile-based slope from -1 to +1"""
+    def _get_normalized_slope(self, slope: float = None) -> float:
+        """Convert raw slope to normalized value between -1 and 1 using max_bull_slope/max_bear_slope boundaries"""
         slope_to_use = slope if slope is not None else self.current_slope
         
         if slope_to_use is None:
             return 0.0
         
-        # Get direction: -1 for negative, +1 for positive, 0 for zero
-        direction = 1.0 if slope_to_use > 0 else (-1.0 if slope_to_use < 0 else 0.0)
+        slope_config = self.adaptive_factors.get('slope', {})
+        max_bull_slope = slope_config.get('max_bull_slope', 0.02)
+        max_bear_slope = slope_config.get('max_bear_slope', -0.02)
         
-        # Get strength from percentile system (0.5 to 1.4 range)
-        slope_factor = self.calculate_slope_factor(abs(slope_to_use))
+        # Clamp slope to boundaries
+        clamped_slope = max(max_bear_slope, min(max_bull_slope, slope_to_use))
         
-        # Convert to 0-1 range: (slope_factor - 0.5) / 0.9
-        # Then scale to -1 to +1: * 2 - 1, but we handle direction separately
-        strength = (slope_factor - 0.5) / 0.9
+        # Normalize to -1 to 1 range
+        if clamped_slope >= 0:
+            # Positive slope: 0 to max_bull_slope becomes 0 to 1
+            normalized = clamped_slope / max_bull_slope
+        else:
+            # Negative slope: max_bear_slope to 0 becomes -1 to 0
+            normalized = clamped_slope / abs(max_bear_slope)
         
-        # Combine direction and strength: -1 to +1 range
-        percentile_slope = direction * strength
-        
-        return percentile_slope
+        return normalized
 
     def calculate_slope_based_risk_factors(self, slope: float = None) -> tuple:
         slope_risk_config = self.base_params.get('slope_risk_scaling', {})
@@ -266,8 +205,8 @@ class AdaptiveParameterManager:
         if not slope_risk_config.get('enabled', False):
             return 1.0, 1.0
         
-        # Use percentile-based slope instead of normalized slope
-        percentile_slope = self._get_percentile_based_slope(slope)
+        # Use direct normalized slope (-1 to 1)
+        normalized_slope = self._get_normalized_slope(slope)
         
         base_long_risk = slope_risk_config.get('base_long_risk', 1.0)
         base_short_risk = slope_risk_config.get('base_short_risk', 1.0)
@@ -278,16 +217,16 @@ class AdaptiveParameterManager:
         scaling_method = slope_risk_config.get('scaling_method', 'linear')
         
         if scaling_method == 'linear':
-            if percentile_slope >= 0:
-                long_risk = base_long_risk + percentile_slope * (max_long_risk_uptrend - base_long_risk)
-                short_risk = base_short_risk + percentile_slope * (max_short_risk_uptrend - base_short_risk)
+            if normalized_slope >= 0:
+                long_risk = base_long_risk + normalized_slope * (max_long_risk_uptrend - base_long_risk)
+                short_risk = base_short_risk + normalized_slope * (max_short_risk_uptrend - base_short_risk)
             else:
-                long_risk = base_long_risk + abs(percentile_slope) * (max_long_risk_downtrend - base_long_risk)
-                short_risk = base_short_risk + abs(percentile_slope) * (max_short_risk_downtrend - base_short_risk)
+                long_risk = base_long_risk + abs(normalized_slope) * (max_long_risk_downtrend - base_long_risk)
+                short_risk = base_short_risk + abs(normalized_slope) * (max_short_risk_downtrend - base_short_risk)
         
         elif scaling_method == 'exponential':
-            exp_factor = np.exp(abs(percentile_slope)) - 1
-            if percentile_slope >= 0:
+            exp_factor = np.exp(abs(normalized_slope)) - 1
+            if normalized_slope >= 0:
                 long_risk = base_long_risk + exp_factor * (max_long_risk_uptrend - base_long_risk) / (np.e - 1)
                 short_risk = base_short_risk + exp_factor * (max_short_risk_uptrend - base_short_risk) / (np.e - 1)
             else:
@@ -295,8 +234,8 @@ class AdaptiveParameterManager:
                 short_risk = base_short_risk + exp_factor * (max_short_risk_downtrend - base_short_risk) / (np.e - 1)
         
         elif scaling_method == 'logarithmic':
-            log_factor = np.log1p(abs(percentile_slope)) / np.log(2)
-            if percentile_slope >= 0:
+            log_factor = np.log1p(abs(normalized_slope)) / np.log(2)
+            if normalized_slope >= 0:
                 long_risk = base_long_risk + log_factor * (max_long_risk_uptrend - base_long_risk)
                 short_risk = base_short_risk + log_factor * (max_short_risk_uptrend - base_short_risk)
             else:
@@ -318,8 +257,8 @@ class AdaptiveParameterManager:
             short_base = adaptive_exit_config.get('short_base_exit', -5.0)
             return long_base, short_base
         
-        # Use percentile-based slope instead of normalized slope
-        percentile_slope = self._get_percentile_based_slope(slope)
+        # Use direct normalized slope (-1 to 1)
+        normalized_slope = self._get_normalized_slope(slope)
         
         base_long_exit = slope_exit_config.get('base_long_exit', 5.0)
         base_short_exit = slope_exit_config.get('base_short_exit', -5.0)
@@ -330,16 +269,16 @@ class AdaptiveParameterManager:
         scaling_method = slope_exit_config.get('scaling_method', 'linear')
         
         if scaling_method == 'linear':
-            if percentile_slope >= 0:
-                long_exit = base_long_exit + percentile_slope * (max_long_exit_uptrend - base_long_exit)
-                short_exit = base_short_exit + percentile_slope * (max_short_exit_uptrend - base_short_exit)
+            if normalized_slope >= 0:
+                long_exit = base_long_exit + normalized_slope * (max_long_exit_uptrend - base_long_exit)
+                short_exit = base_short_exit + normalized_slope * (max_short_exit_uptrend - base_short_exit)
             else:
-                long_exit = base_long_exit + abs(percentile_slope) * (max_long_exit_downtrend - base_long_exit)
-                short_exit = base_short_exit + abs(percentile_slope) * (max_short_exit_downtrend - base_short_exit)
+                long_exit = base_long_exit + abs(normalized_slope) * (max_long_exit_downtrend - base_long_exit)
+                short_exit = base_short_exit + abs(normalized_slope) * (max_short_exit_downtrend - base_short_exit)
         
         elif scaling_method == 'exponential':
-            exp_factor = np.exp(abs(percentile_slope)) - 1
-            if percentile_slope >= 0:
+            exp_factor = np.exp(abs(normalized_slope)) - 1
+            if normalized_slope >= 0:
                 long_exit = base_long_exit + exp_factor * (max_long_exit_uptrend - base_long_exit) / (np.e - 1)
                 short_exit = base_short_exit + exp_factor * (max_short_exit_uptrend - base_short_exit) / (np.e - 1)
             else:
@@ -347,8 +286,8 @@ class AdaptiveParameterManager:
                 short_exit = base_short_exit + exp_factor * (max_short_exit_downtrend - base_short_exit) / (np.e - 1)
         
         elif scaling_method == 'logarithmic':
-            log_factor = np.log1p(abs(percentile_slope)) / np.log(2)
-            if percentile_slope >= 0:
+            log_factor = np.log1p(abs(normalized_slope)) / np.log(2)
+            if normalized_slope >= 0:
                 long_exit = base_long_exit + log_factor * (max_long_exit_uptrend - base_long_exit)
                 short_exit = base_short_exit + log_factor * (max_short_exit_uptrend - base_short_exit)
             else:
@@ -367,8 +306,8 @@ class AdaptiveParameterManager:
         if not slope_offset_config.get('enabled', False):
             return 0.0
         
-        # Use percentile-based slope instead of normalized slope
-        percentile_slope = self._get_percentile_based_slope(slope)
+        # Use direct normalized slope (-1 to 1)
+        normalized_slope = self._get_normalized_slope(slope)
         
         base_offset = slope_offset_config.get('base_offset', 0.0)
         max_offset_uptrend = slope_offset_config.get('max_offset_uptrend', 1.8)
@@ -377,21 +316,21 @@ class AdaptiveParameterManager:
         
         # Calculate offset based on scaling method
         if scaling_method == 'linear':
-            if percentile_slope >= 0:
-                offset = base_offset + percentile_slope * (max_offset_uptrend - base_offset)
+            if normalized_slope >= 0:
+                offset = base_offset + normalized_slope * (max_offset_uptrend - base_offset)
             else:
-                offset = base_offset + abs(percentile_slope) * (max_offset_downtrend - base_offset)
+                offset = base_offset + abs(normalized_slope) * (max_offset_downtrend - base_offset)
         
         elif scaling_method == 'exponential':
-            exp_factor = np.exp(abs(percentile_slope)) - 1
-            if percentile_slope >= 0:
+            exp_factor = np.exp(abs(normalized_slope)) - 1
+            if normalized_slope >= 0:
                 offset = base_offset + exp_factor * (max_offset_uptrend - base_offset) / (np.e - 1)
             else:
                 offset = base_offset + exp_factor * (max_offset_downtrend - base_offset) / (np.e - 1)
         
         elif scaling_method == 'logarithmic':
-            log_factor = np.log1p(abs(percentile_slope)) / np.log(2)
-            if percentile_slope >= 0:
+            log_factor = np.log1p(abs(normalized_slope)) / np.log(2)
+            if normalized_slope >= 0:
                 offset = base_offset + log_factor * (max_offset_uptrend - base_offset)
             else:
                 offset = base_offset + log_factor * (max_offset_downtrend - base_offset)
@@ -410,22 +349,13 @@ class AdaptiveParameterManager:
         if self.atr_calculator is None or len(self.atr_calculator.atr_history) < 20:
             return 1.0
         
-        if self.atr_monitor and len(self.atr_monitor.values) >= self.adaptive_percentile_window:
-            # Get recent ATR values for percentile calculation
-            recent_values = list(self.atr_monitor.values)[-self.adaptive_percentile_window:]
-            current_atr = self.atr_calculator.current_atr
-            
-            # Calculate what percentile the current ATR represents
-            values_below = sum(1 for v in recent_values if v <= current_atr)
-            current_percentile = (values_below / len(recent_values)) * 100
-            
-            # Map percentile to min/max range from YAML
-            # 0th percentile -> min, 100th percentile -> max
-            factor = atr_config['min'] + (current_percentile / 100.0) * (atr_config['max'] - atr_config['min'])
-            
-            return factor
+        # Use the calculator's built-in percentile calculation
+        current_percentile = self.atr_calculator.current_percentile
         
-        return 1.0
+        # Convert percentile (0-1) to factor using min/max range
+        factor = atr_config['min'] + current_percentile * (atr_config['max'] - atr_config['min'])
+        
+        return factor
     
     def get_adaptive_exit_thresholds(self, entry_atr_factor: float = None, slope: float = None) -> tuple:
         slope_exit_config = self.base_params.get('slope_exit_scaling', {})
@@ -458,7 +388,8 @@ class AdaptiveParameterManager:
     def get_adaptive_parameters(self, slope: float = None) -> tuple:
         slope_to_use = slope if slope is not None else self.current_slope
         
-        slope_factor = self.calculate_slope_factor(slope_to_use)
+        # Use normalized slope for display/logging (replaces slope_factor)
+        normalized_slope = self._get_normalized_slope(slope_to_use)
         atr_factor = self.calculate_atr_factor()
         
         adaptive_params = {}
@@ -485,12 +416,12 @@ class AdaptiveParameterManager:
         if adaptive_exit_config.get('enabled', False):
             adaptive_params['adaptive_exit'] = adaptive_exit_config
         
-        # Keep slope-based exit thresholds using slope factor (not combined factor)
+        # Use slope-based exit thresholds with direct slope
         long_exit, short_exit = self.get_adaptive_exit_thresholds(None, slope_to_use)
         adaptive_params['kalman_zscore_exit_long'] = long_exit
         adaptive_params['kalman_zscore_exit_short'] = short_exit
         
-        # Keep slope-based risk factors using slope factor
+        # Use slope-based risk factors with direct slope  
         adaptive_params['long_risk_factor'], adaptive_params['short_risk_factor'] = self.calculate_slope_based_risk_factors(slope_to_use)
         
         vwap_base = self.base_params.get('vwap', {})
@@ -514,7 +445,7 @@ class AdaptiveParameterManager:
         adaptive_params['htf_kalman_measurement_var'] = self.base_params['htf_kalman_measurement_var']
         adaptive_params['htf_kalman_zscore_window'] = self.base_params['htf_kalman_zscore_window']
         
-        return adaptive_params, slope_factor, atr_factor
+        return adaptive_params, normalized_slope, atr_factor
     
     def get_trend_factor(self, slope: float = None) -> float:
         slope_to_use = slope if slope is not None else self.current_slope
@@ -602,27 +533,24 @@ class AdaptiveParameterManager:
     
     def get_debug_info(self) -> dict:
         debug_info = {
-            'kalman_enabled': self.adaptive_factors.get('kalman', {}).get('enabled', False),
             'atr_enabled': self.adaptive_factors.get('atr', {}).get('enabled', False),
             'slope_enabled': self.adaptive_factors.get('slope', {}).get('enabled', False),
-            'slope_monitor_enabled': self.adaptive_factors.get('distribution_monitor', {}).get('slope_distribution', {}).get('enabled', False),
             'atr_monitor_enabled': self.adaptive_factors.get('distribution_monitor', {}).get('atr_distribution', {}).get('enabled', False),
+            'slope_monitor_enabled': self.adaptive_factors.get('distribution_monitor', {}).get('slope_distribution', {}).get('enabled', False),
             'current_atr_percentile': self.current_atr_percentile,
             'current_slope': self.current_slope,
             'current_kalman_mean': self.current_kalman_mean,
-            'kalman_initialized': self.kalman.initialized if self.kalman else False,
         }
         
         if self.atr_calculator:
             debug_info['atr_history_length'] = len(self.atr_calculator.atr_history)
-            debug_info['tr_history_length'] = len(self.atr_calculator.tr_history)
             debug_info['current_atr'] = self.atr_calculator.current_atr
-        
-        if self.slope_monitor is not None:
-            debug_info['slope_monitor_samples'] = self.slope_monitor.total_count
         
         if self.atr_monitor is not None:
             debug_info['atr_monitor_samples'] = self.atr_monitor.total_count
+        
+        if self.slope_monitor is not None:
+            debug_info['slope_monitor_samples'] = self.slope_monitor.total_count
             
         return debug_info
     
@@ -630,7 +558,7 @@ class AdaptiveParameterManager:
         if self.slope_monitor is not None:
             self.slope_monitor.print_distribution()
         else:
-            print("Slope monitor is disabled.")
+            print("Slope distribution monitoring is disabled.")
     
     def print_atr_distribution(self):
         if self.atr_monitor is not None:
@@ -640,24 +568,15 @@ class AdaptiveParameterManager:
     
     def get_current_scaling_info(self) -> dict:
         info = {
-            'slope_scaling': 'waiting_for_data',
+            'slope_scaling': 'direct_slope',
             'atr_scaling': 'waiting_for_data',
-            'slope_samples': 0,
+            'slope_samples': 'N/A',
             'atr_samples': 0,
-            'percentile_scaling_active': False
+            'percentile_scaling_active': False,
+            'atr_window': self.atr_percentile_window
         }
         
-        if self.slope_monitor and len(self.slope_monitor.values) >= self.adaptive_percentile_window:
-            info['slope_scaling'] = 'dynamic_percentile'
-            info['slope_samples'] = len(self.slope_monitor.values)
-            
-            percentiles = self._get_cached_percentiles(self.slope_monitor, 'slope')
-            if percentiles[5] is not None and percentiles[95] is not None:
-                info['slope_p5'] = abs(percentiles[5])
-                info['slope_p95'] = abs(percentiles[95])
-                info['slope_range'] = abs(percentiles[95]) - abs(percentiles[5])
-        
-        if self.atr_monitor and len(self.atr_monitor.values) >= self.adaptive_percentile_window:
+        if self.atr_monitor and len(self.atr_monitor.values) >= self.atr_percentile_window:
             info['atr_scaling'] = 'dynamic_percentile'
             info['atr_samples'] = len(self.atr_monitor.values)
             
@@ -667,10 +586,7 @@ class AdaptiveParameterManager:
                 info['atr_p95'] = percentiles[95]
                 info['atr_range'] = percentiles[95] - percentiles[5]
         
-        info['percentile_scaling_active'] = (
-            info['slope_scaling'] == 'dynamic_percentile' or 
-            info['atr_scaling'] == 'dynamic_percentile'
-        )
+        info['percentile_scaling_active'] = info['atr_scaling'] == 'dynamic_percentile'
         
         return info
     
@@ -681,27 +597,22 @@ class AdaptiveParameterManager:
         print("ADAPTIVE SCALING STATUS")
         print(f"{'='*60}")
         
-        print(f"SLOPE SCALING: {info['slope_scaling'].upper()}")
-        if info['slope_scaling'] == 'dynamic_percentile':
-            print(f"  Samples: {info['slope_samples']}")
-            if 'slope_p5' in info:
-                print(f"  5th Percentile (abs):  {info['slope_p5']:.6f}")
-                print(f"  95th Percentile (abs): {info['slope_p95']:.6f}")
-                print(f"  Dynamic Range:         {info['slope_range']:.6f}")
-            print(f"  Current Slope: {self.current_slope:.6f} (abs: {abs(self.current_slope):.6f})")
-            
-            if hasattr(self, 'slope_monitor') and self.slope_monitor:
-                current_factor = self._calculate_percentile_based_factor(
-                    self.current_slope, self.slope_monitor, is_absolute=True
-                )
-                print(f"  Normalized (0-1): {current_factor:.3f}")
-        else:
-            print(f"  Waiting for {self.adaptive_percentile_window}+ samples (current: {info['slope_samples']})")
-            print(f"  Current slope: {self.current_slope:.6f}")
+        print("SLOPE SCALING: DIRECT_SLOPE")
+        print("  Method: Direct slope with boundaries (no factors)")
+        print(f"  Current Slope: {self.current_slope:.6f} (abs: {abs(self.current_slope):.6f})")
+        
+        if self.current_slope is not None:
+            normalized_slope = self._get_normalized_slope(self.current_slope)
+            slope_config = self.adaptive_factors.get('slope', {})
+            max_bull = slope_config.get('max_bull_slope', 0.02)
+            max_bear = slope_config.get('max_bear_slope', -0.02)
+            print(f"  Boundaries: {max_bear:.4f} to {max_bull:.4f}")
+            print(f"  Normalized: {normalized_slope:.3f} (-1 to 1)")
         
         print()
         
         print(f"ATR SCALING: {info['atr_scaling'].upper()}")
+        print(f"  Required Window: {info['atr_window']} bars")
         if info['atr_scaling'] == 'dynamic_percentile':
             print(f"  Samples: {info['atr_samples']}")
             if 'atr_p5' in info:
@@ -717,21 +628,19 @@ class AdaptiveParameterManager:
                     )
                     print(f"  Normalized (0-1): {current_factor:.3f}")
         else:
-            print(f"  Waiting for {self.adaptive_percentile_window}+ samples (current: {info['atr_samples']})")
+            print(f"  Waiting for {info['atr_window']}+ samples (current: {info['atr_samples']})")
             if self.atr_calculator and self.atr_calculator.current_atr:
                 print(f"  Current ATR: {self.atr_calculator.current_atr:.6f}")
         
         print(f"\nPercentile Scaling Active: {info['percentile_scaling_active']}")
         
         if self.current_slope is not None:
-            slope_factor = self.calculate_slope_factor(self.current_slope)
+            normalized_slope = self._get_normalized_slope(self.current_slope)
             atr_factor = self.calculate_atr_factor()
-            combined = self._robust_factor_combination(slope_factor, atr_factor)
             
-            print("\nCURRENT FACTORS:")
-            print(f"  Slope Factor:    {slope_factor:.3f}")
-            print(f"  ATR Factor:      {atr_factor:.3f}")
-            print(f"  Combined Factor: {combined:.3f}")
+            print("\nCURRENT VALUES:")
+            print(f"  Normalized Slope: {normalized_slope:.3f}")
+            print(f"  ATR Factor:       {atr_factor:.3f}")
         
         print(f"{'='*60}\n")
     
@@ -739,15 +648,10 @@ class AdaptiveParameterManager:
                        stack_info: str, regime: int, adaptive_params: dict, 
                        long_positions: int, short_positions: int, allow_stacking: bool):
         
-        # Get the actual calculated factors (same as used in strategy)
-        _, slope_factor, atr_factor = self.get_adaptive_parameters()
+        _, normalized_slope, atr_factor = self.get_adaptive_parameters()
         
-        # Create slim log message matching the adaptive factors format
-        message = f"{trade_type.upper()} ${price:.2f} | ZScore: {zscore:.3f} | Adaptive factors: slope={slope_factor:.3f}, atr={atr_factor:.3f}"
+        message = f"{trade_type.upper()} ${price:.2f} | ZScore: {zscore:.3f} | Adaptive values: slope={normalized_slope:.3f}, atr={atr_factor:.3f}"
         
-        # Note: LogColor.MAGENTA is typically purple in most terminals
-        # This will be called from strategy context, so we'll return the message
-        # and let the strategy log it with proper color
         return message
 
     def reset_trend_state_for_vwap_anchor(self):
