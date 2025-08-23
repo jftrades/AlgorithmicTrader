@@ -13,21 +13,21 @@ base_parameters:
   ltf_kalman_measurement_var: 0.005
   ltf_kalman_zscore_window: 35
   
-  htf_kalman_process_var: 0.0000008
+  htf_kalman_process_var: 0.0000004
   htf_kalman_measurement_var: 0.05
   htf_kalman_zscore_window: 45
  
   vwap: # Anchor method options: "kalman_cross","daily", "weekly", "rolling" 
     anchor_method: "daily"
     vwap_require_trade_for_reset: false
-    vwap_min_bars_for_zscore: 20
+    vwap_min_bars_for_zscore: 40
     vwap_reset_grace_period: 40
     rolling_window_bars: 500  # only for rolling method
 
   # only uses ATR factor - higher volatility requires more extreme zscores
   elastic_entry:
-    zscore_long_threshold: -2.5
-    zscore_short_threshold: 2.5
+    zscore_long_threshold: -2.4
+    zscore_short_threshold: 2.4
     recovery_delta: 0.6
     long_min_distance_from_kalman: -0.2
     short_min_distance_from_kalman: 0.2
@@ -44,11 +44,11 @@ base_parameters:
   # only uses slope factor (interpolation) - can use "linear", "exponential" and "logarithmic"
   slope_exit_scaling:
     enabled: true
-    scaling_method: "exponential"
+    scaling_method: "linear"
     base_long_exit: 0.0
     base_short_exit: 0.0
     max_long_exit_uptrend: 0.1
-    max_long_exit_downtrend: -1.1
+    max_long_exit_downtrend: -0.1
     max_short_exit_uptrend: 0.1
     max_short_exit_downtrend: -0.1
 
@@ -57,10 +57,10 @@ base_parameters:
     scaling_method: "linear"
     base_long_risk: 1.0
     base_short_risk: 1.0
-    max_long_risk_uptrend: 2.0
-    max_long_risk_downtrend: 0.01
-    max_short_risk_uptrend: 0.01
-    max_short_risk_downtrend: 2.0
+    max_long_risk_uptrend: 1.01
+    max_long_risk_downtrend: 0.99
+    max_short_risk_uptrend: 0.99
+    max_short_risk_downtrend: 1.01
 
   slope_asymmetric_offset:
     enabled: true
@@ -69,12 +69,21 @@ base_parameters:
     max_offset_uptrend: 0.01
     max_offset_downtrend: -0.01
 
+  # Hard stop loss configuration
+  ATR_window_if_use_SL: 20
+  use_hard_stop_long:
+    enabled: true
+    atr_stop_long: 1.2
+  use_hard_stop_short:
+    enabled: true
+    atr_stop_short: 1.2
+
 # slope extracted and used directly in scaling systems
 adaptive_factors:
   slope:
     enabled: true
-    max_bull_slope: 0.011
-    max_bear_slope: -0.011
+    max_bull_slope: 0.017
+    max_bear_slope: -0.017
 
 # atr adaptive with 95 and 5 percentiles
   atr:
@@ -89,6 +98,8 @@ adaptive_factors:
     slope_distribution:
       enabled: true
     atr_distribution:
+      enabled: true
+    zscore_distribution:
       enabled: true
 
 gap_threshold_pct: 0.1 # for cross & rolling method only

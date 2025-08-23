@@ -1,6 +1,6 @@
 import numpy as np
 from collections import deque
-from tools.help_funcs.distrubition_monitor import ATRDistributionMonitor, SlopeDistributionMonitor
+from tools.help_funcs.distrubition_monitor import ATRDistributionMonitor, SlopeDistributionMonitor, ZScoreDistributionMonitor
 
 
 class RobustATRCalculator:
@@ -97,6 +97,15 @@ class AdaptiveParameterManager:
             self.atr_calculator = None
             self.current_atr_percentile = 0.5
         
+        # Initialize hard stop ATR calculator if enabled
+        base_section = self.base_params.get('base_parameters', self.base_params)
+        hard_stop_window = base_section.get('ATR_window_if_use_SL', 20)
+        self.hard_stop_atr_calculator = RobustATRCalculator(
+            atr_window=hard_stop_window,
+            percentile_window=100,
+            outlier_threshold=2.0
+        )
+        
         # Initialize ATR distribution monitor if enabled
         if self.adaptive_factors.get('distribution_monitor', {}).get('atr_distribution', {}).get('enabled', False):
             self.atr_monitor = ATRDistributionMonitor(max_values=100000)
@@ -108,6 +117,12 @@ class AdaptiveParameterManager:
             self.slope_monitor = SlopeDistributionMonitor(max_values=100000)
         else:
             self.slope_monitor = None
+        
+        # Initialize zscore distribution monitor if enabled
+        if self.adaptive_factors.get('distribution_monitor', {}).get('zscore_distribution', {}).get('enabled', False):
+            self.zscore_monitor = ZScoreDistributionMonitor(max_values=100000)
+        else:
+            self.zscore_monitor = None
     
     def update_slope(self, ltf_kalman_mean: float, htf_kalman_slope: float):
         if ltf_kalman_mean is not None:
@@ -130,8 +145,18 @@ class AdaptiveParameterManager:
             self.current_atr_percentile = percentile
             if self.atr_monitor is not None and current_atr is not None:
                 self.atr_monitor.add_atr(current_atr)
+        
+        # Always update hard stop ATR calculator
+        self.hard_stop_atr_calculator.update(high, low, prev_close)
+        
+        if self.atr_calculator is not None:
             return current_atr, percentile
         return None, self.current_atr_percentile
+    
+    def update_zscore(self, zscore_value: float):
+        """Update ZScore distribution tracking"""
+        if self.zscore_monitor is not None and zscore_value is not None:
+            self.zscore_monitor.add_zscore(zscore_value)
     
     def _get_cached_percentiles(self, monitor, monitor_type: str) -> dict:
         current_count = len(monitor.values)
@@ -568,6 +593,12 @@ class AdaptiveParameterManager:
         else:
             print("ATR monitor is disabled.")
     
+    def print_zscore_distribution(self):
+        if self.zscore_monitor is not None:
+            self.zscore_monitor.print_distribution()
+        else:
+            print("ZScore distribution monitoring is disabled.")
+    
     def get_current_scaling_info(self) -> dict:
         info = {
             'slope_scaling': 'direct_slope',
@@ -645,6 +676,42 @@ class AdaptiveParameterManager:
             print(f"  ATR Factor:       {atr_factor:.3f}")
         
         print(f"{'='*60}\n")
+    
+    def get_hard_stop_levels(self, entry_price: float) -> dict:
+        """Calculate hard stop levels based on ATR"""
+        hard_stop_atr = self.hard_stop_atr_calculator.current_atr
+        if hard_stop_atr is None:
+            return {'long_enabled': False, 'short_enabled': False}
+        
+        # Check both locations for compatibility
+        base_section = self.base_params.get('base_parameters', self.base_params)
+        long_config = base_section.get('use_hard_stop_long', {})
+        short_config = base_section.get('use_hard_stop_short', {})
+        
+        result = {
+            'long_enabled': long_config.get('enabled', False),
+            'short_enabled': short_config.get('enabled', False),
+            'hard_stop_atr': hard_stop_atr
+        }
+        
+        if result['long_enabled']:
+            atr_multiplier = long_config.get('atr_stop_long', 2)
+            result['long_stop_price'] = entry_price - (hard_stop_atr * atr_multiplier)
+        
+        if result['short_enabled']:
+            atr_multiplier = short_config.get('atr_stop_short', 2)
+            result['short_stop_price'] = entry_price + (hard_stop_atr * atr_multiplier)
+        
+        return result
+    
+    def is_hard_stop_enabled(self) -> dict:
+        """Check if hard stops are enabled"""
+        # Check both locations for compatibility
+        base_section = self.base_params.get('base_parameters', self.base_params)
+        return {
+            'long_enabled': base_section.get('use_hard_stop_long', {}).get('enabled', False),
+            'short_enabled': base_section.get('use_hard_stop_short', {}).get('enabled', False)
+        }
     
     def log_trade_state(self, trade_type: str, price: float, zscore: float, entry_reason: str, 
                        stack_info: str, regime: int, adaptive_params: dict, 

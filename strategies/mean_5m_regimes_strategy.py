@@ -75,6 +75,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.current_long_exit = None
         self.current_short_exit = None
 
+        # Hard stop tracking
+        self.position_entry_prices = {}
+        self.position_stop_levels = {}
+
         # Track VWAP reset state to handle asymmetric offset properly
         self.last_vwap_segment_start_bar = -1
         self.vwap_just_reset = False
@@ -292,6 +296,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.current_slope_factor = slope_factor
         self.current_atr_factor = atr_factor
 
+        # Check hard stops before any other logic
+        self._check_hard_stops(bar)
+
         # Calculate and store risk factors and exit thresholds for visualization
         if self._init_window_complete:
             self.current_long_risk_factor = adaptive_params.get('long_risk_factor', 1.0)
@@ -366,6 +373,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         vwap_value, zscore = self.vwap_zscore.update(bar, asymmetric_offset=asymmetric_offset)
         self.current_zscore = zscore
 
+        # Track zscore for distribution analysis
+        if zscore is not None:
+            self.adaptive_manager.update_zscore(zscore)
+
         # Use the VWAP Z-Score for entries (not Kalman Z-Score)
         if zscore is not None:
             self.elastic_entry.update_state(zscore)
@@ -423,6 +434,53 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
     def count_open_position(self) -> int:
         pos = self.portfolio.net_position(self.instrument_id)
         return abs(int(pos)) if pos is not None else 0
+
+    def _check_hard_stops(self, bar: Bar):
+        if not self.position_stop_levels:
+            return
+        
+        current_price = float(bar.close)
+        positions_to_close = []
+        
+        for position_id, stop_info in self.position_stop_levels.items():
+            if stop_info['side'] == 'long' and current_price <= stop_info['stop_price']:
+                positions_to_close.append(position_id)
+            elif stop_info['side'] == 'short' and current_price >= stop_info['stop_price']:
+                positions_to_close.append(position_id)
+        
+        for position_id in positions_to_close:
+            self.order_types.close_position_by_market_order()
+            del self.position_stop_levels[position_id]
+            if position_id in self.position_entry_prices:
+                del self.position_entry_prices[position_id]
+
+    def _track_position_entry(self, side: str, entry_price: float):
+        if not self.adaptive_manager.is_hard_stop_enabled()[f'{side}_enabled']:
+            return
+        
+        position_id = f"{side}_{len(self.position_entry_prices)}"
+        self.position_entry_prices[position_id] = entry_price
+        
+        stop_levels = self.adaptive_manager.get_hard_stop_levels(entry_price)
+        if side == 'long' and stop_levels['long_enabled']:
+            self.position_stop_levels[position_id] = {
+                'side': 'long',
+                'stop_price': stop_levels['long_stop_price']
+            }
+        elif side == 'short' and stop_levels['short_enabled']:
+            self.position_stop_levels[position_id] = {
+                'side': 'short', 
+                'stop_price': stop_levels['short_stop_price']
+            }
+
+    def _should_allow_stacking(self, side: str) -> bool:
+        hard_stops = self.adaptive_manager.is_hard_stop_enabled()
+        if hard_stops[f'{side}_enabled']:
+            return False
+        
+        adaptive_params, _, _ = self.adaptive_manager.get_adaptive_parameters()
+        elastic_params = adaptive_params.get('elastic_entry', {})
+        return elastic_params.get('allow_stacking', True)
     
     def _check_kalman_cross_for_stacking(self, bar):
         if self.current_ltf_kalman_mean is None:
@@ -495,6 +553,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.log.info(f"Daily stacking reset triggered for SHORT positions at zscore {zscore:.3f}", color=LogColor.RED)
     
     def can_stack_long(self, current_zscore: float) -> bool:
+        # Check if hard stops override stacking
+        if not self._should_allow_stacking('long'):
+            return self.long_positions_since_cross == 0
+        
         # Erste Position ist immer erlaubt, auch wenn Stacking deaktiviert ist
         if self.long_positions_since_cross == 0:
             return True
@@ -523,6 +585,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         return True  
     
     def can_stack_short(self, current_zscore: float) -> bool:
+        # Check if hard stops override stacking
+        if not self._should_allow_stacking('short'):
+            return self.short_positions_since_cross == 0
+        
         # Erste Position ist immer erlaubt, auch wenn Stacking deaktiviert ist
         if self.short_positions_since_cross == 0:
             return True
@@ -604,6 +670,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.long_positions_since_cross += 1
             self.entry_atr_factor = self.current_atr_factor  # Track ATR factor used for entry
             
+            # Track position for hard stops
+            self._track_position_entry('long', float(bar.close))
+            
             # If daily stacking reset was active, clear it since we took a position
             if self.daily_long_stacking_reset:
                 self.daily_long_stacking_reset = False
@@ -655,6 +724,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.order_types.submit_short_market_order(qty, price=bar.close)
             self.short_positions_since_cross += 1
             self.entry_atr_factor = self.current_atr_factor  # Track ATR factor used for entry
+            
+            # Track position for hard stops
+            self._track_position_entry('short', float(bar.close))
             
             # If daily stacking reset was active, clear it since we took a position
             if self.daily_short_stacking_reset:

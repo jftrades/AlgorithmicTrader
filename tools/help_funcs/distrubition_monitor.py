@@ -224,3 +224,10 @@ class ATRDistributionMonitor(DistributionMonitor):
 
     def add_atr(self, atr_value: float):
         self.add(atr_value)
+
+class ZScoreDistributionMonitor(DistributionMonitor):
+    def __init__(self, bin_size: float = 0.05, decay_factor: float = 0.015, max_values: int = 100000):
+        super().__init__(bin_size=bin_size, label="ZScore", decay_factor=decay_factor, max_values=max_values)
+
+    def add_zscore(self, zscore_value: float):
+        self.add(zscore_value)
