@@ -9,11 +9,11 @@ only_trade_rth: true
 initialization_window: 150
 
 base_parameters:
-  ltf_kalman_process_var: 0.000001
-  ltf_kalman_measurement_var: 0.005
+  ltf_kalman_process_var: 0.0000008
+  ltf_kalman_measurement_var: 0.01
   ltf_kalman_zscore_window: 35
   
-  htf_kalman_process_var: 0.0000004
+  htf_kalman_process_var: 0.0000002
   htf_kalman_measurement_var: 0.05
   htf_kalman_zscore_window: 45
  
@@ -26,18 +26,18 @@ base_parameters:
 
   # only uses ATR factor - higher volatility requires more extreme zscores
   elastic_entry:
-    zscore_long_threshold: -2.4
-    zscore_short_threshold: 2.4
-    recovery_delta: 0.6
-    long_min_distance_from_kalman: -0.2
-    short_min_distance_from_kalman: 0.2
+    zscore_long_threshold: -1.6
+    zscore_short_threshold: 1.6
+    recovery_delta: 0.75
+    long_min_distance_from_kalman: -0.1
+    short_min_distance_from_kalman: 0.1
     allow_multiple_recoveries: true
-    recovery_cooldown_bars: 10
-    allow_stacking: true
-    max_long_stacked_positions: 4
+    recovery_cooldown_bars: 25
+    allow_stacking: false
+    max_long_stacked_positions: 5
     max_short_stacked_positions: 2
-    additional_zscore_min_gain: 1.2
-    recovery_delta_reentry: 0.6
+    additional_zscore_min_gain: 0.9
+    recovery_delta_reentry: 0.5
     stacking_bar_cooldown: 10
     allow_daily_stacking_reset: true  # Reset stacking limits on new day when thresholds hit
 
@@ -47,20 +47,20 @@ base_parameters:
     scaling_method: "linear"
     base_long_exit: 0.0
     base_short_exit: 0.0
-    max_long_exit_uptrend: 0.1
-    max_long_exit_downtrend: -0.1
-    max_short_exit_uptrend: 0.1
-    max_short_exit_downtrend: -0.1
+    max_long_exit_uptrend: 4.0
+    max_long_exit_downtrend: -1.5
+    max_short_exit_uptrend: 1.5
+    max_short_exit_downtrend: -4.0
 
   slope_risk_scaling:
     enabled: true
     scaling_method: "linear"
     base_long_risk: 1.0
     base_short_risk: 1.0
-    max_long_risk_uptrend: 1.01
-    max_long_risk_downtrend: 0.99
-    max_short_risk_uptrend: 0.99
-    max_short_risk_downtrend: 1.01
+    max_long_risk_uptrend: 5.0
+    max_long_risk_downtrend: 0.01
+    max_short_risk_uptrend: 0.01
+    max_short_risk_downtrend: 5.0
 
   slope_asymmetric_offset:
     enabled: true
@@ -70,20 +70,20 @@ base_parameters:
     max_offset_downtrend: -0.01
 
   # Hard stop loss configuration
-  ATR_window_if_use_SL: 20
+  ATR_window_if_use_SL: 14
   use_hard_stop_long:
     enabled: true
-    atr_stop_long: 1.2
+    atr_stop_long: 1.0
   use_hard_stop_short:
     enabled: true
-    atr_stop_short: 1.2
+    atr_stop_short: 1.0
 
 # slope extracted and used directly in scaling systems
 adaptive_factors:
   slope:
     enabled: true
-    max_bull_slope: 0.017
-    max_bear_slope: -0.017
+    max_bull_slope: 0.014
+    max_bear_slope: -0.014
 
 # atr adaptive with 95 and 5 percentiles
   atr:
@@ -108,7 +108,7 @@ vix_fear_threshold: 38
 invest_percent: 3.0
 close_positions_on_stop: true
 risk_percent: 0.02
-max_leverage: 3.0
+max_leverage: 20.0
 min_account_balance: 1000
 
 starting_account_balance: "100000 USD"

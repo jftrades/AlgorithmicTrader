@@ -161,7 +161,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             recovery_cooldown_bars=adaptive_elastic_params['recovery_cooldown_bars']
         )
 
-        self.allow_stacking = adaptive_elastic_params.get('alllow_stacking', False)
+        self.allow_stacking = adaptive_elastic_params.get('allow_stacking', False)
         self.max_long_stacked_positions = adaptive_elastic_params.get('max_long_stacked_positions', 3)
         self.max_short_stacked_positions = adaptive_elastic_params.get('max_short_stacked_positions', 3)
         self.additional_zscore_min_gain = adaptive_elastic_params.get('additional_zscore_min_gain', 0.5)
@@ -445,8 +445,17 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         for position_id, stop_info in self.position_stop_levels.items():
             if stop_info['side'] == 'long' and current_price <= stop_info['stop_price']:
                 positions_to_close.append(position_id)
+                # Reset position tracking for re-entry after stop loss
+                self.long_positions_since_cross = max(0, self.long_positions_since_cross - 1)
+                self.log.info(f"Long stop loss hit at {current_price:.2f} (stop: {stop_info['stop_price']:.2f}). "
+                             f"Positions since cross reset to {self.long_positions_since_cross}", color=LogColor.RED)
+                
             elif stop_info['side'] == 'short' and current_price >= stop_info['stop_price']:
                 positions_to_close.append(position_id)
+                # Reset position tracking for re-entry after stop loss
+                self.short_positions_since_cross = max(0, self.short_positions_since_cross - 1)
+                self.log.info(f"Short stop loss hit at {current_price:.2f} (stop: {stop_info['stop_price']:.2f}). "
+                             f"Positions since cross reset to {self.short_positions_since_cross}", color=LogColor.RED)
         
         for position_id in positions_to_close:
             self.order_types.close_position_by_market_order()
@@ -474,13 +483,23 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             }
 
     def _should_allow_stacking(self, side: str) -> bool:
-        hard_stops = self.adaptive_manager.is_hard_stop_enabled()
-        if hard_stops[f'{side}_enabled']:
-            return False
-        
+        """
+        Determines if stacking (multiple positions) is allowed.
+        Hard stops disable stacking but still allow initial positions and re-entry after stops.
+        """
         adaptive_params, _, _ = self.adaptive_manager.get_adaptive_parameters()
         elastic_params = adaptive_params.get('elastic_entry', {})
-        return elastic_params.get('allow_stacking', True)
+        
+        # If stacking is disabled in config, no stacking allowed
+        if not elastic_params.get('allow_stacking', True):
+            return False
+            
+        # If hard stops are enabled, disable stacking but allow first position
+        hard_stops = self.adaptive_manager.is_hard_stop_enabled()
+        if hard_stops[f'{side}_enabled']:
+            return False  # No stacking with hard stops, but first position still allowed
+        
+        return True
     
     def _check_kalman_cross_for_stacking(self, bar):
         if self.current_ltf_kalman_mean is None:
@@ -553,15 +572,23 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.log.info(f"Daily stacking reset triggered for SHORT positions at zscore {zscore:.3f}", color=LogColor.RED)
     
     def can_stack_long(self, current_zscore: float) -> bool:
-        # Check if hard stops override stacking
-        if not self._should_allow_stacking('long'):
-            return self.long_positions_since_cross == 0
-        
-        # Erste Position ist immer erlaubt, auch wenn Stacking deaktiviert ist
+        """
+        Determines if a long position can be entered.
+        - Always allows first position (even with hard stops)
+        - Checks stacking rules for additional positions
+        """
+        # First position is always allowed, regardless of hard stop settings
         if self.long_positions_since_cross == 0:
+            hard_stops_enabled = self.adaptive_manager.is_hard_stop_enabled()['long_enabled']
+            if hard_stops_enabled and self.bar_counter % 50 == 0:  # Log occasionally for debugging
+                self.log.info("Long entry allowed: First position (positions_since_cross=0) - Hard stops enabled", color=LogColor.CYAN)
             return True
             
-        # Wenn Stacking deaktiviert ist, keine weiteren Positionen erlauben
+        # For additional positions (stacking), check if stacking is allowed
+        if not self._should_allow_stacking('long'):
+            return False
+            
+        # If base stacking is disabled in config, no additional positions
         if not self.allow_stacking:
             return False
 
@@ -569,15 +596,18 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if self.daily_long_stacking_reset:
             return True
         
+        # Check stacking limits
         if self.long_positions_since_cross >= self.max_long_stacked_positions:
             return False
                     
+        # Check cooldown period
         if self.bars_since_last_long_entry < self.stacking_bar_cooldown:
             return False
             
+        # Check Z-score deterioration requirement for stacking
         if self.long_entry_zscores and current_zscore is not None:
             last_entry_zscore = self.long_entry_zscores[-1]
-            zscore_deterioration = last_entry_zscore - current_zscore  # Für Long: negativer = schlechter
+            zscore_deterioration = last_entry_zscore - current_zscore  # For long: more negative = worse
             
             if zscore_deterioration < self.additional_zscore_min_gain:
                 return False
@@ -585,15 +615,20 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         return True  
     
     def can_stack_short(self, current_zscore: float) -> bool:
-        # Check if hard stops override stacking
-        if not self._should_allow_stacking('short'):
-            return self.short_positions_since_cross == 0
-        
-        # Erste Position ist immer erlaubt, auch wenn Stacking deaktiviert ist
+        """
+        Determines if a short position can be entered.
+        - Always allows first position (even with hard stops)
+        - Checks stacking rules for additional positions
+        """
+        # First position is always allowed, regardless of hard stop settings
         if self.short_positions_since_cross == 0:
             return True
             
-        # Wenn Stacking deaktiviert ist, keine weiteren Positionen erlauben
+        # For additional positions (stacking), check if stacking is allowed
+        if not self._should_allow_stacking('short'):
+            return False
+            
+        # If base stacking is disabled in config, no additional positions
         if not self.allow_stacking:
             return False
 
@@ -601,15 +636,18 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if self.daily_short_stacking_reset:
             return True
         
+        # Check stacking limits
         if self.short_positions_since_cross >= self.max_short_stacked_positions:
             return False
             
+        # Check cooldown period
         if self.bars_since_last_short_entry < self.stacking_bar_cooldown:
             return False
             
+        # Check Z-score deterioration requirement for stacking
         if self.short_entry_zscores and current_zscore is not None:
             last_entry_zscore = self.short_entry_zscores[-1]
-            zscore_deterioration = current_zscore - last_entry_zscore  # Für Short: positiver = schlechter
+            zscore_deterioration = current_zscore - last_entry_zscore  # For short: more positive = worse
             
             if zscore_deterioration < self.additional_zscore_min_gain:
                 return False
@@ -658,13 +696,17 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             entry_reason = debug_info.get('long_entry_reason', 'Recovery signal')
             stack_info = f"Stack {self.long_positions_since_cross + 1}/{self.max_long_stacked_positions}" if self.long_positions_since_cross > 0 else "Initial"
             
+            # Enhanced logging for re-entry scenarios
+            hard_stops_enabled = self.adaptive_manager.is_hard_stop_enabled()['long_enabled']
+            re_entry_note = " (RE-ENTRY after SL)" if hard_stops_enabled and self.long_positions_since_cross == 0 else ""
+            
             # Log trade state
             trade_message = self.adaptive_manager.log_trade_state(
                 "LONG", float(bar.close), zscore, entry_reason, stack_info, regime, 
                 adaptive_params, self.long_positions_since_cross, self.short_positions_since_cross, 
                 self.allow_stacking
             )
-            self.log.info(trade_message, color=LogColor.MAGENTA)
+            self.log.info(f"{trade_message}{re_entry_note}", color=LogColor.MAGENTA)
             
             self.order_types.submit_long_market_order(qty, price=bar.close)
             self.long_positions_since_cross += 1
@@ -713,13 +755,17 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             entry_reason = debug_info.get('short_entry_reason', 'Recovery signal')
             stack_info = f"Stack {self.short_positions_since_cross + 1}/{self.max_short_stacked_positions}" if self.short_positions_since_cross > 0 else "Initial"
             
+            # Enhanced logging for re-entry scenarios
+            hard_stops_enabled = self.adaptive_manager.is_hard_stop_enabled()['short_enabled']
+            re_entry_note = " (RE-ENTRY after SL)" if hard_stops_enabled and self.short_positions_since_cross == 0 else ""
+            
             # Log trade state
             trade_message = self.adaptive_manager.log_trade_state(
                 "SHORT", float(bar.close), zscore, entry_reason, stack_info, regime, 
                 adaptive_params, self.long_positions_since_cross, self.short_positions_since_cross, 
                 self.allow_stacking
             )
-            self.log.info(trade_message, color=LogColor.MAGENTA)
+            self.log.info(f"{trade_message}{re_entry_note}", color=LogColor.MAGENTA)
             
             self.order_types.submit_short_market_order(qty, price=bar.close)
             self.short_positions_since_cross += 1
@@ -828,6 +874,12 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             if distribution_config.get('slope_distribution', {}).get('enabled', False):
                 print("\n")  # Add spacing between distributions if both are enabled
             self.adaptive_manager.print_atr_distribution()
+            
+        if distribution_config.get('zscore_distribution', {}).get('enabled', False):
+            if (distribution_config.get('slope_distribution', {}).get('enabled', False) or 
+                distribution_config.get('atr_distribution', {}).get('enabled', False)):
+                print("\n")  # Add spacing between distributions if others are enabled
+            self.adaptive_manager.print_zscore_distribution()
     
     def on_order_filled(self, order_filled) -> None:
         # KEIN automatischer VWAP Reset bei allen Order Fills
