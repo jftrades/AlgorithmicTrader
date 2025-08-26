@@ -3,11 +3,13 @@ import pandas as pd
 
 # Farbschemata pro Run (BUY, SHORT, INDICATOR_GRADIENT_BASE)
 RUN_COLOR_SETS = [
-    ("#28a745", "#dc3545", "#000000"),  # Run 1
-    ("#7e3ff2", "#8b4513", "#55309d"),  # Run 2
-    ("#0b3d91", "#ff8800", "#0b3d91"),  # Run 3
-    ("#1f5e3d", "#7a0c2e", "#1f5e3d"),  # Run 4
-    ("#5a3d73", "#6d5600", "#5a3d73"),  # Run 5
+    ("#1E88E5", "#E53935", "#37474F"),  # Blue / Red
+    ("#8E24AA", "#FB8C00", "#5E548E"),  # Purple / Orange
+    ("#00897B", "#D81B60", "#00695C"),  # Teal / Pink
+    ("#5E35B1", "#F4511E", "#3949AB"),  # Deep Purple / Deep Orange
+    ("#3949AB", "#FDD835", "#1B5E20"),  # Indigo / Amber
+    ("#00796B", "#C62828", "#2E7D32"),  # Green set
+    ("#6D4C41", "#FF7043", "#4E342E"),  # Brown / Coral
 ]
 
 def short_run_label(run_id: str) -> str:

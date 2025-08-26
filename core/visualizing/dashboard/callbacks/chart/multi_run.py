@@ -123,6 +123,7 @@ def _indicator_overlay_single(active_runs, indicators_per_run, x_range):
         out.append(dcc.Graph(
             id=f"multi-run-indicators-plot-{pid}",
             figure=fig,
+            className="indicator-chart",
             style={"height": "300px", "marginBottom": "10px"}
         ))
     return out
@@ -774,6 +775,7 @@ def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, cli
             dcc.Graph(
                 id=f"multi-run-all-plot-{pid}",
                 figure=fig_ind,
+                className="indicator-chart",
                 style={"height": "300px", "marginBottom": "10px"}
             )
         )

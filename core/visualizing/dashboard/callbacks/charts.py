@@ -168,18 +168,31 @@ def register_chart_callbacks(app, repo, state):
             # Reset on instrument/timeframe change
             current_value = [min_idx, max_idx]
 
-        # Marks: show start / mid / end with human-readable labels
-        mid_idx = min_idx + (max_idx - min_idx) // 2
-        def fmt(idx):
-            return ts_list.iloc[idx].strftime("%Y-%m-%d %H:%M")
+        # Marks: only start & end to avoid clutter
+        def fmt_label(dt):
+            return dt.strftime("%Y-%m-%d %H:%M")
+        start_dt = ts_list.iloc[min_idx]
+        end_dt = ts_list.iloc[max_idx]
         marks = {
-            min_idx: fmt(min_idx),
-            mid_idx: fmt(mid_idx),
-            max_idx: fmt(max_idx)
+            min_idx: fmt_label(start_dt),
+            max_idx: fmt_label(end_dt)
         }
 
         s_idx, e_idx = current_value
-        disp = f"Window: {fmt(s_idx)} → {fmt(e_idx)}"
+        s_dt = ts_list.iloc[s_idx]
+        e_dt = ts_list.iloc[e_idx]
+
+        def compact_span(a, b):
+            if a.date() == b.date():
+                # same day
+                return f"{a.strftime('%d %b %H:%M')} – {b.strftime('%H:%M')}"
+            if a.year == b.year and a.month == b.month:
+                # same month
+                return f"{a.strftime('%d')}–{b.strftime('%d %b')} {b.strftime('%H:%M')}"
+            if a.year == b.year:
+                return f"{a.strftime('%d %b')} – {b.strftime('%d %b')} {b.strftime('%H:%M')}"
+            return f"{a.strftime('%Y-%m-%d')} → {b.strftime('%Y-%m-%d')}"
+        disp = compact_span(s_dt, e_dt)
         return min_idx, max_idx, current_value, marks, disp
 
     # NEW: toggle trades visibility
@@ -194,20 +207,13 @@ def register_chart_callbacks(app, repo, state):
     def toggle_trades(n, current):
         show = True if current is None else bool(current)
         if n:
-            # invert on each click
-            show = (n % 2 == 1) == False if current is True else (n % 2 == 0)
-            # Simpler: compute by parity of clicks vs default True
-            show = not (n % 2)  # even clicks => True, odd => False
-        label = "Hide Trades" if show else "Show Trades"
-        base_style = {
-            'height':'42px','alignSelf':'flex-end','marginLeft':'14px',
-            'background':'linear-gradient(135deg,#4ade80 0%,#16a34a 100%)' if show else 'linear-gradient(135deg,#64748b 0%,#334155 100%)',
-            'color':'#fff','border':'none','borderRadius':'10px',
-            'padding':'8px 16px','cursor':'pointer','fontSize':'13px',
-            'fontFamily':'Inter, system-ui, sans-serif','fontWeight':'600',
-            'boxShadow':'0 2px 6px rgba(16,185,129,0.35)' if show else '0 2px 6px rgba(51,65,85,0.35)'
+            show = not (n % 2)
+        label = "Trades" if show else "Trades Off"
+        style = {
+            'backgroundColor': '#2563eb' if show else '#9ca3af',
+            'color': '#ffffff'
         }
-        return show, label, base_style
+        return show, label, style
 
     @app.callback(
         [
@@ -364,6 +370,10 @@ def register_chart_callbacks(app, repo, state):
                 show_trades=bool(show_trades),
                 x_window=x_window  # NEW
             )
+            # unify chart wrapper classes (added)
+            for c in indicator_children:
+                if hasattr(c, "props") and "className" not in getattr(c, "props", {}):
+                    c.className = "indicator-chart"
             return price_fig, indicator_children, metrics_children, trade_details
 
         # Single run
@@ -380,4 +390,7 @@ def register_chart_callbacks(app, repo, state):
             show_trades=bool(show_trades),
             x_window=x_window  # NEW
         )
-        return price_fig, indicator_children, metrics_children, trade_details
+        for c in indicator_children:
+            if hasattr(c, "props") and "className" not in getattr(c, "props", {}):
+                c.className = "indicator-chart"
+        return price_fig, indicator_children, metrics_children, trade_details  # fixed (was 'trade')

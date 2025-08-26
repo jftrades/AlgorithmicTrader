@@ -62,10 +62,18 @@ def build_price_chart(bars_df, indicators_df, trades_df, selected_trade_index, d
         _add_trade_markers(fig, trades_df, selected_trade_index)
 
     fig.update_layout(
-        xaxis_title="Time", yaxis_title="Price (USDT)", template="plotly_white",
-        hovermode='closest', margin=dict(t=30, b=50, l=60, r=20),
-        xaxis=dict(rangeslider=dict(visible=False))
-        # ENTFERNT: uirevision="price-chart" - wird jetzt dynamisch gesetzt
+        xaxis_title="Time",
+        yaxis_title="Price (USDT)",
+        template="plotly_white",
+        hovermode='x unified',
+        hoverlabel=dict(bgcolor="rgba(255,255,255,0.9)", font=dict(size=11)),
+        margin=dict(t=28, b=42, l=56, r=18),
+        xaxis=dict(
+            gridcolor="rgba(0,0,0,0.06)",
+            zeroline=False,
+            rangeslider=dict(visible=False)
+        ),
+        yaxis=dict(gridcolor="rgba(0,0,0,0.06)", zeroline=False)
     )
     # Toggle Buttons (nur wenn Bars vorhanden)
     if index_ohlc is not None and index_close is not None:
@@ -97,7 +105,7 @@ def build_price_chart(bars_df, indicators_df, trades_df, selected_trade_index, d
                 y=0.995,          # höher platziert (knapp unter der Modebar-Zone)
                 yanchor='top',
                 pad=dict(r=2, t=2, b=2, l=2),
-                bgcolor='rgba(255,255,255,0.40)',
+                bgcolor='rgba(255,255,255,0.55)',
                 bordercolor='rgba(0,0,0,0.12)',
                 borderwidth=1,
                 font=dict(size=9),
@@ -105,7 +113,13 @@ def build_price_chart(bars_df, indicators_df, trades_df, selected_trade_index, d
                     dict(label='OHLC',  method='update', args=[{'visible': vis_ohlc}]),
                     dict(label='Graph', method='update', args=[{'visible': vis_close}])  # Label bleibt 'Graph'
                 ]
-            )]
+            )],
+            legend=dict(
+                bgcolor="rgba(255,255,255,0.55)",
+                bordercolor="rgba(0,0,0,0.12)",
+                borderwidth=1,
+                font=dict(size=11)
+            )
         )
     return fig
 
@@ -235,6 +249,9 @@ def build_indicator_figure(indicators_list):
         },
         template="plotly_white",
         hovermode='x unified',
+        hoverlabel=dict(bgcolor="rgba(255,255,255,0.9)", font=dict(size=11)),
+        xaxis=dict(gridcolor="rgba(0,0,0,0.06)", zeroline=False),
+        yaxis=dict(gridcolor="rgba(0,0,0,0.06)", zeroline=False),
         margin=dict(t=45, b=60, l=60, r=20)
     )
     return fig

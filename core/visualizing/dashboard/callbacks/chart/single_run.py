@@ -93,6 +93,7 @@ def _single_instrument(state, repo, instrument, chart_mode, x_range, clickData, 
         fig_ind.update_layout(uirevision="linked-range")
         indicator_children.append(
             dcc.Graph(id=f"indicators-plot-{pid}", figure=fig_ind,
+                      className="indicator-chart",
                       style={"height": "300px", "marginBottom": "10px"})
         )
 
@@ -411,6 +412,7 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
         indicator_children.append(
             dcc.Graph(id=f"indicators-plot-{pid}",
                       figure=fig_ind,
+                      className="indicator-chart",
                       style={"height": "300px", "marginBottom": "10px"})
         )
 
