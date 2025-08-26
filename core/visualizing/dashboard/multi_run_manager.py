@@ -19,12 +19,11 @@ def short_run_label(run_id: str) -> str:
 
 def gather_multi_run_data(runs_cache: Dict[str, object],
                           run_ids: List[str],
-                          collector: str):
+                          collector: str,
+                          timeframe: str | None = None):
     """
-    Liefert:
-      bars_df (vom ersten Run mit Daten),
-      indicators_per_run: Dict[run_id -> Dict[ind_name -> df]]
-      trades_per_run: Dict[run_id -> trades_df]
+    Added optional timeframe: if provided and collector has bars_variants, use that frame.
+    Returns (bars_df, indicators_per_run, trades_per_run).
     """
     def _get(coll, name):
         if coll is None:
@@ -46,11 +45,17 @@ def gather_multi_run_data(runs_cache: Dict[str, object],
         if not coll:
             continue
 
-        # Bars nur einmal setzen (kein bool check auf DataFrame!)
-        if bars_df is None:
+        # Select timeframe-specific bars if requested
+        candidate = None
+        if timeframe:
+            bv = _get(coll, "bars_variants")
+            if isinstance(bv, dict):
+                candidate = bv.get(timeframe)
+        if candidate is None:
             candidate = _get(coll, "bars_df")
-            if isinstance(candidate, pd.DataFrame) and not candidate.empty:
-                bars_df = candidate
+
+        if bars_df is None and isinstance(candidate, pd.DataFrame) and not candidate.empty:
+            bars_df = candidate
 
         # Trades sicher holen
         t_candidate = _get(coll, "trades_df")

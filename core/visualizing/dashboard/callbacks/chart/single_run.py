@@ -32,17 +32,27 @@ def _handle_trade_click_single(state, trades_df, clickData):
         return create_trade_details_content(trades_df.loc[idx])
     return get_default_trade_details_with_message()
 
-def _single_instrument(state, repo, instrument, chart_mode, x_range, clickData, run_id=None):
+def _single_instrument(state, repo, instrument, chart_mode, x_range, clickData, run_id=None, timeframe=None, show_trades=True):
     coll = state["collectors"].get(instrument)
-    bars, trades_df, indicators = extract_collector_data(coll)
+    # Select bars for timeframe if available
+    if isinstance(coll, dict) and timeframe and timeframe != "__default__":
+        bars_candidate = (coll.get("bars_variants") or {}).get(timeframe)
+        if isinstance(bars_candidate, pd.DataFrame) and not bars_candidate.empty:
+            bars = bars_candidate
+        else:
+            bars = coll.get("bars_df")
+    else:
+        bars = coll.get("bars_df") if isinstance(coll, dict) else None
+    trades_df = coll.get("trades_df") if isinstance(coll, dict) else None
+    indicators = coll.get("indicators_df") if isinstance(coll, dict) else None
     trade_details = _handle_trade_click_single(state, trades_df, clickData)
 
     try:
         price_fig = build_price_chart(
             bars,
             indicators,
-            trades_df,
-            state.get("selected_trade_index"),
+            trades_df if show_trades else None,
+            state.get("selected_trade_index") if show_trades else None,
             display_mode=(chart_mode or "OHLC")
         )
         price_fig.update_layout(uirevision="linked-range")
@@ -52,6 +62,10 @@ def _single_instrument(state, repo, instrument, chart_mode, x_range, clickData, 
             price_fig.update_xaxes(autorange=True)
     except Exception as e:
         price_fig = go.Figure().update_layout(title=f"Chart error: {e}")
+
+    if not show_trades:
+        trade_details = get_default_trade_details()
+        state["selected_trade_index"] = None
 
     indicator_children = []
     for pid, lst in sorted(iter_indicator_groups(indicators).items()):
@@ -115,7 +129,7 @@ def _single_instrument(state, repo, instrument, chart_mode, x_range, clickData, 
 
     return price_fig, indicator_children, metrics_children, trade_details
 
-def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, clickData, run_id=None):
+def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, clickData, run_id=None, timeframe=None, show_trades=True):
     selected_multi = state.get("selected_trade_index") if isinstance(state.get("selected_trade_index"), tuple) else None
 
     price_fig = go.Figure()
@@ -124,7 +138,12 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
 
     for i, inst in enumerate(instruments):
         coll = state["collectors"].get(inst)
-        bars, trades_df, _ = extract_collector_data(coll)
+        if isinstance(coll, dict) and timeframe and timeframe != "__default__":
+            bars_candidate = (coll.get("bars_variants") or {}).get(timeframe)
+            bars = bars_candidate if isinstance(bars_candidate, pd.DataFrame) and not bars_candidate.empty else coll.get("bars_df")
+        else:
+            bars = coll.get("bars_df") if isinstance(coll, dict) else None
+        trades_df = coll.get("trades_df") if isinstance(coll, dict) else None
         trades_per_instrument[inst] = (bars, trades_df)
         if not (isinstance(bars, pd.DataFrame) and not bars.empty):
             continue
@@ -160,83 +179,89 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
         line_indices.append(len(price_fig.data) - 1)
 
     # Trades (BUY / SHORT) pro Instrument
-    for i, inst in enumerate(instruments):
-        bars, trades_df = trades_per_instrument.get(inst, (None, None))
-        if not (isinstance(trades_df, pd.DataFrame) and not trades_df.empty):
-            continue
-        axis_id = 'y' if i == 0 else f'y{i+1}'
-        buy = trades_df[trades_df["action"] == "BUY"]
-        short = trades_df[trades_df["action"] == "SHORT"]
+    if show_trades:
+        for i, inst in enumerate(instruments):
+            bars, trades_df = trades_per_instrument.get(inst, (None, None))
+            if not (isinstance(trades_df, pd.DataFrame) and not trades_df.empty):
+                continue
+            axis_id = 'y' if i == 0 else f'y{i+1}'
+            buy = trades_df[trades_df["action"] == "BUY"]
+            short = trades_df[trades_df["action"] == "SHORT"]
 
-        def add(points, action, symbol, color):
-            if points.empty:
-                return
-            selected_idx = None
-            if selected_multi and len(selected_multi) == 2 and selected_multi[0] == inst:
-                selected_idx = selected_multi[1]
-            normal = points.index.difference([selected_idx]) if selected_idx is not None else points.index
-            if len(normal) > 0:
-                sub = points.loc[normal]
-                price_fig.add_trace(go.Scatter(
-                    x=sub["timestamp"],
-                    y=sub.get("open_price_actual", sub.get("price_actual", 0)),
-                    mode="markers",
-                    name=f"{inst} {action}",
-                    marker=dict(symbol=symbol, size=12, color=color,
-                                line=dict(color="#ffffff", width=1)),
-                    customdata=[[inst, idx] for idx in sub.index],
-                    hovertemplate=f"<b>{inst} {action}</b><br>%{{x}}<br>Price: %{{y:.4f}}<extra></extra>",
-                    yaxis=axis_id,
-                    showlegend=True
-                ))
-            if selected_idx is not None and selected_idx in points.index:
-                srow = points.loc[[selected_idx]]
-                price_fig.add_trace(go.Scatter(
-                    x=srow["timestamp"],
-                    y=srow.get("open_price_actual", srow.get("price_actual", 0)),
-                    mode="markers",
-                    name=f"{inst} {action} (Selected)",
-                    marker=dict(symbol=symbol, size=18, color=color,
-                                line=dict(color="#222", width=2)),
-                    customdata=[[inst, selected_idx]],
-                    hovertemplate=f"<b>{inst} {action} (Selected)</b><br>%{{x}}<br>Price: %{{y:.4f}}<extra></extra>",
-                    yaxis=axis_id,
-                    showlegend=False
-                ))
+            def add(points, action, symbol, color):
+                if points.empty:
+                    return
+                selected_idx = None
+                if selected_multi and len(selected_multi) == 2 and selected_multi[0] == inst:
+                    selected_idx = selected_multi[1]
+                normal = points.index.difference([selected_idx]) if selected_idx is not None else points.index
+                if len(normal) > 0:
+                    sub = points.loc[normal]
+                    price_fig.add_trace(go.Scatter(
+                        x=sub["timestamp"],
+                        y=sub.get("open_price_actual", sub.get("price_actual", 0)),
+                        mode="markers",
+                        name=f"{inst} {action}",
+                        marker=dict(symbol=symbol, size=12, color=color,
+                                    line=dict(color="#ffffff", width=1)),
+                        customdata=[[inst, idx] for idx in sub.index],
+                        hovertemplate=f"<b>{inst} {action}</b><br>%{{x}}<br>Price: %{{y:.4f}}<extra></extra>",
+                        yaxis=axis_id,
+                        showlegend=True
+                    ))
+                if selected_idx is not None and selected_idx in points.index:
+                    srow = points.loc[[selected_idx]]
+                    price_fig.add_trace(go.Scatter(
+                        x=srow["timestamp"],
+                        y=srow.get("open_price_actual", srow.get("price_actual", 0)),
+                        mode="markers",
+                        name=f"{inst} {action} (Selected)",
+                        marker=dict(symbol=symbol, size=18, color=color,
+                                    line=dict(color="#222", width=2)),
+                        customdata=[[inst, selected_idx]],
+                        hovertemplate=f"<b>{inst} {action} (Selected)</b><br>%{{x}}<br>Price: %{{y:.4f}}<extra></extra>",
+                        yaxis=axis_id,
+                        showlegend=False
+                    ))
 
-        add(buy, "BUY", "triangle-up", "#28a745")
-        add(short, "SHORT", "triangle-down", "#dc3545")
+            add(buy, "BUY", "triangle-up", "#28a745")
+            add(short, "SHORT", "triangle-down", "#dc3545")
+    else:
+        state["selected_trade_index"] = None
 
     # Trade Click
-    trade_details = get_default_trade_details()
-    if clickData:
-        pt = next((p for p in clickData.get("points", []) if "customdata" in p), None)
-        if pt:
-            cd = pt.get("customdata")
-            if isinstance(cd, (list, tuple)) and len(cd) == 2 and not isinstance(cd[0], (list, tuple)):
-                inst_clicked, idx_clicked = cd
-            elif isinstance(cd, (list, tuple)) and len(cd) == 1 and isinstance(cd[0], (list, tuple)) and len(cd[0]) == 2:
-                inst_clicked, idx_clicked = cd[0]
-            else:
-                inst_clicked = idx_clicked = None
-            if inst_clicked in trades_per_instrument:
-                _bars, tdf = trades_per_instrument[inst_clicked]
-                if isinstance(tdf, pd.DataFrame) and idx_clicked in tdf.index:
-                    state["selected_trade_index"] = (inst_clicked, idx_clicked)
-                    trade_details = create_trade_details_content(tdf.loc[idx_clicked])
-                    try:
-                        add_trade_visualization(price_fig, tdf, _bars, idx_clicked)
-                    except Exception as e:
-                        print(f"[WARN] add_trade_visualization multi-inst failed: {e}")
+    if not show_trades:
+        trade_details = get_default_trade_details()
     else:
-        if selected_multi and len(selected_multi) == 2:
-            inst_sel, idx_sel = selected_multi
-            _bars, tdf = trades_per_instrument.get(inst_sel, (None, None))
-            if isinstance(tdf, pd.DataFrame) and idx_sel in tdf.index:
-                try:
-                    add_trade_visualization(price_fig, tdf, _bars, idx_sel)
-                except Exception as e:
-                    print(f"[WARN] persist add_trade_visualization multi-inst failed: {e}")
+        trade_details = get_default_trade_details()
+        if clickData:
+            pt = next((p for p in clickData.get("points", []) if "customdata" in p), None)
+            if pt:
+                cd = pt.get("customdata")
+                if isinstance(cd, (list, tuple)) and len(cd) == 2 and not isinstance(cd[0], (list, tuple)):
+                    inst_clicked, idx_clicked = cd
+                elif isinstance(cd, (list, tuple)) and len(cd) == 1 and isinstance(cd[0], (list, tuple)) and len(cd[0]) == 2:
+                    inst_clicked, idx_clicked = cd[0]
+                else:
+                    inst_clicked = idx_clicked = None
+                if inst_clicked in trades_per_instrument:
+                    _bars, tdf = trades_per_instrument[inst_clicked]
+                    if isinstance(tdf, pd.DataFrame) and idx_clicked in tdf.index:
+                        state["selected_trade_index"] = (inst_clicked, idx_clicked)
+                        trade_details = create_trade_details_content(tdf.loc[idx_clicked])
+                        try:
+                            add_trade_visualization(price_fig, tdf, _bars, idx_clicked)
+                        except Exception as e:
+                            print(f"[WARN] add_trade_visualization multi-inst failed: {e}")
+        else:
+            if selected_multi and len(selected_multi) == 2:
+                inst_sel, idx_sel = selected_multi
+                _bars, tdf = trades_per_instrument.get(inst_sel, (None, None))
+                if isinstance(tdf, pd.DataFrame) and idx_sel in tdf.index:
+                    try:
+                        add_trade_visualization(price_fig, tdf, _bars, idx_sel)
+                    except Exception as e:
+                        print(f"[WARN] persist add_trade_visualization multi-inst failed: {e}")
 
     # Achsenlayout
     axis_layout = {}
@@ -444,7 +469,7 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
 
     return price_fig, indicator_children, metrics_children, trade_details
 
-def build_single_run_view(state, repo, instruments, clickData, chart_mode, x_range, color_map, run_id=None):
+def build_single_run_view(state, repo, instruments, clickData, chart_mode, x_range, color_map, run_id=None, timeframe=None, show_trades=True):
     """Dispatcher: Single-Run mit 1 oder mehreren Instrumenten. Liefert (fig, indicators, metrics, trade_details)."""
     if not instruments:
         return (
@@ -462,7 +487,9 @@ def build_single_run_view(state, repo, instruments, clickData, chart_mode, x_ran
             chart_mode=chart_mode,
             x_range=x_range,
             clickData=clickData,
-            run_id=run_id
+            run_id=run_id,
+            timeframe=timeframe,  # NEW
+            show_trades=show_trades  # NEW
         )
 
     # mehrere Instrumente im Single-Run-Modus (mehrere Instrumente einer Run-Collector-Instanz)
@@ -474,5 +501,7 @@ def build_single_run_view(state, repo, instruments, clickData, chart_mode, x_ran
         x_range=x_range,
         color_map=color_map,
         clickData=clickData,
-        run_id=run_id
+        run_id=run_id,
+        timeframe=timeframe,  # NEW
+        show_trades=show_trades  # NEW
     )

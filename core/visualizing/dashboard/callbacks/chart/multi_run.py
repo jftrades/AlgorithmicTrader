@@ -137,9 +137,10 @@ def _normalize_timestamps(series):
     except Exception:
         return pd.to_datetime([], errors="coerce")
 
-def _build_single_instrument_multi_run(state, repo, instrument, active_runs, clickData, chart_mode, x_range):
+def _build_single_instrument_multi_run(state, repo, instrument, active_runs, clickData, chart_mode, x_range, timeframe=None, show_trades=True):
+    # Use timeframe-aware multi-run data
     bars_df, indicators_per_run, trades_per_run = gather_multi_run_data(
-        state["runs_cache"], active_runs, instrument
+        state["runs_cache"], active_runs, instrument, timeframe=timeframe
     )
     # Build indicators_df for price overlay: collect pid==0 indicators across runs and prefix names
     indicators_for_price = {}
@@ -206,46 +207,49 @@ def _build_single_instrument_multi_run(state, repo, instrument, active_runs, cli
     selected_tuple = state.get("selected_trade_index") if isinstance(state.get("selected_trade_index"), tuple) else None
     run_count = len(active_runs)
 
-    for ridx, rid in enumerate(active_runs):
-        trades_df = trades_per_run.get(rid)
-        if not isinstance(trades_df, pd.DataFrame) or trades_df.empty:
-            continue
-        buy_color, short_color, _ = run_color_for_index(ridx)
-        layer_offset = base_offset_unit * (ridx - (run_count - 1) / 2.0)
+    if show_trades:
+        for ridx, rid in enumerate(active_runs):
+            trades_df = trades_per_run.get(rid)
+            if not isinstance(trades_df, pd.DataFrame) or trades_df.empty:
+                continue
+            buy_color, short_color, _ = run_color_for_index(ridx)
+            layer_offset = base_offset_unit * (ridx - (run_count - 1) / 2.0)
 
-        def add_group(action, symbol, color):
-            sub = trades_df[trades_df["action"] == action]
-            if sub.empty:
-                return
-            first_idx = sub.index[0]
-            for idx in sub.index:
-                row = sub.loc[idx]
-                local = ACTION_LOCAL_OFFSET_RATIO * base_offset_unit * (1 if action == "BUY" else -1)
-                y_val = row.get("open_price_actual", row.get("price_actual", 0)) + layer_offset + local
-                is_sel = selected_tuple == (rid, idx)
-                price_fig.add_trace(go.Scatter(
-                    x=[row["timestamp"]],
-                    y=[y_val],
-                    mode="markers",
-                    name=f"{short_run_label(rid)} {action}" if idx == first_idx else None,
-                    marker=dict(
-                        symbol=symbol,
-                        size=18 if is_sel else 12,
-                        color=color,
-                        line=dict(color="#ffffff", width=2 if is_sel else 1)
-                    ),
-                    customdata=[[rid, idx]],
-                    hovertemplate=(
-                        f"<b>{short_run_label(rid)} {action}"
-                        f"{' (Selected)' if is_sel else ''}</b><br>%{{x}}<br>Price: %{{y:.4f}}<extra></extra>"
-                    ),
-                    showlegend=bool(idx == first_idx)
-                ))
-        add_group("BUY", "triangle-up", buy_color)
-        add_group("SHORT", "triangle-down", short_color)
+            def add_group(action, symbol, color):
+                sub = trades_df[trades_df["action"] == action]
+                if sub.empty:
+                    return
+                first_idx = sub.index[0]
+                for idx in sub.index:
+                    row = sub.loc[idx]
+                    local = ACTION_LOCAL_OFFSET_RATIO * base_offset_unit * (1 if action == "BUY" else -1)
+                    y_val = row.get("open_price_actual", row.get("price_actual", 0)) + layer_offset + local
+                    is_sel = selected_tuple == (rid, idx)
+                    price_fig.add_trace(go.Scatter(
+                        x=[row["timestamp"]],
+                        y=[y_val],
+                        mode="markers",
+                        name=f"{short_run_label(rid)} {action}" if idx == first_idx else None,
+                        marker=dict(
+                            symbol=symbol,
+                            size=18 if is_sel else 12,
+                            color=color,
+                            line=dict(color="#ffffff", width=2 if is_sel else 1)
+                        ),
+                        customdata=[[rid, idx]],
+                        hovertemplate=(
+                            f"<b>{short_run_label(rid)} {action}"
+                            f"{' (Selected)' if is_sel else ''}</b><br>%{{x}}<br>Price: %{{y:.4f}}<extra></extra>"
+                        ),
+                        showlegend=bool(idx == first_idx)
+                    ))
+            add_group("BUY", "triangle-up", buy_color)
+            add_group("SHORT", "triangle-down", short_color)
+    else:
+        state["selected_trade_index"] = None
 
     trade_details = get_default_trade_details()
-    if clickData:
+    if show_trades and clickData:
         pt = next((p for p in clickData.get("points", []) if "customdata" in p), None)
         if pt:
             cd = pt.get("customdata")
@@ -334,11 +338,11 @@ def _build_single_instrument_multi_run(state, repo, instrument, active_runs, cli
     indicators_children = _indicator_overlay_single(active_runs, indicators_per_run, effective_range)
     return price_fig, indicators_children, metrics_children, trade_details
 
-def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, clickData, chart_mode, x_range, color_map):
+def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, clickData, chart_mode, x_range, color_map, timeframe=None, show_trades=True):
     # Daten sammeln
     multi_data = {}
     for inst in instruments:
-        multi_data[inst] = gather_multi_run_data(state["runs_cache"], active_runs, inst)
+        multi_data[inst] = gather_multi_run_data(state["runs_cache"], active_runs, inst, timeframe=timeframe)
 
     # Globale Zeit-Range über alle Instrumente (nur wenn keine externe x_range vorliegt)
     if x_range is None:
@@ -413,52 +417,55 @@ def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, cli
         selected_tuple = None
 
     # Trades
-    for inst_index, inst in enumerate(instruments):
-        bars_df, indicators_per_run_i, trades_per_run_i = multi_data[inst]
-        base_offset_unit = _base_offset(bars_df)
-        axis_id = 'y' if inst_index == 0 else f'y{inst_index+1}'
-        run_count = len(active_runs)
-        for ridx, rid in enumerate(active_runs):
-            trades_df = trades_per_run_i.get(rid)
-            if not isinstance(trades_df, pd.DataFrame) or trades_df.empty:
-                continue
-            buy_color, short_color, _ = run_color_for_index(ridx)
-            run_offset = base_offset_unit * (ridx - (run_count - 1) / 2.0)
+    if show_trades:
+        for inst_index, inst in enumerate(instruments):
+            bars_df, indicators_per_run_i, trades_per_run_i = multi_data[inst]
+            base_offset_unit = _base_offset(bars_df)
+            axis_id = 'y' if inst_index == 0 else f'y{inst_index+1}'
+            run_count = len(active_runs)
+            for ridx, rid in enumerate(active_runs):
+                trades_df = trades_per_run_i.get(rid)
+                if not isinstance(trades_df, pd.DataFrame) or trades_df.empty:
+                    continue
+                buy_color, short_color, _ = run_color_for_index(ridx)
+                run_offset = base_offset_unit * (ridx - (run_count - 1) / 2.0)
 
-            def add_group(action, symbol, color):
-                sub = trades_df[trades_df["action"] == action]
-                if sub.empty:
-                    return
-                first_idx = sub.index[0]
-                for tidx in sub.index:
-                    row = sub.loc[tidx]
-                    act_off = ACTION_LOCAL_OFFSET_RATIO_MULTI_INST * base_offset_unit * (1 if action == "BUY" else -1)
-                    y_val = row.get("open_price_actual", row.get("price_actual", 0)) + run_offset + act_off
-                    is_sel = selected_tuple == (rid, inst, tidx)
-                    price_fig.add_trace(go.Scatter(
-                        x=[row["timestamp"]],
-                        y=[y_val],
-                        mode="markers",
-                        name=f"{short_run_label(rid)} {inst} {action}" if tidx == first_idx else None,
-                        marker=dict(
-                            symbol=symbol,
-                            size=20 if is_sel else 12,
-                            color=color,
-                            line=dict(color="#ffffff", width=2 if is_sel else 1)
-                        ),
-                        customdata=[[rid, inst, tidx]],
-                        hovertemplate=(
-                            f"<b>{short_run_label(rid)} {inst} {action}"
-                            f"{' (Selected)' if is_sel else ''}</b><br>%{{x}}<br>Price: %{{y:.4f}}<extra></extra>"
-                        ),
-                        showlegend=bool(tidx == first_idx),
-                        yaxis=axis_id
-                    ))
-            add_group("BUY", "triangle-up", buy_color)
-            add_group("SHORT", "triangle-down", short_color)
+                def add_group(action, symbol, color):
+                    sub = trades_df[trades_df["action"] == action]
+                    if sub.empty:
+                        return
+                    first_idx = sub.index[0]
+                    for tidx in sub.index:
+                        row = sub.loc[tidx]
+                        act_off = ACTION_LOCAL_OFFSET_RATIO_MULTI_INST * base_offset_unit * (1 if action == "BUY" else -1)
+                        y_val = row.get("open_price_actual", row.get("price_actual", 0)) + run_offset + act_off
+                        is_sel = selected_tuple == (rid, inst, tidx)
+                        price_fig.add_trace(go.Scatter(
+                            x=[row["timestamp"]],
+                            y=[y_val],
+                            mode="markers",
+                            name=f"{short_run_label(rid)} {inst} {action}" if tidx == first_idx else None,
+                            marker=dict(
+                                symbol=symbol,
+                                size=20 if is_sel else 12,
+                                color=color,
+                                line=dict(color="#ffffff", width=2 if is_sel else 1)
+                            ),
+                            customdata=[[rid, inst, tidx]],
+                            hovertemplate=(
+                                f"<b>{short_run_label(rid)} {inst} {action}"
+                                f"{' (Selected)' if is_sel else ''}</b><br>%{{x}}<br>Price: %{{y:.4f}}<extra></extra>"
+                            ),
+                            showlegend=bool(tidx == first_idx),
+                            yaxis=axis_id
+                        ))
+                add_group("BUY", "triangle-up", buy_color)
+                add_group("SHORT", "triangle-down", short_color)
+    else:
+        state["selected_trade_index"] = None
 
     trade_details = get_default_trade_details()
-    if clickData:
+    if show_trades and clickData:
         pt = next((p for p in clickData.get("points", []) if "customdata" in p), None)
         if pt:
             cd = pt.get("customdata")
@@ -727,7 +734,7 @@ def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, cli
 
     return price_fig, indicator_children, metrics_children, trade_details
 
-def build_multi_run_view(state, repo, instruments, active_runs, clickData, chart_mode, x_range, color_map):
+def build_multi_run_view(state, repo, instruments, active_runs, clickData, chart_mode, x_range, color_map, timeframe=None, show_trades=True):
     instruments = instruments or []
     active_runs = active_runs or []
     if not instruments:
@@ -740,7 +747,9 @@ def build_multi_run_view(state, repo, instruments, active_runs, clickData, chart
             active_runs=active_runs,
             clickData=clickData,
             chart_mode=chart_mode,
-            x_range=x_range
+            x_range=x_range,
+            timeframe=timeframe,  # NEW
+            show_trades=show_trades
         )
     return _build_multi_instrument_multi_run(
         state=state,
@@ -750,7 +759,9 @@ def build_multi_run_view(state, repo, instruments, active_runs, clickData, chart
         clickData=clickData,
         chart_mode=chart_mode,
         x_range=x_range,
-        color_map=color_map
+        color_map=color_map,
+        timeframe=timeframe,  # NEW
+        show_trades=show_trades
     )
 
 # ...existing code...

@@ -6,7 +6,7 @@ from core.visualizing.dashboard.slide_menu import RunValidator
 
 @dataclass
 class DashboardData:
-    collectors: dict          # {collector_name: {"bars_df": df, "trades_df": df, "indicators_df": {name: df}}}
+    collectors: dict          # {collector_name: {"bars_df": df, "bars_variants": {tf: df}, "trades_df": df, "indicators_df": {name: df}}}
     selected: str | None
     all_results_df: pd.DataFrame | None
 
@@ -125,7 +125,7 @@ class ResultsRepository:
     def _load_collector(self, folder: Path):
         import pandas as pd
 
-        out = {"bars_df": None, "trades_df": None, "indicators_df": {}}
+        out = {"bars_df": None, "bars_variants": {}, "trades_df": None, "indicators_df": {}}
 
         # Bars (pick the shortest timeframe as primary)
         bars_list = []
@@ -135,8 +135,10 @@ class ResultsRepository:
                 if not df.empty and "timestamp" in df.columns:
                     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ns", errors="coerce")
                     df = df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
-                    df["timeframe"] = f.stem.replace("bars-", "")
+                    tf = f.stem.replace("bars-", "")
+                    df["timeframe"] = tf
                     bars_list.append(df)
+                    out["bars_variants"][tf] = df
             except Exception as e:
                 print(f"[repo] Bars error {f}: {e}")
 
@@ -150,7 +152,9 @@ class ResultsRepository:
                 unit = m.group(2).lower()
                 mult = {"s": 1, "m": 60, "h": 3600, "d": 86400}.get(unit, 10**6)
                 return val * mult
-            out["bars_df"] = sorted(bars_list, key=lambda d: tf_seconds(d["timeframe"].iloc[0]))[-1]
+            # Highest timeframe == max seconds
+            largest = max(bars_list, key=lambda d: tf_seconds(d["timeframe"].iloc[0]))
+            out["bars_df"] = largest
 
         # Trades
         tpath = folder / "trades.csv"

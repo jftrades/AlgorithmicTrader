@@ -334,10 +334,39 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
     price_block = html.Div([
         html.Div([
             html.H3("Price Data & Trading Signals", style={
-                'color':'#2c3e50','marginBottom':'20px',
+                'color':'#2c3e50','marginBottom':'12px',
                 'fontFamily':'Inter, system-ui, sans-serif','fontWeight':'600',
                 'fontSize':'20px','letterSpacing':'-0.01em'
             }),
+            # NEW: Timeframe selector + Trades toggle in one row
+            html.Div([
+                html.Div([
+                    html.Div("Timeframe", style={
+                        'fontSize':'11px','fontWeight':'600','letterSpacing':'.08em',
+                        'color':'#555','textTransform':'uppercase','marginBottom':'4px'
+                    }),
+                    dcc.Dropdown(
+                        id="timeframe-dropdown",
+                        options=[],
+                        value=None,
+                        clearable=False,
+                        placeholder="Select timeframe",
+                        style={'fontSize':'13px'}
+                    )
+                ], style={
+                    'display':'flex','flexDirection':'column','gap':'4px',
+                    'background':'#f8fafc','border':'1px solid #d9dde2',
+                    'borderRadius':'10px','padding':'8px 12px','maxWidth':'180px'
+                }),
+                html.Button("Hide Trades", id="toggle-trades-btn", n_clicks=0, style={
+                    'height':'42px','alignSelf':'flex-end','marginLeft':'14px',
+                    'background':'linear-gradient(135deg,#4ade80 0%,#16a34a 100%)',
+                    'color':'#fff','border':'none','borderRadius':'10px',
+                    'padding':'8px 16px','cursor':'pointer','fontSize':'13px',
+                    'fontFamily':'Inter, system-ui, sans-serif','fontWeight':'600',
+                    'boxShadow':'0 2px 6px rgba(16,185,129,0.35)'
+                })
+            ], style={'display':'flex','flexDirection':'row','marginBottom':'14px','alignItems':'flex-start'}),
             dcc.Graph(id='price-chart', style={'height':'650px'})
         ], style={
             'background':'#ffffff','borderRadius':'16px','padding':'25px',
@@ -422,6 +451,7 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
         dcc.Store(id='run-yaml-store', data={}),
         # NEU: QuantStats Status Store (für Callback-Dummy)
         dcc.Store(id='quantstats-status', data=""),
+        dcc.Store(id='show-trades-store', data=True),  # NEW store for trades visibility
     ], style={
         # Globale Styles direkt hier
         'fontFamily': 'Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif'
