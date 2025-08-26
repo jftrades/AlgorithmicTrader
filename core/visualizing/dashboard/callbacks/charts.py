@@ -268,49 +268,28 @@ def register_chart_callbacks(app, repo, state):
         existing_active = state.get("active_runs", [])
         parse_new = trig_id == "selected-run-store"
         if parse_new:
-            new_list = []
+            # Normalize incoming selection (can be list / single / None)
             if isinstance(selected_run_store, list):
                 new_list = [str(r) for r in selected_run_store if r not in (None, "", [])]
-            elif isinstance(selected_run_store, (str, int)) and selected_run_store not in (None, "", []):
+            elif isinstance(selected_run_store, (str, int)):
                 new_list = [str(selected_run_store)]
-
-            def should_overwrite(old, new):
-                if not new:
-                    return False
-                if len(new) > 1:
-                    return True      # explicit multi-run
-                if len(old) > 1 and len(new) == 1:
-                    return False     # protect existing multi-run
-                if not old:
-                    return True
-                if len(old) == 1 and len(new) == 1 and old[0] != new[0]:
-                    return True      # switch single run
-                return False
-
-            if should_overwrite(existing_active, new_list):
-                for rid in new_list:
-                    if rid not in state["runs_cache"]:
-                        try:
-                            rd = repo.load_specific_run(rid)
-                            state["runs_cache"][rid] = rd
-                        except Exception:
-                            pass
-                state["active_runs"] = new_list
             else:
-                state["active_runs"] = existing_active
+                new_list = []
+
+            # Always adopt exactly what the store contains (including empty -> clear)
+            state["active_runs"] = new_list
+
+            # Maintain / shrink lock: if multi-run keep snapshot; if shrunk or cleared update/remove lock
+            if len(new_list) > 1:
+                state["multi_run_lock"] = list(new_list)
+            else:
+                # Shrink lock to single (or clear) so old multi-run does not resurrect
+                state["multi_run_lock"] = list(new_list)
         else:
-            # Non-run trigger: keep existing_active
-            state["active_runs"] = existing_active
-
-        # NEW: restore multi-run if store collapsed but we have a lock
-        if len(state.get("active_runs", [])) <= 1 and len(state.get("multi_run_lock", [])) > 1:
-            # Only restore if current trigger is NOT an intentional run selection change
-            if trig_id != "selected-run-store":
-                state["active_runs"] = list(state["multi_run_lock"])
-
-        # NEW: refresh lock when we truly have a multi-run active list
-        if len(state.get("active_runs", [])) > 1:
-            state["multi_run_lock"] = list(state["active_runs"])
+            # Non run-selection trigger: DO NOT resurrect previous multi-run automatically
+            # Just keep current active_runs as-is.
+            state["active_runs"] = state.get("active_runs", [])
+        # Removed: automatic restoration block that re-added deselected runs
 
         # Reload any missing run objects (menu might have been hidden after initial selection)
         for rid in state["active_runs"]:
