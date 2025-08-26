@@ -338,18 +338,18 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
                 'fontFamily':'Inter, system-ui, sans-serif','fontWeight':'600',
                 'fontSize':'20px','letterSpacing':'-0.01em'
             }),
-            # NEW: Timeframe selector + Trades toggle in one row
+            # Timeframe selector + Trades toggle + NEW time range slider
             html.Div([
+                # existing timeframe dropdown wrapper
                 html.Div([
+                    # ...existing timeframe label & dropdown...
                     html.Div("Timeframe", style={
                         'fontSize':'11px','fontWeight':'600','letterSpacing':'.08em',
                         'color':'#555','textTransform':'uppercase','marginBottom':'4px'
                     }),
                     dcc.Dropdown(
                         id="timeframe-dropdown",
-                        options=[],
-                        value=None,
-                        clearable=False,
+                        options=[], value=None, clearable=False,
                         placeholder="Select timeframe",
                         style={'fontSize':'13px'}
                     )
@@ -358,6 +358,7 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
                     'background':'#f8fafc','border':'1px solid #d9dde2',
                     'borderRadius':'10px','padding':'8px 12px','maxWidth':'180px'
                 }),
+                # existing trades toggle button
                 html.Button("Hide Trades", id="toggle-trades-btn", n_clicks=0, style={
                     'height':'42px','alignSelf':'flex-end','marginLeft':'14px',
                     'background':'linear-gradient(135deg,#4ade80 0%,#16a34a 100%)',
@@ -365,8 +366,35 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
                     'padding':'8px 16px','cursor':'pointer','fontSize':'13px',
                     'fontFamily':'Inter, system-ui, sans-serif','fontWeight':'600',
                     'boxShadow':'0 2px 6px rgba(16,185,129,0.35)'
+                }),
+                # NEW range slider container
+                html.Div([
+                    html.Div("Visible Window", style={
+                        'fontSize':'11px','fontWeight':'600','letterSpacing':'.08em',
+                        'color':'#555','textTransform':'uppercase','margin':'0 0 6px 0'
+                    }),
+                    dcc.RangeSlider(
+                        id="time-range-slider",
+                        min=0, max=100, value=[0,100],
+                        allowCross=False,
+                        tooltip={"placement":"bottom","always_visible":False},
+                        step=1,
+                        updatemode='mouseup'
+                    ),
+                    html.Div(id="time-range-display", style={
+                        'fontSize':'11px','color':'#555','marginTop':'4px','fontFamily':'Inter, system-ui, sans-serif'
+                    })
+                ], style={
+                    'flex':'1',
+                    'background':'#f8fafc',
+                    'border':'1px solid #d9dde2',
+                    'borderRadius':'10px',
+                    'padding':'8px 14px',
+                    'marginLeft':'16px',
+                    'minWidth':'320px',
+                    'maxWidth':'560px'
                 })
-            ], style={'display':'flex','flexDirection':'row','marginBottom':'14px','alignItems':'flex-start'}),
+            ], style={'display':'flex','flexDirection':'row','marginBottom':'14px','alignItems':'flex-start','flexWrap':'wrap','rowGap':'12px'}),
             dcc.Graph(id='price-chart', style={'height':'650px'})
         ], style={
             'background':'#ffffff','borderRadius':'16px','padding':'25px',

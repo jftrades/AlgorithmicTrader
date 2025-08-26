@@ -6,48 +6,26 @@ import re
 
 # --------- Trade-Details: Defaults ---------
 def get_default_trade_details():
-    """Standard Trade-Details Anzeige."""
-    return [
-        html.Div([
-            html.H4("Trade Details", style={
-                'color': '#34495e',
-                'marginBottom': '10px',
-                'fontFamily': 'Inter, system-ui, sans-serif',
-                'fontWeight': '500',
-                'textAlign': 'center',
-                'fontSize': '16px'
-            }),
-            html.P("Click on a trade marker in the chart below to see details", style={
-                'color': '#6c757d',
-                'fontFamily': 'Inter, system-ui, sans-serif',
-                'textAlign': 'center',
-                'fontSize': '14px',
-                'margin': '0'
-            })
-        ])
-    ]
+    return html.Div([
+        html.Div("Trade Details", style={
+            'fontSize': '15px', 'fontWeight': '600', 'marginBottom': '6px',
+            'fontFamily': 'Inter, system-ui, sans-serif', 'color': '#2c3e50'
+        }),
+        html.Div("No trade selected", style={
+            'fontSize': '12px', 'color': '#6c757d', 'fontStyle': 'italic'
+        })
+    ])
 
-
-def get_default_trade_details_with_message():
-    """Trade-Details mit Hinweis-Message (wenn nicht auf Marker geklickt wurde)."""
-    return [
-        html.Div([
-            html.H4("Trade Details", style={
-                'color': '#34495e',
-                'marginBottom': '10px',
-                'fontFamily': 'Inter, system-ui, sans-serif',
-                'fontWeight': '500',
-                'textAlign': 'center',
-                'fontSize': '16px'
-            }),
-            html.P("Please click directly on a trade marker (triangle) to see details", style={
-                'color': '#dc3545',
-                'fontFamily': 'Inter, system-ui, sans-serif',
-                'textAlign': 'center',
-                'fontSize': '14px'
-            })
-        ])
-    ]
+def get_default_trade_details_with_message(msg="Click a trade marker to view details"):
+    return html.Div([
+        html.Div("Trade Details", style={
+            'fontSize': '15px', 'fontWeight': '600', 'marginBottom': '6px',
+            'fontFamily': 'Inter, system-ui, sans-serif', 'color': '#2c3e50'
+        }),
+        html.Div(msg, style={
+            'fontSize': '12px', 'color': '#6c757d', 'fontStyle': 'italic'
+        })
+    ])
 
 
 # --------- Trade-Details: Inhalt aus einer Trade-Zeile ---------

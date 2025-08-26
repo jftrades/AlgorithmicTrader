@@ -73,7 +73,7 @@ def _indicator_overlay_single(active_runs, indicators_per_run, x_range):
         imap = indicators_per_run.get(rid, {}) or {}
         for name, df in imap.items():
             if isinstance(df, pd.DataFrame) and not df.empty:
-                pid = int(df.get("plot_id", [0])[0]) if "plot_id" in df.columns else 0
+                pid = int(df["plot_id"].iloc[0]) if "plot_id" in df.columns and len(df["plot_id"]) > 0 else 0
                 if pid > 0:
                     groups.setdefault(pid, []).append((ridx, rid, name, df))
     for pid, lst in sorted(groups.items()):
@@ -137,11 +137,31 @@ def _normalize_timestamps(series):
     except Exception:
         return pd.to_datetime([], errors="coerce")
 
-def _build_single_instrument_multi_run(state, repo, instrument, active_runs, clickData, chart_mode, x_range, timeframe=None, show_trades=True):
+def _build_single_instrument_multi_run(state, repo, instrument, active_runs, clickData,
+                                       chart_mode, x_range, timeframe=None, show_trades=True, x_window=None):
     # Use timeframe-aware multi-run data
     bars_df, indicators_per_run, trades_per_run = gather_multi_run_data(
         state["runs_cache"], active_runs, instrument, timeframe=timeframe
     )
+    # NEW: window filtering
+    if x_window and isinstance(bars_df, pd.DataFrame):
+        s, e = x_window
+        bars_df = bars_df[(bars_df["timestamp"] >= s) & (bars_df["timestamp"] <= e)]
+    if x_window:
+        s, e = x_window
+        for rid in list(trades_per_run.keys()):
+            tdf = trades_per_run[rid]
+            if isinstance(tdf, pd.DataFrame) and "timestamp" in tdf.columns:
+                trades_per_run[rid] = tdf[(tdf["timestamp"] >= s) & (tdf["timestamp"] <= e)]
+        for rid in list(indicators_per_run.keys()):
+            imap = indicators_per_run[rid]
+            if isinstance(imap, dict):
+                filt_map = {}
+                for name, df in imap.items():
+                    if isinstance(df, pd.DataFrame) and "timestamp" in df.columns:
+                        filt_map[name] = df[(df["timestamp"] >= s) & (df["timestamp"] <= e)]
+                indicators_per_run[rid] = filt_map
+
     # Build indicators_df for price overlay: collect pid==0 indicators across runs and prefix names
     indicators_for_price = {}
     try:
@@ -150,7 +170,7 @@ def _build_single_instrument_multi_run(state, repo, instrument, active_runs, cli
             for name, df in imap.items():
                 if not isinstance(df, pd.DataFrame) or df.empty:
                     continue
-                pid = int(df.get("plot_id", [0])[0]) if "plot_id" in df.columns else 0
+                pid = int(df["plot_id"].iloc[0]) if "plot_id" in df.columns and len(df["plot_id"]) > 0 else 0
                 if pid == 0:
                     key = f"{short_run_label(rid)}:{name}"
                     indicators_for_price[key] = df.copy()
@@ -338,11 +358,37 @@ def _build_single_instrument_multi_run(state, repo, instrument, active_runs, cli
     indicators_children = _indicator_overlay_single(active_runs, indicators_per_run, effective_range)
     return price_fig, indicators_children, metrics_children, trade_details
 
-def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, clickData, chart_mode, x_range, color_map, timeframe=None, show_trades=True):
+def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, clickData,
+                                      chart_mode, x_range, color_map, timeframe=None, show_trades=True, x_window=None):
     # Daten sammeln
     multi_data = {}
     for inst in instruments:
         multi_data[inst] = gather_multi_run_data(state["runs_cache"], active_runs, inst, timeframe=timeframe)
+
+    # NEW: window filtering
+    if x_window:
+        s, e = x_window
+        new_multi = {}
+        for inst, tup in multi_data.items():
+            bdf, inds_per_run, trades_per_run_i = tup
+            if isinstance(bdf, pd.DataFrame) and "timestamp" in bdf.columns:
+                bdf = bdf[(bdf["timestamp"] >= s) & (bdf["timestamp"] <= e)]
+            if isinstance(trades_per_run_i, dict):
+                for rid in list(trades_per_run_i.keys()):
+                    tdf = trades_per_run_i[rid]
+                    if isinstance(tdf, pd.DataFrame) and "timestamp" in tdf.columns:
+                        trades_per_run_i[rid] = tdf[(tdf["timestamp"] >= s) & (tdf["timestamp"] <= e)]
+            if isinstance(inds_per_run, dict):
+                for rid in list(inds_per_run.keys()):
+                    imap = inds_per_run[rid]
+                    if isinstance(imap, dict):
+                        fimap = {}
+                        for name, df in imap.items():
+                            if isinstance(df, pd.DataFrame) and "timestamp" in df.columns:
+                                fimap[name] = df[(df["timestamp"] >= s) & (df["timestamp"] <= e)]
+                        inds_per_run[rid] = fimap
+            new_multi[inst] = (bdf, inds_per_run, trades_per_run_i)
+        multi_data = new_multi
 
     # Globale Zeit-Range über alle Instrumente (nur wenn keine externe x_range vorliegt)
     if x_range is None:
@@ -639,7 +685,7 @@ def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, cli
             ind_map = indicators_per_run_i.get(rid, {}) or {}
             for name, df in ind_map.items():
                 if isinstance(df, pd.DataFrame) and not df.empty:
-                    pid = int(df.get("plot_id", [0])[0]) if "plot_id" in df.columns else 0
+                    pid = int(df["plot_id"].iloc[0]) if "plot_id" in df.columns and len(df["plot_id"]) > 0 else 0
                     if pid > 0:
                         global_groups.setdefault(pid, []).append((inst, ridx, rid, name, df))
 
@@ -734,7 +780,8 @@ def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, cli
 
     return price_fig, indicator_children, metrics_children, trade_details
 
-def build_multi_run_view(state, repo, instruments, active_runs, clickData, chart_mode, x_range, color_map, timeframe=None, show_trades=True):
+def build_multi_run_view(state, repo, instruments, active_runs, clickData, chart_mode,
+                         x_range, color_map, timeframe=None, show_trades=True, x_window=None):
     instruments = instruments or []
     active_runs = active_runs or []
     if not instruments:
@@ -749,7 +796,8 @@ def build_multi_run_view(state, repo, instruments, active_runs, clickData, chart
             chart_mode=chart_mode,
             x_range=x_range,
             timeframe=timeframe,  # NEW
-            show_trades=show_trades
+            show_trades=show_trades,
+            x_window=x_window  # NEW
         )
     return _build_multi_instrument_multi_run(
         state=state,
@@ -761,7 +809,8 @@ def build_multi_run_view(state, repo, instruments, active_runs, clickData, chart
         x_range=x_range,
         color_map=color_map,
         timeframe=timeframe,  # NEW
-        show_trades=show_trades
+        show_trades=show_trades,
+        x_window=x_window  # NEW
     )
 
 # ...existing code...

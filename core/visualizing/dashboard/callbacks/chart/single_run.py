@@ -32,7 +32,7 @@ def _handle_trade_click_single(state, trades_df, clickData):
         return create_trade_details_content(trades_df.loc[idx])
     return get_default_trade_details_with_message()
 
-def _single_instrument(state, repo, instrument, chart_mode, x_range, clickData, run_id=None, timeframe=None, show_trades=True):
+def _single_instrument(state, repo, instrument, chart_mode, x_range, clickData, run_id=None, timeframe=None, show_trades=True, x_window=None):
     coll = state["collectors"].get(instrument)
     # Select bars for timeframe if available
     if isinstance(coll, dict) and timeframe and timeframe != "__default__":
@@ -45,6 +45,24 @@ def _single_instrument(state, repo, instrument, chart_mode, x_range, clickData, 
         bars = coll.get("bars_df") if isinstance(coll, dict) else None
     trades_df = coll.get("trades_df") if isinstance(coll, dict) else None
     indicators = coll.get("indicators_df") if isinstance(coll, dict) else None
+
+    # Apply window filtering
+    if x_window and isinstance(bars, pd.DataFrame):
+        s, e = x_window
+        bars = bars[(bars["timestamp"] >= s) & (bars["timestamp"] <= e)]
+    if x_window and isinstance(trades_df, pd.DataFrame):
+        s, e = x_window
+        if "timestamp" in trades_df.columns:
+            trades_df = trades_df[(trades_df["timestamp"] >= s) & (trades_df["timestamp"] <= e)]
+    if x_window and isinstance(indicators, dict):
+        filt = {}
+        s, e = x_window
+        for k, df in indicators.items():
+            if isinstance(df, pd.DataFrame) and "timestamp" in df.columns:
+                fd = df[(df["timestamp"] >= s) & (df["timestamp"] <= e)]
+                filt[k] = fd
+        indicators = filt
+
     trade_details = _handle_trade_click_single(state, trades_df, clickData)
 
     try:
@@ -129,7 +147,7 @@ def _single_instrument(state, repo, instrument, chart_mode, x_range, clickData, 
 
     return price_fig, indicator_children, metrics_children, trade_details
 
-def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, clickData, run_id=None, timeframe=None, show_trades=True):
+def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, clickData, run_id=None, timeframe=None, show_trades=True, x_window=None):
     selected_multi = state.get("selected_trade_index") if isinstance(state.get("selected_trade_index"), tuple) else None
 
     price_fig = go.Figure()
@@ -144,6 +162,16 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
         else:
             bars = coll.get("bars_df") if isinstance(coll, dict) else None
         trades_df = coll.get("trades_df") if isinstance(coll, dict) else None
+
+        # Apply window filtering
+        if x_window and isinstance(bars, pd.DataFrame):
+            s, e = x_window
+            bars = bars[(bars["timestamp"] >= s) & (bars["timestamp"] <= e)]
+        if x_window and isinstance(trades_df, pd.DataFrame):
+            s, e = x_window
+            if "timestamp" in trades_df.columns:
+                trades_df = trades_df[(trades_df["timestamp"] >= s) & (trades_df["timestamp"] <= e)]
+
         trades_per_instrument[inst] = (bars, trades_df)
         if not (isinstance(bars, pd.DataFrame) and not bars.empty):
             continue
@@ -333,7 +361,7 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
         _, _, indicators = extract_collector_data(coll)
         for name, df in (indicators or {}).items():
             if isinstance(df, pd.DataFrame) and not df.empty:
-                pid = int(df.get("plot_id", [0])[0]) if "plot_id" in df.columns else 0
+                pid = int(df["plot_id"].iloc[0]) if "plot_id" in df.columns and len(df["plot_id"]) > 0 else 0
                 if pid >= 1:
                     plot_groups.setdefault(pid, []).append((inst, name, df))
 
@@ -341,6 +369,10 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
         fig_ind = go.Figure()
         indicator_names = []
         for inst_, name, df in lst:
+            # Apply window filtering for indicators
+            if x_window and isinstance(df, pd.DataFrame):
+                s, e = x_window
+                df = df[(df["timestamp"] >= s) & (df["timestamp"] <= e)]
             fig_ind.add_trace(go.Scatter(
                 x=df["timestamp"],
                 y=df["value"],
@@ -469,7 +501,7 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
 
     return price_fig, indicator_children, metrics_children, trade_details
 
-def build_single_run_view(state, repo, instruments, clickData, chart_mode, x_range, color_map, run_id=None, timeframe=None, show_trades=True):
+def build_single_run_view(state, repo, instruments, clickData, chart_mode, x_range, color_map, run_id=None, timeframe=None, show_trades=True, x_window=None):
     """Dispatcher: Single-Run mit 1 oder mehreren Instrumenten. Liefert (fig, indicators, metrics, trade_details)."""
     if not instruments:
         return (
@@ -489,7 +521,8 @@ def build_single_run_view(state, repo, instruments, clickData, chart_mode, x_ran
             clickData=clickData,
             run_id=run_id,
             timeframe=timeframe,  # NEW
-            show_trades=show_trades  # NEW
+            show_trades=show_trades,  # NEW
+            x_window=x_window  # NEW
         )
 
     # mehrere Instrumente im Single-Run-Modus (mehrere Instrumente einer Run-Collector-Instanz)
@@ -503,5 +536,6 @@ def build_single_run_view(state, repo, instruments, clickData, chart_mode, x_ran
         clickData=clickData,
         run_id=run_id,
         timeframe=timeframe,  # NEW
-        show_trades=show_trades  # NEW
+        show_trades=show_trades,  # NEW
+        x_window=x_window  # NEW
     )

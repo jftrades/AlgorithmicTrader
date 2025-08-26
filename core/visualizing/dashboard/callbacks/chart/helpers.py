@@ -25,14 +25,25 @@ def compute_x_range(relayoutData):
             return None
     return None
 
-def iter_indicator_groups(indicators):
+def iter_indicator_groups(indicators_dict):
     """Group indicator DataFrames by plot_id (>0)."""
     groups = {}
-    for name, df in (indicators or {}).items():
-        if isinstance(df, pd.DataFrame) and not df.empty:
-            pid = int(df.get("plot_id", [0])[0]) if "plot_id" in df.columns else 0
-            if pid > 0:
-                groups.setdefault(pid, []).append((name, df))
+    if not isinstance(indicators_dict, dict):
+        return groups
+    for name, df in indicators_dict.items():
+        try:
+            if not isinstance(df, pd.DataFrame) or df.empty:
+                continue
+            if "plot_id" in df.columns and len(df["plot_id"]) > 0:
+                try:
+                    pid = int(df["plot_id"].iloc[0])  # fixed: positional access
+                except Exception:
+                    pid = 0
+            else:
+                pid = 0
+            groups.setdefault(pid, []).append((name, df))
+        except Exception:
+            continue
     return groups
 
 def flatten_customdata(cd):
