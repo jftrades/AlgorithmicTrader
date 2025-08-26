@@ -224,12 +224,12 @@ def register_chart_callbacks(app, repo, state):
             Input("price-chart", "relayoutData"),
             Input("show-trades-store", "data"),          # NEW
             Input("time-range-slider", "value"),          # NEW slider
+            Input("selected-run-store", "data"),          # CHANGED: was State
         ],
         State("price-chart-mode", "data"),
-        State("selected-run-store", "data"),
         prevent_initial_call=False
     )
-    def unified(sel_values, timeframe_value, _n, clickData, relayoutData, show_trades, slider_value, chart_mode, selected_run_store):
+    def unified(sel_values, timeframe_value, _n, clickData, relayoutData, show_trades, slider_value, selected_run_store, chart_mode):
         # Persist timeframe in state
         state["selected_timeframe"] = timeframe_value
         # Normalize instruments
@@ -242,21 +242,72 @@ def register_chart_callbacks(app, repo, state):
             if first:
                 sel_values = [first]
 
-        # Active runs management
-        run_ids = []
-        if isinstance(selected_run_store, list):
-            run_ids = [str(r) for r in selected_run_store if r not in (None, "", [])]
-        elif isinstance(selected_run_store, (str, int)) and selected_run_store:
-            run_ids = [str(selected_run_store)]
-        if run_ids:
-            for rid in run_ids:
-                if rid not in state.get("runs_cache", {}):
-                    try:
-                        rd = repo.load_specific_run(rid)
-                        state["runs_cache"][rid] = rd
-                    except Exception:
-                        pass
-            state["active_runs"] = run_ids
+        # Ensure runs_cache dict exists
+        if "runs_cache" not in state or not isinstance(state["runs_cache"], dict):
+            state["runs_cache"] = {}
+        # NEW: ensure multi_run_lock exists
+        if "multi_run_lock" not in state or not isinstance(state["multi_run_lock"], list):
+            state["multi_run_lock"] = []
+
+        trig_id = (callback_context.triggered[0]["prop_id"].split(".")[0]
+                   if callback_context.triggered else None)
+        existing_active = state.get("active_runs", [])
+        parse_new = trig_id == "selected-run-store"
+        if parse_new:
+            new_list = []
+            if isinstance(selected_run_store, list):
+                new_list = [str(r) for r in selected_run_store if r not in (None, "", [])]
+            elif isinstance(selected_run_store, (str, int)) and selected_run_store not in (None, "", []):
+                new_list = [str(selected_run_store)]
+
+            def should_overwrite(old, new):
+                if not new:
+                    return False
+                if len(new) > 1:
+                    return True      # explicit multi-run
+                if len(old) > 1 and len(new) == 1:
+                    return False     # protect existing multi-run
+                if not old:
+                    return True
+                if len(old) == 1 and len(new) == 1 and old[0] != new[0]:
+                    return True      # switch single run
+                return False
+
+            if should_overwrite(existing_active, new_list):
+                for rid in new_list:
+                    if rid not in state["runs_cache"]:
+                        try:
+                            rd = repo.load_specific_run(rid)
+                            state["runs_cache"][rid] = rd
+                        except Exception:
+                            pass
+                state["active_runs"] = new_list
+            else:
+                state["active_runs"] = existing_active
+        else:
+            # Non-run trigger: keep existing_active
+            state["active_runs"] = existing_active
+
+        # NEW: restore multi-run if store collapsed but we have a lock
+        if len(state.get("active_runs", [])) <= 1 and len(state.get("multi_run_lock", [])) > 1:
+            # Only restore if current trigger is NOT an intentional run selection change
+            if trig_id != "selected-run-store":
+                state["active_runs"] = list(state["multi_run_lock"])
+
+        # NEW: refresh lock when we truly have a multi-run active list
+        if len(state.get("active_runs", [])) > 1:
+            state["multi_run_lock"] = list(state["active_runs"])
+
+        # Reload any missing run objects (menu might have been hidden after initial selection)
+        for rid in state["active_runs"]:
+            if rid not in state["runs_cache"]:
+                try:
+                    rd = repo.load_specific_run(rid)
+                    state["runs_cache"][rid] = rd
+                except Exception:
+                    pass
+
+        active_runs = state.get("active_runs") or []
 
         if not sel_values:
             from plotly.graph_objects import Figure
@@ -293,7 +344,7 @@ def register_chart_callbacks(app, repo, state):
         if x_window:
             x_range = [x_window[0], x_window[1]]
 
-        active_runs = state.get("active_runs") or []
+        # Force multi-run mode if we still have >1 preserved
         multi_run_mode = len(active_runs) > 1
         run_id = active_runs[0] if active_runs else None
         color_map = get_color_map(sel_values)
