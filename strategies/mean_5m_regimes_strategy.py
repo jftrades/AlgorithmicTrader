@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any
 from collections import deque
 import datetime
-# Nautilus Kern offizielle Importe (für Backtest eigentlich immer hinzufügen)
+# Nautilus Kern offizielle Importe
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
 from nautilus_trader.model.data import Bar, BarType
@@ -27,19 +27,13 @@ class Mean5mregimesStrategyConfig(StrategyConfig):
     risk_percent: float
     max_leverage: float
     min_account_balance: float
-    
     start_date: str
     end_date: str
-    
-    # New adaptive system
     base_parameters: dict
     adaptive_factors: dict
-    
-    # VWAP/ZScore Parameter
     vwap_anchor_on_kalman_cross: bool = True
     zscore_calculation: dict = None
     gap_threshold_pct: float = 0.1
-    
     vix_fear_threshold: float = 25.0
     close_positions_on_stop: bool = True
     invest_percent: float = 0.10
@@ -53,7 +47,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.venue = self.instrument_id.venue
         self.risk_manager = None
         self.bar_type_5m = BarType.from_str(config.bar_type_5m)
-        self.zscore_neutral_counter = 3
         self.prev_zscore = None
         self.current_ltf_kalman_mean = None
         self.stopped = False
@@ -66,10 +59,10 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         # Dashboard indicators
         self.current_ltf_kalman_mean = None
         self.current_htf_kalman_mean = None
-        self.entry_atr_factor = None  # Track ATR factor used for entries
+        self.entry_atr_factor = None
         self.current_slope_factor = None
         self.current_atr_factor = None
-        self.current_asymmetric_offset = None  # Track ZScore offset
+        self.current_asymmetric_offset = None
         self.current_long_risk_factor = None
         self.current_short_risk_factor = None
         self.current_long_exit = None
@@ -79,15 +72,14 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.position_entry_prices = {}
         self.position_stop_levels = {}
 
-        # Track VWAP reset state to handle asymmetric offset properly
+        # Track VWAP reset state
         self.last_vwap_segment_start_bar = -1
         self.vwap_just_reset = False
-        self.bars_since_vwap_reset = 0  # Track bars since last VWAP reset
+        self.bars_since_vwap_reset = 0
 
-        # General initialization window for all indicators/datapoints
+        # General initialization window
         self.initialization_window = getattr(config, 'initialization_window', 30)
-        self._init_slope_buffer = []  # Buffer for slope initialization
-        self._init_slope_factor_buffer = []  # Buffer for slope_factor initialization
+        self._init_slope_buffer = []
         self._init_window_complete = False
         
         self.adaptive_manager = AdaptiveParameterManager(
@@ -98,20 +90,8 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         adaptive_params, _, _ = self.adaptive_manager.get_adaptive_parameters()
         vwap_params = adaptive_params.get('vwap', {})
         
-        # SAFETY FIX: If anchor_method is missing but we have vwap_anchor_on_kalman_cross, fix it
-        if 'anchor_method' not in vwap_params:
-            # Get the correct anchor method directly from config
-            correct_anchor_method = config.base_parameters.get('vwap', {}).get('anchor_method', 'kalman_cross')
-            vwap_params['anchor_method'] = correct_anchor_method
-        
-        # Get anchor method from adaptive params (which gets it from config)
         anchor_method = vwap_params.get('anchor_method', 'kalman_cross')
-        
-        # STORE the anchor method as instance variable to avoid re-querying adaptive manager
         self.vwap_anchor_method = anchor_method
-        
-        # Debug log to verify anchor method being used
-        self.log.info(f"VWAP anchor method loaded from config: {anchor_method}", color=LogColor.GREEN)
         
         self.vwap_zscore = VWAPZScoreHTFAnchored(
             anchor_method=anchor_method,
@@ -121,12 +101,12 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             reset_grace_period=vwap_params.get('vwap_reset_grace_period', 40),
             require_trade_for_reset=vwap_params.get('vwap_require_trade_for_reset', True),
             rolling_window_bars=vwap_params.get('rolling_window_bars', 288),
-            log_callback=self.log.info  # Add logging callback
+            log_callback=self.log.info
         )
         
         self.current_vix_value = None
         
-        # LTF Kalman Filter (for mean and distance calculations)
+        # LTF Kalman Filter
         self.ltf_kalman = KalmanFilterRegressionWithZScore(
             process_var=adaptive_params['ltf_kalman_process_var'],
             measurement_var=adaptive_params['ltf_kalman_measurement_var'],
@@ -137,7 +117,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.current_ltf_kalman_slope = None
         self.current_ltf_kalman_zscore = None
 
-        # HTF Kalman Filter (for parameter scaling)
+        # HTF Kalman Filter
         self.htf_kalman = KalmanFilterRegressionWithZScore(
             process_var=adaptive_params['htf_kalman_process_var'],
             measurement_var=adaptive_params['htf_kalman_measurement_var'],
@@ -170,24 +150,21 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         
         # Daily stacking reset configuration
         self.allow_daily_stacking_reset = adaptive_elastic_params.get('allow_daily_stacking_reset', False)
-        self.current_trading_day = None  # Track current trading day
-        self.daily_long_stacking_reset = False  # Track if long stacking was reset today
-        self.daily_short_stacking_reset = False  # Track if short stacking was reset today
+        self.current_trading_day = None
+        self.daily_long_stacking_reset = False
+        self.daily_short_stacking_reset = False
         
         self.long_positions_since_cross = 0
         self.short_positions_since_cross = 0
         self.last_kalman_cross_direction = None
-        # Use deques with reasonable maxlen for memory efficiency without losing functionality
-        self.long_entry_zscores = deque(maxlen=200)  # Keep last 200 entries
-        self.short_entry_zscores = deque(maxlen=200)  # Keep last 200 entries
+        self.long_entry_zscores = deque(maxlen=200)
+        self.short_entry_zscores = deque(maxlen=200)
         self.bars_since_last_long_entry = 0
         self.bars_since_last_short_entry = 0
 
         # VIX initialization
-        self.vix_start = config.start_date
-        self.vix_end = config.end_date  
         self.vix_fear = config.vix_fear_threshold
-        self.vix = VIX(start=self.vix_start, end=self.vix_end, fear_threshold=self.vix_fear)
+        self.vix = VIX(start=config.start_date, end=config.end_date, fear_threshold=config.vix_fear_threshold)
         
         # RTH configuration
         self.only_trade_rth = config.only_trade_rth
@@ -201,9 +178,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.subscribe_bars(self.bar_type_5m)
         self.log.info("Strategy started!")
 
-        # Reset initialization buffers and flags
         self._init_slope_buffer = []
-        self._init_slope_factor_buffer = []
         self._init_window_complete = False
 
         self.risk_manager = RiskManager(
@@ -214,7 +189,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         )
         self.order_types = OrderTypes(self)
 
-        self.collector.initialise_logging_indicator("ltf_kalman_mean", 0)
         self.collector.initialise_logging_indicator("ltf_kalman_mean", 0)
         self.collector.initialise_logging_indicator("htf_kalman_mean", 0)
         self.collector.initialise_logging_indicator("vwap", 0)
@@ -254,7 +228,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         return rth_start <= bar_time <= rth_end
 
     def on_bar(self, bar: Bar) -> None:
-        zscore = None
         bar_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
 
         vix_value = self.vix.get_value_on_date(bar_date)
@@ -266,29 +239,26 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.current_ltf_kalman_mean, self.current_ltf_kalman_slope, self.current_ltf_kalman_zscore = self.ltf_kalman.update(float(bar.close))
         self.current_htf_kalman_mean, self.current_htf_kalman_slope, self.current_htf_kalman_zscore = self.htf_kalman.update(float(bar.close))
         
-        # Set LTF Kalman mean for VWAP cross detection (if using kalman_cross anchor method)
         self.vwap_zscore.set_kalman_exit_mean(self.current_ltf_kalman_mean)
         
         self.adaptive_manager.update_atr(float(bar.high), float(bar.low), float(self.prev_close) if self.prev_close else None)
         self.adaptive_manager.update_slope(self.current_ltf_kalman_mean, self.current_htf_kalman_slope)
         
-        # --- Check initialization window completion FIRST ---
+        # Check initialization window completion
         if not self._init_window_complete:
             self._init_slope_buffer.append(self.current_htf_kalman_slope)
             if len(self._init_slope_buffer) >= self.initialization_window:
-                # Initialize all indicators/datapoints as mean of window
                 import numpy as np
                 self.initial_slope = float(np.mean(self._init_slope_buffer))
                 self._init_window_complete = True
                 self.log.info(f"Initialization window complete (window={self.initialization_window}): initial_slope={self.initial_slope}", color=LogColor.YELLOW)
         
-        # --- Now calculate factors based on current completion status ---
+        # Calculate factors based on completion status
         if not self._init_window_complete:
             slope_factor = 1.0
             atr_factor = 1.0
-            # Still get adaptive_params for configuration values (using defaults)
             adaptive_params, _, _ = self.adaptive_manager.get_adaptive_parameters()
-            if self.bar_counter % 50 == 0:  # Log every 50 bars to avoid spam
+            if self.bar_counter % 50 == 0:
                 self.log.info(f"Using default factors during init: slope={slope_factor}, atr={atr_factor} (bar {len(self._init_slope_buffer)}/{self.initialization_window})", color=LogColor.CYAN)
         else:
             adaptive_params, slope_factor, atr_factor = self.adaptive_manager.get_adaptive_parameters()
@@ -296,10 +266,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.current_slope_factor = slope_factor
         self.current_atr_factor = atr_factor
 
-        # Check hard stops before any other logic
         self._check_hard_stops(bar)
 
-        # Calculate and store risk factors and exit thresholds for visualization
+        # Calculate and store risk factors and exit thresholds
         if self._init_window_complete:
             self.current_long_risk_factor = adaptive_params.get('long_risk_factor', 1.0)
             self.current_short_risk_factor = adaptive_params.get('short_risk_factor', 1.0)
@@ -307,68 +276,43 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.current_long_exit = long_exit
             self.current_short_exit = short_exit
         else:
-            # Use default values during initialization
             self.current_long_risk_factor = 1.0
             self.current_short_risk_factor = 1.0
             self.current_long_exit = None
             self.current_short_exit = None
 
-        linear_config = self.adaptive_manager.adaptive_factors.get('linear_adjustments', {})
-        trend_sensitivity = linear_config.get('trend_sensitivity', 0.3)
-        vol_sensitivity = linear_config.get('vol_sensitivity', 0.4)
-        
         elastic_base = adaptive_params['elastic_entry']
         
-        adjusted_long_threshold = self.adaptive_manager.get_linear_adjustment(
-            base_value=elastic_base['zscore_long_threshold'],
-            trend_sensitivity=trend_sensitivity,
-            vol_sensitivity=vol_sensitivity
-        )
-        
-        adjusted_short_threshold = self.adaptive_manager.get_linear_adjustment(
-            base_value=elastic_base['zscore_short_threshold'],
-            trend_sensitivity=-trend_sensitivity,
-            vol_sensitivity=vol_sensitivity
-        )
-        
-        adjusted_recovery_delta = self.adaptive_manager.get_linear_adjustment(
-            base_value=elastic_base['recovery_delta'],
-            trend_sensitivity=0,
-            vol_sensitivity=vol_sensitivity * 0.5
-        )
-        
         self.elastic_entry.update_parameters(
-            z_min_threshold=adjusted_long_threshold,
-            z_max_threshold=adjusted_short_threshold,
-            recovery_delta=adjusted_recovery_delta
+            z_min_threshold=elastic_base['zscore_long_threshold'],
+            z_max_threshold=elastic_base['zscore_short_threshold'],
+            recovery_delta=elastic_base['recovery_delta']
         )
         
         self.additional_zscore_min_gain = elastic_base['additional_zscore_min_gain']
         self.recovery_delta_reentry = elastic_base['recovery_delta_reentry']
         
-        # Check if VWAP has reset by comparing segment start bar
+        # Check if VWAP has reset
         current_segment_info = self.vwap_zscore.get_segment_info()
         if hasattr(current_segment_info, 'get') and 'segment_start_bar' in current_segment_info:
             current_segment_start = current_segment_info['segment_start_bar']
             if current_segment_start != self.last_vwap_segment_start_bar:
                 self.vwap_just_reset = True
                 self.last_vwap_segment_start_bar = current_segment_start
-                self.bars_since_vwap_reset = 0  # Reset counter on new VWAP segment
+                self.bars_since_vwap_reset = 0
                 if current_segment_info.get('anchor_reason') in ['new_day', 'new_week']:
                     self.log.info(f"VWAP Reset Detected: {current_segment_info.get('anchor_reason')} - Asymmetric offset and trend state reset", color=LogColor.YELLOW)
-                    # Reset trend state in adaptive manager to prevent carrying over previous trends
                     self.adaptive_manager.reset_trend_state_for_vwap_anchor()
             else:
                 self.vwap_just_reset = False
-                self.bars_since_vwap_reset += 1  # Increment counter
+                self.bars_since_vwap_reset += 1
         else:
             self.vwap_just_reset = False
-            self.bars_since_vwap_reset += 1  # Increment counter
+            self.bars_since_vwap_reset += 1
             
-        # Calculate asymmetric offset - REMOVED grace period to allow natural evolution after min_bars_for_zscore
-        # ZScore should evolve naturally once the indicator's min_bars_for_zscore threshold is met
+        # Calculate asymmetric offset
         asymmetric_offset = self.adaptive_manager.get_asymmetric_offset(self.current_ltf_kalman_mean, slope=self.current_htf_kalman_slope)
-        self.current_asymmetric_offset = asymmetric_offset  # Store for visualization
+        self.current_asymmetric_offset = asymmetric_offset
             
         vwap_value, zscore = self.vwap_zscore.update(bar, asymmetric_offset=asymmetric_offset)
         self.current_zscore = zscore
@@ -377,13 +321,11 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if zscore is not None:
             self.adaptive_manager.update_zscore(zscore)
 
-        # Use the VWAP Z-Score for entries (not Kalman Z-Score)
+        # Use the VWAP Z-Score for entries
         if zscore is not None:
             self.elastic_entry.update_state(zscore)
 
-        # Check for daily stacking reset if enabled
         self._check_daily_stacking_reset(bar, zscore, adaptive_params)
-
         self._check_kalman_cross_for_stacking(bar)
         self.bar_counter += 1
 
@@ -391,31 +333,28 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.bars_since_last_long_entry += 1
         self.bars_since_last_short_entry += 1
 
-        # Trading logic - nur während RTH handeln
+        # Trading logic
         if self.is_rth_time(bar):
-            # Only allow trading after initialization window is complete
             if not self._init_window_complete:
-                if self.bar_counter % 50 == 0:  # Log every 50 bars to avoid spam
+                if self.bar_counter % 50 == 0:
                     self.log.info(f"Trading blocked - initialization window: {len(self._init_slope_buffer)}/{self.initialization_window} bars completed", color=LogColor.CYAN)
-                return  # Skip trading during initialization window
+                return
                 
             if self.current_vix_value is not None:
                 regime = self.get_vix_regime(self.current_vix_value)
 
-                if regime == 2:  # Fear regime - close positions
+                if regime == 2:
                     self._notify_vwap_exit_if_needed()
                     self.order_types.close_position_by_market_order()
                 else:
                     if self.current_ltf_kalman_mean is not None and zscore is not None:
-                        # Get VWAP segment info to check early evolution period
                         vwap_segment_info = self.vwap_zscore.get_segment_info()
                         bars_in_current_segment = vwap_segment_info.get('bars_in_segment', 0)
                         
-                        # Prevent trading during early ZScore evolution (first 25 bars after reset)
                         if bars_in_current_segment < 25:
-                            if self.bar_counter % 15 == 0:  # Log every 15 bars to avoid spam
+                            if self.bar_counter % 15 == 0:
                                 self.log.info(f"Trading blocked - ZScore evolution period: {bars_in_current_segment}/25 bars since VWAP reset", color=LogColor.CYAN)
-                            return  # Skip trading during early ZScore evolution
+                            return
                         
                         self.current_long_risk_factor = adaptive_params['long_risk_factor']
                         self.current_short_risk_factor = adaptive_params['short_risk_factor']
@@ -445,14 +384,12 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         for position_id, stop_info in self.position_stop_levels.items():
             if stop_info['side'] == 'long' and current_price <= stop_info['stop_price']:
                 positions_to_close.append(position_id)
-                # Reset position tracking for re-entry after stop loss
                 self.long_positions_since_cross = max(0, self.long_positions_since_cross - 1)
                 self.log.info(f"Long stop loss hit at {current_price:.2f} (stop: {stop_info['stop_price']:.2f}). "
                              f"Positions since cross reset to {self.long_positions_since_cross}", color=LogColor.RED)
                 
             elif stop_info['side'] == 'short' and current_price >= stop_info['stop_price']:
                 positions_to_close.append(position_id)
-                # Reset position tracking for re-entry after stop loss
                 self.short_positions_since_cross = max(0, self.short_positions_since_cross - 1)
                 self.log.info(f"Short stop loss hit at {current_price:.2f} (stop: {stop_info['stop_price']:.2f}). "
                              f"Positions since cross reset to {self.short_positions_since_cross}", color=LogColor.RED)
@@ -483,21 +420,15 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             }
 
     def _should_allow_stacking(self, side: str) -> bool:
-        """
-        Determines if stacking (multiple positions) is allowed.
-        Hard stops disable stacking but still allow initial positions and re-entry after stops.
-        """
         adaptive_params, _, _ = self.adaptive_manager.get_adaptive_parameters()
         elastic_params = adaptive_params.get('elastic_entry', {})
         
-        # If stacking is disabled in config, no stacking allowed
         if not elastic_params.get('allow_stacking', True):
             return False
             
-        # If hard stops are enabled, disable stacking but allow first position
         hard_stops = self.adaptive_manager.is_hard_stop_enabled()
         if hard_stops[f'{side}_enabled']:
-            return False  # No stacking with hard stops, but first position still allowed
+            return False
         
         return True
     
@@ -508,63 +439,47 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         current_above = bar.close > self.current_ltf_kalman_mean
         current_direction = "up" if current_above else "down"
         
-        # Check if direction changed (Kalman cross detected)
         if self.last_kalman_cross_direction is not None and self.last_kalman_cross_direction != current_direction:
-            # Reset Position Tracking
             self.long_positions_since_cross = 0
             self.short_positions_since_cross = 0
-            
-            # Reset Entry ZScore Tracking
             self.long_entry_zscores = []
             self.short_entry_zscores = []
             self.bars_since_last_long_entry = 0
             self.bars_since_last_short_entry = 0
             
-            # Reset Elastic Entry System
             self.elastic_entry.reset_on_cross()
             
-            # Use the stored anchor method instead of querying adaptive manager again
             anchor_method = self.vwap_anchor_method
             
-            # Debug log to show what's happening
             self.log.info(f"Kalman cross detected: {self.last_kalman_cross_direction} -> {current_direction} | Anchor method: {anchor_method}", color=LogColor.CYAN)
             
             if anchor_method == 'kalman_cross':
                 self._notify_vwap_exit_if_needed()
                 self.log.info(f"Kalman cross detected: {self.last_kalman_cross_direction} -> {current_direction} | VWAP reset", color=LogColor.BLUE)
-            else:
-                self.log.info(f"Kalman cross detected but VWAP anchor method is '{anchor_method}' - no VWAP reset from Kalman cross", color=LogColor.YELLOW)
         
         self.last_kalman_cross_direction = current_direction
     
     def _check_daily_stacking_reset(self, bar, zscore, adaptive_params):
-        """Check if we should reset stacking on a new trading day when thresholds are hit."""
         if not self.allow_daily_stacking_reset:
             return
             
-        # Get current trading day (date only, ignore time)
         current_day = bar.ts_event.date()
         
-        # Check if it's a new trading day
         if self.current_trading_day != current_day:
             self.current_trading_day = current_day
-            # Reset daily flags on new day
             self.daily_long_stacking_reset = False
             self.daily_short_stacking_reset = False
             return
         
-        # Use the zscore parameter passed to the method
         if zscore is None:
             return
             
-        # Check long threshold hit (-2.5) - extreme oversold
         if (zscore <= -2.5 and 
             not self.daily_long_stacking_reset and 
             self.long_positions_since_cross > 0):
             self.daily_long_stacking_reset = True
             self.log.info(f"Daily stacking reset triggered for LONG positions at zscore {zscore:.3f}", color=LogColor.GREEN)
             
-        # Check short threshold hit (+2.5) - extreme overbought  
         if (zscore >= 2.5 and 
             not self.daily_short_stacking_reset and 
             self.short_positions_since_cross > 0):
@@ -572,42 +487,27 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             self.log.info(f"Daily stacking reset triggered for SHORT positions at zscore {zscore:.3f}", color=LogColor.RED)
     
     def can_stack_long(self, current_zscore: float) -> bool:
-        """
-        Determines if a long position can be entered.
-        - Always allows first position (even with hard stops)
-        - Checks stacking rules for additional positions
-        """
-        # First position is always allowed, regardless of hard stop settings
         if self.long_positions_since_cross == 0:
-            hard_stops_enabled = self.adaptive_manager.is_hard_stop_enabled()['long_enabled']
-            if hard_stops_enabled and self.bar_counter % 50 == 0:  # Log occasionally for debugging
-                self.log.info("Long entry allowed: First position (positions_since_cross=0) - Hard stops enabled", color=LogColor.CYAN)
             return True
             
-        # For additional positions (stacking), check if stacking is allowed
         if not self._should_allow_stacking('long'):
             return False
             
-        # If base stacking is disabled in config, no additional positions
         if not self.allow_stacking:
             return False
 
-        # Check daily stacking reset - if triggered, treat as if no positions yet
         if self.daily_long_stacking_reset:
             return True
         
-        # Check stacking limits
         if self.long_positions_since_cross >= self.max_long_stacked_positions:
             return False
                     
-        # Check cooldown period
         if self.bars_since_last_long_entry < self.stacking_bar_cooldown:
             return False
             
-        # Check Z-score deterioration requirement for stacking
         if self.long_entry_zscores and current_zscore is not None:
             last_entry_zscore = self.long_entry_zscores[-1]
-            zscore_deterioration = last_entry_zscore - current_zscore  # For long: more negative = worse
+            zscore_deterioration = last_entry_zscore - current_zscore
             
             if zscore_deterioration < self.additional_zscore_min_gain:
                 return False
@@ -615,39 +515,27 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         return True  
     
     def can_stack_short(self, current_zscore: float) -> bool:
-        """
-        Determines if a short position can be entered.
-        - Always allows first position (even with hard stops)
-        - Checks stacking rules for additional positions
-        """
-        # First position is always allowed, regardless of hard stop settings
         if self.short_positions_since_cross == 0:
             return True
             
-        # For additional positions (stacking), check if stacking is allowed
         if not self._should_allow_stacking('short'):
             return False
             
-        # If base stacking is disabled in config, no additional positions
         if not self.allow_stacking:
             return False
 
-        # Check daily stacking reset - if triggered, treat as if no positions yet
         if self.daily_short_stacking_reset:
             return True
         
-        # Check stacking limits
         if self.short_positions_since_cross >= self.max_short_stacked_positions:
             return False
             
-        # Check cooldown period
         if self.bars_since_last_short_entry < self.stacking_bar_cooldown:
             return False
             
-        # Check Z-score deterioration requirement for stacking
         if self.short_entry_zscores and current_zscore is not None:
             last_entry_zscore = self.short_entry_zscores[-1]
-            zscore_deterioration = current_zscore - last_entry_zscore  # For short: more positive = worse
+            zscore_deterioration = current_zscore - last_entry_zscore
             
             if zscore_deterioration < self.additional_zscore_min_gain:
                 return False
@@ -669,20 +557,18 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if self.current_ltf_kalman_mean is not None and bar.close >= self.current_ltf_kalman_mean:
             return
 
-        # Check minimum distance from Kalman using Kalman Z-Score
         long_min_distance = adaptive_params['elastic_entry']['long_min_distance_from_kalman']
         if self.current_ltf_kalman_zscore is not None and self.current_ltf_kalman_zscore > long_min_distance:
-            return  # Not far enough from Kalman mean for long entries
+            return
 
         regime = self.get_vix_regime(self.current_vix_value)
-        if regime == 2:  # Fear regime - no trades
+        if regime == 2:
             return
         
         can_enter = self.can_stack_long(zscore)
         if not can_enter:
             return
 
-        # Use adaptive risk factor
         long_risk_factor = adaptive_params['long_risk_factor']
         invest_percent = Decimal(str(self.config.invest_percent)) * Decimal(str(long_risk_factor))
         entry_price = Decimal(str(bar.close))
@@ -696,11 +582,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             entry_reason = debug_info.get('long_entry_reason', 'Recovery signal')
             stack_info = f"Stack {self.long_positions_since_cross + 1}/{self.max_long_stacked_positions}" if self.long_positions_since_cross > 0 else "Initial"
             
-            # Enhanced logging for re-entry scenarios
             hard_stops_enabled = self.adaptive_manager.is_hard_stop_enabled()['long_enabled']
             re_entry_note = " (RE-ENTRY after SL)" if hard_stops_enabled and self.long_positions_since_cross == 0 else ""
             
-            # Log trade state
             trade_message = self.adaptive_manager.log_trade_state(
                 "LONG", float(bar.close), zscore, entry_reason, stack_info, regime, 
                 adaptive_params, self.long_positions_since_cross, self.short_positions_since_cross, 
@@ -710,17 +594,14 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             
             self.order_types.submit_long_market_order(qty, price=bar.close)
             self.long_positions_since_cross += 1
-            self.entry_atr_factor = self.current_atr_factor  # Track ATR factor used for entry
+            self.entry_atr_factor = self.current_atr_factor
             
-            # Track position for hard stops
             self._track_position_entry('long', float(bar.close))
             
-            # If daily stacking reset was active, clear it since we took a position
             if self.daily_long_stacking_reset:
                 self.daily_long_stacking_reset = False
                 self.log.info("Daily long stacking reset flag cleared after position entry", color=LogColor.GREEN)
             
-            # Track entry ZScore for stacking - deque automatically manages memory
             self.long_entry_zscores.append(zscore)
             self.bars_since_last_long_entry = 0
 
@@ -728,20 +609,18 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         if self.current_ltf_kalman_mean is not None and bar.close <= self.current_ltf_kalman_mean:
             return
     
-        # Check minimum distance from Kalman using Kalman Z-Score
         short_min_distance = adaptive_params['elastic_entry']['short_min_distance_from_kalman']
         if self.current_ltf_kalman_zscore is not None and self.current_ltf_kalman_zscore < short_min_distance:
-            return  # Not far enough from Kalman mean for short entries
+            return
 
         regime = self.get_vix_regime(self.current_vix_value)
-        if regime == 2:  # Fear regime - no trades
+        if regime == 2:
             return
         
         can_enter = self.can_stack_short(zscore)
         if not can_enter:
             return
 
-        # Use adaptive risk factor
         short_risk_factor = adaptive_params['short_risk_factor']
         invest_percent = Decimal(str(self.config.invest_percent)) * Decimal(str(short_risk_factor))
         entry_price = Decimal(str(bar.close))
@@ -755,11 +634,9 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             entry_reason = debug_info.get('short_entry_reason', 'Recovery signal')
             stack_info = f"Stack {self.short_positions_since_cross + 1}/{self.max_short_stacked_positions}" if self.short_positions_since_cross > 0 else "Initial"
             
-            # Enhanced logging for re-entry scenarios
             hard_stops_enabled = self.adaptive_manager.is_hard_stop_enabled()['short_enabled']
             re_entry_note = " (RE-ENTRY after SL)" if hard_stops_enabled and self.short_positions_since_cross == 0 else ""
             
-            # Log trade state
             trade_message = self.adaptive_manager.log_trade_state(
                 "SHORT", float(bar.close), zscore, entry_reason, stack_info, regime, 
                 adaptive_params, self.long_positions_since_cross, self.short_positions_since_cross, 
@@ -769,17 +646,14 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             
             self.order_types.submit_short_market_order(qty, price=bar.close)
             self.short_positions_since_cross += 1
-            self.entry_atr_factor = self.current_atr_factor  # Track ATR factor used for entry
+            self.entry_atr_factor = self.current_atr_factor
             
-            # Track position for hard stops
             self._track_position_entry('short', float(bar.close))
             
-            # If daily stacking reset was active, clear it since we took a position
             if self.daily_short_stacking_reset:
                 self.daily_short_stacking_reset = False
                 self.log.info("Daily short stacking reset flag cleared after position entry", color=LogColor.RED)
             
-            # Track entry ZScore for stacking - deque automatically manages memory
             self.short_entry_zscores.append(zscore)
             self.bars_since_last_short_entry = 0
 
@@ -796,7 +670,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         net_pos = self.portfolio.net_position(self.instrument_id)
         
         if net_pos is not None and net_pos > 0 and self.current_ltf_kalman_zscore is not None:
-            long_exit, _ = self.adaptive_manager.get_adaptive_exit_thresholds(slope=self.current_htf_kalman_slope)  # Uses slope-based exits
+            long_exit, _ = self.adaptive_manager.get_adaptive_exit_thresholds(slope=self.current_htf_kalman_slope)
             
             if self.current_ltf_kalman_zscore >= long_exit:
                 self._notify_vwap_exit_if_needed()
@@ -815,7 +689,7 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         net_pos = self.portfolio.net_position(self.instrument_id)
         
         if net_pos is not None and net_pos < 0 and self.current_ltf_kalman_zscore is not None:
-            _, short_exit = self.adaptive_manager.get_adaptive_exit_thresholds(slope=self.current_htf_kalman_slope)  # Uses slope-based exits
+            _, short_exit = self.adaptive_manager.get_adaptive_exit_thresholds(slope=self.current_htf_kalman_slope)
             
             if self.current_ltf_kalman_zscore <= short_exit:
                 self._notify_vwap_exit_if_needed()
@@ -864,7 +738,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         logging_message = self.collector.save_data()
         self.log.info(logging_message, color=LogColor.GREEN)
 
-        # Print distributions if individual monitors are enabled
         distribution_config = self.adaptive_manager.adaptive_factors.get('distribution_monitor', {})
         
         if distribution_config.get('slope_distribution', {}).get('enabled', False):
@@ -872,18 +745,16 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             
         if distribution_config.get('atr_distribution', {}).get('enabled', False):
             if distribution_config.get('slope_distribution', {}).get('enabled', False):
-                print("\n")  # Add spacing between distributions if both are enabled
+                print("\n")
             self.adaptive_manager.print_atr_distribution()
             
         if distribution_config.get('zscore_distribution', {}).get('enabled', False):
             if (distribution_config.get('slope_distribution', {}).get('enabled', False) or 
                 distribution_config.get('atr_distribution', {}).get('enabled', False)):
-                print("\n")  # Add spacing between distributions if others are enabled
+                print("\n")
             self.adaptive_manager.print_zscore_distribution()
     
     def on_order_filled(self, order_filled) -> None:
-        # KEIN automatischer VWAP Reset bei allen Order Fills
-        # self.vwap_zscore.notify_trade_occurred()
         return self.base_on_order_filled(order_filled)
 
     def on_position_closed(self, position_closed) -> None:
@@ -921,5 +792,3 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
         self.collector.add_indicator(timestamp=bar.ts_event, name="long_exit", value=self.current_long_exit)
         self.collector.add_indicator(timestamp=bar.ts_event, name="short_exit", value=self.current_short_exit)
         self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
-
-

@@ -2,18 +2,18 @@ symbol: "SPY"
 venue: "ARCA"
 instrument_id: "SPY.ARCA"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
-start_date: "2024-01-01T00:00:00Z"
-end_date: "2024-12-29T23:59:59Z"
+start_date: "2025-01-01T00:00:00Z"
+end_date: "2025-07-29T23:59:59Z"
 
 only_trade_rth: true
 initialization_window: 150
 
 base_parameters:
-  ltf_kalman_process_var: 0.0000008
+  ltf_kalman_process_var: 0.000001
   ltf_kalman_measurement_var: 0.01
   ltf_kalman_zscore_window: 35
   
-  htf_kalman_process_var: 0.0000002
+  htf_kalman_process_var: 0.0000001
   htf_kalman_measurement_var: 0.05
   htf_kalman_zscore_window: 45
  
@@ -48,8 +48,8 @@ base_parameters:
     base_long_exit: 0.0
     base_short_exit: 0.0
     max_long_exit_uptrend: 4.0
-    max_long_exit_downtrend: -1.5
-    max_short_exit_uptrend: 1.5
+    max_long_exit_downtrend: -2.0
+    max_short_exit_uptrend: 2.0
     max_short_exit_downtrend: -4.0
 
   slope_risk_scaling:
@@ -57,33 +57,33 @@ base_parameters:
     scaling_method: "linear"
     base_long_risk: 1.0
     base_short_risk: 1.0
-    max_long_risk_uptrend: 5.0
-    max_long_risk_downtrend: 0.01
-    max_short_risk_uptrend: 0.01
-    max_short_risk_downtrend: 5.0
+    max_long_risk_uptrend: 3.0
+    max_long_risk_downtrend: 0.001
+    max_short_risk_uptrend: 0.001
+    max_short_risk_downtrend: 3.0
 
   slope_asymmetric_offset:
     enabled: true
     scaling_method: "linear"
     base_offset: 0.0
-    max_offset_uptrend: 0.01
-    max_offset_downtrend: -0.01
+    max_offset_uptrend: 0.5
+    max_offset_downtrend: -0.5
 
   # Hard stop loss configuration
   ATR_window_if_use_SL: 14
   use_hard_stop_long:
     enabled: true
-    atr_stop_long: 1.0
+    atr_stop_long: 3.5
   use_hard_stop_short:
     enabled: true
-    atr_stop_short: 1.0
+    atr_stop_short: 3.5
 
 # slope extracted and used directly in scaling systems
 adaptive_factors:
   slope:
     enabled: true
-    max_bull_slope: 0.014
-    max_bear_slope: -0.014
+    max_bull_slope: 0.015
+    max_bear_slope: -0.015
 
 # atr adaptive with 95 and 5 percentiles
   atr:
