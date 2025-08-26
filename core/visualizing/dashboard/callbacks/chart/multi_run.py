@@ -266,6 +266,7 @@ def _build_single_instrument_multi_run(state, repo, instrument, active_runs, cli
                     ))
             add_group("BUY", "triangle-up", buy_color)
             add_group("SHORT", "triangle-down", short_color)
+
     else:
         state["selected_trade_index"] = None
 
@@ -508,6 +509,7 @@ def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, cli
                         ))
                 add_group("BUY", "triangle-up", buy_color)
                 add_group("SHORT", "triangle-down", short_color)
+
     else:
         state["selected_trade_index"] = None
 
@@ -645,6 +647,7 @@ def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, cli
             bordercolor='rgba(0,0,0,0.12)',
             borderwidth=1,
             font=dict(size=9),
+            active=(0 if chart_mode != "GRAPH" else 1),  # NEW
             buttons=[
                 dict(label='OHLC', method='update', args=[{'visible': vis_ohlc}]),
                 dict(label='Graph', method='update', args=[{'visible': vis_graph}])

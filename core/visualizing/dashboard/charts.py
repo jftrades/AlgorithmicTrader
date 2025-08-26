@@ -109,6 +109,7 @@ def build_price_chart(bars_df, indicators_df, trades_df, selected_trade_index, d
                 bordercolor='rgba(0,0,0,0.12)',
                 borderwidth=1,
                 font=dict(size=9),
+                active=(0 if display_mode != "GRAPH" else 1),  # NEW: keep selected mode highlighted
                 buttons=[
                     dict(label='OHLC',  method='update', args=[{'visible': vis_ohlc}]),
                     dict(label='Graph', method='update', args=[{'visible': vis_close}])  # Label bleibt 'Graph'
@@ -126,6 +127,7 @@ def build_price_chart(bars_df, indicators_df, trades_df, selected_trade_index, d
 def _add_trade_markers(fig, trades, selected_idx):
     buy = trades[trades['action'] == 'BUY']
     sell = trades[trades['action'] == 'SHORT']
+
     def add(points, name, sym, color):
         if points.empty:
             return
@@ -153,7 +155,6 @@ def _add_trade_markers(fig, trades, selected_idx):
                     symbol=sym,
                     size=18,
                     color=color,
-                    # Kein schwarzer Rand mehr, nur ggf. ein minimaler weißer Rand für Klarheit
                     line=dict(color='#fff', width=1)
                 ),
                 showlegend=False,
@@ -219,6 +220,22 @@ def add_trade_visualization(fig, trades_df, bars_df, trade_idx):
                 opacity=0.5,
                 hoverinfo='skip'
             ))
+
+    # Add single black X at close (only for selected trade)
+    fig.add_trace(go.Scatter(
+        x=[exit_time],
+        y=[exit_price],
+        mode='markers',
+        name='Close',
+        marker=dict(
+            symbol='x',
+            size=14,
+            color='#000000',
+            line=dict(color='#ffffff', width=1)
+        ),
+        hovertemplate='<b>Close</b><br>%{x}<br>Price: %{y:.4f}<extra></extra>',
+        showlegend=False
+    ))
 
 def build_indicator_figure(indicators_list):
     fig = go.Figure()

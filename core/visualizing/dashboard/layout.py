@@ -142,8 +142,17 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
         id="slide-menu",
         className="side-menu glass-panel",
         style={
+            'position': 'fixed',
+            'top': '0',
             'left': f'-{menu_width}' if not menu_open else '0',
-            'width': menu_width
+            'width': menu_width,
+            'height': '100vh',
+            'background': 'linear-gradient(145deg, #ffffff 0%, #f8fafc 50%, #f1f5f9 100%)',
+            'boxShadow': 'none',
+            'borderRight': '1px solid rgba(226,232,240,0.8)',
+            'zIndex': '1001',
+            'transition': 'all 0.4s cubic-bezier(0.4,0,0.2,1)',
+            'overflow': 'hidden'
         }
     )
 
@@ -329,4 +338,5 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
         dcc.Store(id='run-yaml-store', data={}),
         dcc.Store(id='quantstats-status', data=""),
         dcc.Store(id='show-trades-store', data=True),
+        dcc.Store(id='time-slider-store', data=None),  # NEW: persist range slider selection
     ], className="app-root font-default")

@@ -207,13 +207,8 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
         price_fig.data[-1].uid = f"line_{inst}"
         line_indices.append(len(price_fig.data) - 1)
 
-    # Trades (BUY / SHORT) pro Instrument
-    if show_trades:
-        for i, inst in enumerate(instruments):
-            bars, trades_df = trades_per_instrument.get(inst, (None, None))
-            if not (isinstance(trades_df, pd.DataFrame) and not trades_df.empty):
-                continue
-            axis_id = 'y' if i == 0 else f'y{i+1}'
+        # Trades (BUY / SHORT) pro Instrument
+        if show_trades:
             buy = trades_df[trades_df["action"] == "BUY"]
             short = trades_df[trades_df["action"] == "SHORT"]
 
@@ -255,6 +250,10 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
 
             add(buy, "BUY", "triangle-up", "#28a745")
             add(short, "SHORT", "triangle-down", "#dc3545")
+
+            # REMOVED: block adding close 'x' markers for every trade
+            # (Now only added when a trade is selected via add_trade_visualization)
+
     else:
         state["selected_trade_index"] = None
 
@@ -339,6 +338,7 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
             bordercolor='rgba(0,0,0,0.12)',
             borderwidth=1,
             font=dict(size=9),
+            active=(0 if chart_mode != "GRAPH" else 1),  # NEW
             buttons=[
                 dict(label='OHLC', method='update', args=[{'visible': vis_ohlc}]),
                 dict(label='Graph', method='update', args=[{'visible': vis_graph}])

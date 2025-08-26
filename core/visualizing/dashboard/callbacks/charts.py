@@ -4,10 +4,8 @@ from dash import callback_context
 
 from core.visualizing.dashboard.colors import get_color_map
 from core.visualizing.dashboard.components import get_default_trade_details  # hinzugefügt
-from core.visualizing.dashboard.components import create_metrics_table
-from pathlib import Path
-import os
-import traceback
+# removed: create_metrics_table (unused)
+# removed: Path, os, traceback (unused)
 from .chart.helpers import compute_x_range
 from .chart.multi_run import build_multi_run_view
 from .chart.single_run import build_single_run_view
@@ -108,15 +106,17 @@ def register_chart_callbacks(app, repo, state):
             Output("time-range-slider", "value"),
             Output("time-range-slider", "marks"),
             Output("time-range-display", "children"),
+            Output("time-slider-store", "data"),          # NEW
         ],
         [
             Input("collector-dropdown", "value"),
             Input("timeframe-dropdown", "value"),
-            Input("time-range-slider", "value"),          # user drag
+            Input("time-range-slider", "value"),
         ],
+        State("time-slider-store", "data"),               # NEW (previous selection)
         prevent_initial_call=False
     )
-    def update_time_slider(sel_values, timeframe_value, slider_value):
+    def update_time_slider(sel_values, timeframe_value, slider_value, stored_value):
         # Determine trigger
         trig = None
         if callback_context.triggered:
@@ -127,7 +127,7 @@ def register_chart_callbacks(app, repo, state):
             vals = [vals]
         if not vals:
             state["time_slider_ts"] = []
-            return 0, 1, [0, 1], {}, ""
+            return 0, 1, [0, 1], {}, "", None
         primary = vals[0]
         coll = (state.get("collectors") or {}).get(primary) or {}
 
@@ -140,12 +140,12 @@ def register_chart_callbacks(app, repo, state):
 
         if not isinstance(bars, pd.DataFrame) or bars.empty or "timestamp" not in bars.columns:
             state["time_slider_ts"] = []
-            return 0, 1, [0, 1], {}, ""
+            return 0, 1, [0, 1], {}, "", None
 
         ts = pd.to_datetime(bars["timestamp"], errors="coerce").dropna()
         if ts.empty:
             state["time_slider_ts"] = []
-            return 0, 1, [0, 1], {}, ""
+            return 0, 1, [0, 1], {}, "", None
 
         # Store full ordered timestamp list in state for unified callback
         ts_list = ts.reset_index(drop=True)
@@ -165,8 +165,16 @@ def register_chart_callbacks(app, repo, state):
         ):
             current_value = [int(slider_value[0]), int(slider_value[1])]
         else:
-            # Reset on instrument/timeframe change
-            current_value = [min_idx, max_idx]
+            # Try preserve previous stored selection if valid
+            if (isinstance(stored_value, (list, tuple)) and len(stored_value) == 2
+                and all(isinstance(v, (int, float)) for v in stored_value)):
+                a, b = int(stored_value[0]), int(stored_value[1])
+                if 0 <= a < b <= max_idx:
+                    current_value = [a, b]
+                else:
+                    current_value = [min_idx, max_idx]
+            else:
+                current_value = [min_idx, max_idx]
 
         # Marks: only start & end to avoid clutter
         def fmt_label(dt):
@@ -193,7 +201,7 @@ def register_chart_callbacks(app, repo, state):
                 return f"{a.strftime('%d %b')} – {b.strftime('%d %b')} {b.strftime('%H:%M')}"
             return f"{a.strftime('%Y-%m-%d')} → {b.strftime('%Y-%m-%d')}"
         disp = compact_span(s_dt, e_dt)
-        return min_idx, max_idx, current_value, marks, disp
+        return min_idx, max_idx, current_value, marks, disp, current_value
 
     # NEW: toggle trades visibility
     @app.callback(
