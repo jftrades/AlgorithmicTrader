@@ -22,12 +22,35 @@ def _handle_trade_click_single(state, trades_df, clickData):
     pt = next((p for p in clickData.get("points", []) if "customdata" in p), None)
     if not pt:
         return get_default_trade_details_with_message()
-    idx = pt.get("customdata")
-    if isinstance(idx, (list, tuple)) and len(idx) == 1:
-        idx = idx[0]
-    if isinstance(idx, (list, tuple)) and len(idx) == 1:
-        idx = idx[0]
-    if idx in trades_df.index:
+
+    raw_idx = pt.get("customdata")
+
+    def _unwrap_scalar(v):
+        # Peel nested single-element list/tuple layers: [[123]] -> 123
+        seen = 0
+        while isinstance(v, (list, tuple)) and len(v) == 1 and seen < 5:
+            v = v[0]
+            seen += 1
+        # If still list/tuple, try first int-like element
+        if isinstance(v, (list, tuple)):
+            for cand in v:
+                if isinstance(cand, (int, float)) and not isinstance(cand, bool):
+                    return int(cand)
+                if isinstance(cand, str) and cand.isdigit():
+                    return int(cand)
+            return None
+        # Direct scalar
+        try:
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                return int(v)
+            if isinstance(v, str) and v.isdigit():
+                return int(v)
+        except Exception:
+            return None
+        return None
+
+    idx = _unwrap_scalar(raw_idx)
+    if idx is not None and idx in trades_df.index:
         state["selected_trade_index"] = idx
         return create_trade_details_content(trades_df.loc[idx])
     return get_default_trade_details_with_message()

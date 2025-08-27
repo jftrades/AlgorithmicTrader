@@ -9,16 +9,50 @@ _PALETTE = [
     "#0d9488", "#9333ea", "#1d4ed8", "#15803d", "#b91c1c"
 ]
 
+# Deutlich unterschiedliche Farbpaare (LONG, SHORT) pro Run
+# Run 0 bleibt semantisch grün/rot; danach klare Farbharmonien für bessere Unterscheidbarkeit
+_RUN_COLOR_PAIRS: list[tuple[str, str]] = [
+    ("#10b981", "#ef4444"),  # Run 0  (Green / Red - Standard)
+    ("#2563eb", "#f59e0b"),  # Run 1  (Blue / Amber)
+    ("#9333ea", "#ea580c"),  # Run 2  (Purple / Orange)
+    ("#0d9488", "#db2777"),  # Run 3  (Teal / Rose)
+    ("#6366f1", "#b45309"),  # Run 4  (Indigo / Brown-Orange)
+    ("#0891b2", "#b91c1c"),  # Run 5  (Cyan / Dark Red)
+    ("#7c3aed", "#065f46"),  # Run 6  (Violet / Deep Teal)
+    ("#1d4ed8", "#be123c"),  # Run 7  (Royal Blue / Crimson)
+    ("#14b8a6", "#c2410c"),  # Run 8  (Aqua / Burnt Orange)
+    ("#4f46e5", "#e11d48"),  # Run 9  (Indigo / Pink-Red)
+]
+
+def _hash_color(seed: str) -> tuple[str, str]:
+    """Fallback: deterministisches zusätzliches Paar erzeugen (falls mehr Runs als Paare)."""
+    import hashlib, colorsys
+    h = hashlib.md5(seed.encode()).hexdigest()
+    # Zwei unterschiedliche Hues erzeugen
+    hue1 = (int(h[:6], 16) % 360) / 360.0
+    hue2 = (int(h[6:12], 16) % 360) / 360.0
+    def hue_to_rgb(hv):
+        r, g, b = colorsys.hsv_to_rgb(hv, 0.55, 0.78)
+        return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
+    c1 = hue_to_rgb(hue1)
+    c2 = hue_to_rgb(hue2)
+    if c1 == c2:  # minimal sicherstellen, dass sie verschieden sind
+        hue2 = (hue2 + 0.17) % 1.0
+        c2 = hue_to_rgb(hue2)
+    return c1, c2
+
 def run_color_for_index(idx: int) -> Tuple[str, str, str]:
     """
     Returns (buy_color, short_color, neutral_color) for a run index.
-    Neutral color used for lines / indicator tint if needed.
+      buy_color  -> LONG Marker Farbe (nicht immer Grün ab Run 1)
+      short_color-> SHORT Marker Farbe (nicht immer Rot ab Run 1)
+      neutral_color -> weiter für Linien / Indikatoren (bestehende Palette)
     """
-    base = _PALETTE[idx % len(_PALETTE)]
-    # Derive slight variants
-    buy = base
-    short = "#000000"  # consistent black for SHORT markers (aligned with new design)
-    neutral = base
+    if idx < len(_RUN_COLOR_PAIRS):
+        buy, short = _RUN_COLOR_PAIRS[idx]
+    else:
+        buy, short = _hash_color(f"run-{idx}")
+    neutral = _PALETTE[idx % len(_PALETTE)]
     return buy, short, neutral
 
 def short_run_label(run_id) -> str:

@@ -10,6 +10,12 @@ from .regime_analyzer import register_regime_analyzer_callbacks
 # Erzeuge die SlideMenuComponent-Instanz EINMAL global!
 slide_menu_component = SlideMenuComponent()
 
+# DEBUG LOGGING DISABLED
+ENABLE_MENU_DEBUG = False
+def _dbg(*a, **k):
+    if ENABLE_MENU_DEBUG:
+        print(*a, **k)
+
 def register_menu_callbacks(app, repo, state):
     # NEU: Registriere YAML + QuantStats Callbacks sofort
     slide_menu_component.viewer.register_callbacks(app)
@@ -61,7 +67,7 @@ def register_menu_callbacks(app, repo, state):
         try:
             runs_df = repo.load_validated_runs()
         except Exception as e:
-            print(f"[ERROR] load runs: {e}")
+            _dbg(f"[ERROR] load runs: {e}")
             runs_df = None
 
         index_to_run_id = {}
@@ -127,7 +133,7 @@ def register_menu_callbacks(app, repo, state):
                     or state.get("selected_collector") # try to preserve
                     or next(iter(state["collectors"]), None)
                 )
-            print(f"[MENU-main] trigger={trigger_id_str} active_runs={updated_run_ids}")
+            _dbg(f"[MENU-main] trigger={trigger_id_str} active_runs={updated_run_ids}")
         else: # No runs selected
             state["collectors"] = {}
             state["selected_collector"] = None
@@ -174,7 +180,7 @@ def register_menu_callbacks(app, repo, state):
                 else:
                     slide_children = [html.Div("Error loading menu")]
             except Exception as e:
-                print(f"[ERROR] menu recreate: {e}")
+                _dbg(f"[ERROR] menu recreate: {e}")
                 slide_children = [html.Div("Error loading menu")]
 
         menu_width = "100vw" if new_is_fullscreen else "380px"
@@ -278,7 +284,7 @@ def register_menu_callbacks(app, repo, state):
                 try:
                     state["runs_cache"][rid] = repo.load_specific_run(rid)
                 except Exception as e:
-                    print(f"[RUN-TABLE] load failed {rid}: {e}")
+                    _dbg(f"[RUN-TABLE] load failed {rid}: {e}")
         state["active_runs"] = run_ids
         state["selected_trade_index"] = None
         if run_ids:
@@ -300,5 +306,5 @@ def register_menu_callbacks(app, repo, state):
             cur = options[0]['value'] if options else None
             state["selected_collector"] = cur
         value = [cur] if cur else []
-        print(f"[RUN-TABLE] selected_rows={selected_rows} -> run_ids={run_ids}")
+        _dbg(f"[RUN-TABLE] selected_rows={selected_rows} -> run_ids={run_ids}")
         return run_ids, options, value

@@ -236,34 +236,60 @@ def _build_single_instrument_multi_run(state, repo, instrument, active_runs, cli
             buy_color, short_color, _ = run_color_for_index(ridx)
             layer_offset = base_offset_unit * (ridx - (run_count - 1) / 2.0)
 
-            def add_group(action, symbol, color):
+            def add_group(action, symbol, base_color):
                 sub = trades_df[trades_df["action"] == action]
                 if sub.empty:
                     return
-                first_idx = sub.index[0]
-                for idx in sub.index:
-                    row = sub.loc[idx]
-                    local = ACTION_LOCAL_OFFSET_RATIO * base_offset_unit * (1 if action == "BUY" else -1)
-                    y_val = row.get("open_price_actual", row.get("price_actual", 0)) + layer_offset + local
-                    is_sel = selected_tuple == (rid, idx)
+                # Auswahl erkennen (state speichert (run_id, trade_index))
+                sel_idx = None
+                if selected_tuple and len(selected_tuple) == 2 and selected_tuple[0] == rid:
+                    sel_idx = selected_tuple[1]
+                normal_idx = sub.index.difference([sel_idx]) if sel_idx is not None else sub.index
+                # Normale Marker
+                if len(normal_idx) > 0:
+                    norm_sub = sub.loc[normal_idx]
+                    y_series = norm_sub.get("open_price_actual", norm_sub.get("price_actual", norm_sub.get("close", None)))
                     price_fig.add_trace(go.Scatter(
-                        x=[row["timestamp"]],
-                        y=[y_val],
+                        x=norm_sub["timestamp"],
+                        y=(y_series + layer_offset) if y_series is not None else norm_sub["timestamp"].index * 0 + layer_offset,
                         mode="markers",
-                        name=f"{short_run_label(rid)} {action}" if idx == first_idx else None,
                         marker=dict(
                             symbol=symbol,
-                            size=18 if is_sel else 12,
-                            color=color,
-                            line=dict(color="#ffffff", width=2 if is_sel else 1)
+                            size=12,
+                            color=base_color,
+                            line=dict(color="#ffffff", width=1)
                         ),
-                        customdata=[[rid, idx]],
+                        customdata=[[rid, idx] for idx in norm_sub.index],
+                        name=f"{short_run_label(rid)} {action}",
                         hovertemplate=(
-                            f"<b>{short_run_label(rid)} {action}"
-                            f"{' (Selected)' if is_sel else ''}</b><br>%{{x}}<br>Price: %{{y:.4f}}<extra></extra>"
+                            f"<b>{short_run_label(rid)} {action}</b><br>%{{x}}"
+                            "<br>Price: %{y:.4f}<extra></extra>"
                         ),
-                        showlegend=bool(idx == first_idx)
+                        showlegend=True
                     ))
+                # Selektierter Marker hervorgehoben
+                if sel_idx is not None and sel_idx in sub.index:
+                    srow = sub.loc[[sel_idx]]
+                    y_series = srow.get("open_price_actual", srow.get("price_actual", srow.get("close", None)))
+                    price_fig.add_trace(go.Scatter(
+                        x=srow["timestamp"],
+                        y=(y_series + layer_offset) if y_series is not None else srow["timestamp"].index * 0 + layer_offset,
+                        mode="markers",
+                        marker=dict(
+                            symbol=symbol,
+                            size=18,
+                            color=base_color,
+                            line=dict(color="#1e293b", width=2)
+                        ),
+                        customdata=[[rid, sel_idx]],
+                        name=f"{short_run_label(rid)} {action} (Selected)",
+                        hovertemplate=(
+                            f"<b>{short_run_label(rid)} {action} (Selected)</b><br>%{{x}}"
+                            "<br>Price: %{y:.4f}<extra></extra>"
+                        ),
+                        showlegend=False
+                    ))
+
             add_group("BUY", "triangle-up", buy_color)
             add_group("SHORT", "triangle-down", short_color)
 
@@ -472,41 +498,65 @@ def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, cli
             axis_id = 'y' if inst_index == 0 else f'y{inst_index+1}'
             run_count = len(active_runs)
             for ridx, rid in enumerate(active_runs):
-                trades_df = trades_per_run_i.get(rid)
-                if not isinstance(trades_df, pd.DataFrame) or trades_df.empty:
+                tdf = trades_per_run_i.get(rid)
+                if not isinstance(tdf, pd.DataFrame) or tdf.empty:
                     continue
                 buy_color, short_color, _ = run_color_for_index(ridx)
-                run_offset = base_offset_unit * (ridx - (run_count - 1) / 2.0)
+                layer_offset = base_offset_unit * (ridx - (run_count - 1) / 2.0)
 
-                def add_group(action, symbol, color):
-                    sub = trades_df[trades_df["action"] == action]
+                def add_group(action, symbol, base_color):
+                    sub = tdf[tdf["action"] == action]
                     if sub.empty:
                         return
-                    first_idx = sub.index[0]
-                    for tidx in sub.index:
-                        row = sub.loc[tidx]
-                        act_off = ACTION_LOCAL_OFFSET_RATIO_MULTI_INST * base_offset_unit * (1 if action == "BUY" else -1)
-                        y_val = row.get("open_price_actual", row.get("price_actual", 0)) + run_offset + act_off
-                        is_sel = selected_tuple == (rid, inst, tidx)
+                    sel = None
+                    if selected_tuple and len(selected_tuple) == 3 and selected_tuple[0] == rid and selected_tuple[1] == inst:
+                        sel = selected_tuple[2]
+                    normal_idx = sub.index.difference([sel]) if sel is not None else sub.index
+                    if len(normal_idx) > 0:
+                        norm_sub = sub.loc[normal_idx]
+                        y_series = norm_sub.get("open_price_actual", norm_sub.get("price_actual", norm_sub.get("close", None)))
                         price_fig.add_trace(go.Scatter(
-                            x=[row["timestamp"]],
-                            y=[y_val],
+                            x=norm_sub["timestamp"],
+                            y=(y_series + layer_offset) if y_series is not None else norm_sub["timestamp"].index * 0 + layer_offset,
                             mode="markers",
-                            name=f"{short_run_label(rid)} {inst} {action}" if tidx == first_idx else None,
                             marker=dict(
                                 symbol=symbol,
-                                size=20 if is_sel else 12,
-                                color=color,
-                                line=dict(color="#ffffff", width=2 if is_sel else 1)
+                                size=11,
+                                color=base_color,
+                                line=dict(color="#ffffff", width=1)
                             ),
-                            customdata=[[rid, inst, tidx]],
+                            customdata=[[rid, inst, idx] for idx in norm_sub.index],
+                            name=f"{short_run_label(rid)} {inst} {action}",
                             hovertemplate=(
-                                f"<b>{short_run_label(rid)} {inst} {action}"
-                                f"{' (Selected)' if is_sel else ''}</b><br>%{{x}}<br>Price: %{{y:.4f}}<extra></extra>"
+                                f"<b>{short_run_label(rid)} {inst} {action}</b><br>%{{x}}"
+                                "<br>Price: %{y:.4f}<extra></extra>"
                             ),
-                            showlegend=bool(tidx == first_idx),
-                            yaxis=axis_id
+                            yaxis=axis_id,
+                            showlegend=True
                         ))
+                    if sel is not None and sel in sub.index:
+                        srow = sub.loc[[sel]]
+                        y_series = srow.get("open_price_actual", srow.get("price_actual", srow.get("close", None)))
+                        price_fig.add_trace(go.Scatter(
+                            x=srow["timestamp"],
+                            y=(y_series + layer_offset) if y_series is not None else srow["timestamp"].index * 0 + layer_offset,
+                            mode="markers",
+                            marker=dict(
+                                symbol=symbol,
+                                size=17,
+                                color=base_color,
+                                line=dict(color="#1e293b", width=2)
+                            ),
+                            customdata=[[rid, inst, sel]],
+                            name=f"{short_run_label(rid)} {inst} {action} (Selected)",
+                            hovertemplate=(
+                                f"<b>{short_run_label(rid)} {inst} {action} (Selected)</b><br>%{{x}}"
+                                "<br>Price: %{y:.4f}<extra></extra>"
+                            ),
+                            yaxis=axis_id,
+                            showlegend=False
+                        ))
+
                 add_group("BUY", "triangle-up", buy_color)
                 add_group("SHORT", "triangle-down", short_color)
 

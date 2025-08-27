@@ -2,6 +2,7 @@
 from dash import html, dcc, dash_table
 import pandas as pd
 import re
+import math
 
 # --------- Trade-Details: Defaults ---------
 def get_default_trade_details():
@@ -164,15 +165,14 @@ def create_trade_details_content(trade_data: pd.Series):
 # --------- Metrics (nimmt Dict und optionales Nautilus-Result) ---------
 def render_metrics_cards(flat_metrics: dict):
     """
-    Render metrics in a responsive card grid (improved design).
-    flat_metrics: simple key->value dict (already flattened / selected).
+    Render metrics in a responsive, clean card grid.
     """
     if not flat_metrics:
         return html.Div("No metrics available", style={
             'textAlign': 'center',
             'color': '#6c757d',
             'fontFamily': 'Inter, system-ui, sans-serif',
-            'padding': '20px'
+            'padding': '40px 20px'
         })
 
     def classify(k):
@@ -191,17 +191,17 @@ def render_metrics_cards(flat_metrics: dict):
         cls = classify(k)
         try:
             if cls == 'currency':
-                return f"{float(v):.4f}"
+                return f"{float(v):.2f}"
             if cls == 'count':
                 iv = int(float(v))
-                return f"{iv}"
+                return f"{iv:,}"
             if cls == 'percent':
                 f = float(v)
-                return f"{(f*100 if f <= 1 else f):.2f}%"
+                return f"{(f*100 if f <= 1 else f):.1f}%"
             f = float(v)
             if abs(f - int(f)) < 1e-9:
                 return str(int(f))
-            return f"{f:.4f}"
+            return f"{f:.2f}"
         except Exception:
             return str(v)
 
@@ -210,51 +210,52 @@ def render_metrics_cards(flat_metrics: dict):
         cls = classify(k)
         accent = {
             'currency': '#1d4ed8',
-            'count': '#0f766e',
-            'percent': '#9333ea',
-            'generic': '#334155'
-        }.get(cls, '#334155')
+            'count': '#059669',
+            'percent': '#7c3aed',
+            'generic': '#475569'
+        }.get(cls, '#475569')
+        
         cards.append(
             html.Div([
                 html.Div(k, style={
                     'fontSize': '11px',
-                    'letterSpacing': '.55px',
+                    'letterSpacing': '0.8px',
                     'textTransform': 'uppercase',
                     'color': '#64748b',
                     'fontWeight': '600',
-                    'marginBottom': '8px',
-                    'lineHeight': '1.1'
+                    'marginBottom': '12px',
+                    'lineHeight': '1.2'
                 }),
                 html.Div(fmt(k, v), style={
-                    'fontSize': '24px',              # größer
-                    'fontWeight': '600',
+                    'fontSize': '22px',
+                    'fontWeight': '700',
                     'color': accent,
                     'fontFamily': 'Inter, system-ui, sans-serif',
-                    'lineHeight': '1.05'
+                    'lineHeight': '1.1'
                 })
             ], style={
-                'background': '#ffffff',            # cleaner
-                'border': '1px solid #e2e8f0',
-                'borderRadius': '14px',
-                'padding': '18px 20px 20px 20px',
-                'minWidth': '180px',               # größer
-                'flex': '1 1 200px',
-                'boxShadow': '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
-                'transition': 'border-color .18s ease, transform .18s ease, box-shadow .18s ease',
+                'background': '#ffffff',
+                'border': '1px solid #e5e7eb',
+                'borderRadius': '12px',
+                'padding': '20px 16px',
+                'textAlign': 'center',
+                'boxShadow': '0 1px 3px rgba(0,0,0,0.1)',
+                'transition': 'all 0.2s ease',
+                'height': '100px',
                 'display': 'flex',
                 'flexDirection': 'column',
-                'cursor': 'default'
-            }, **{
-                # Inline on-hover Stil via CSS-in-JS (Pseudo nicht möglich, daher JS-frei Trick optional)
+                'justifyContent': 'center',
+                'alignItems': 'center'
             })
         )
+    
     return html.Div(cards, style={
-        'display': 'flex',
-        'flexWrap': 'wrap',
-        'gap': '18px',                 # mehr Luft
-        'alignItems': 'stretch',
-        'justifyContent': 'flex-start',
-        'marginTop': '6px'
+        'display': 'grid',
+        'gridTemplateColumns': 'repeat(auto-fit, minmax(180px, 1fr))',
+        'gap': '16px',
+        'width': '100%',
+        'maxWidth': '100%',
+        'margin': '0'
     })
 
 def create_metrics_table(metrics: dict, nautilus_result, layout_mode: str = "cards"):
@@ -342,29 +343,29 @@ def create_metrics_table(metrics: dict, nautilus_result, layout_mode: str = "car
         color = _value_color(label, raw_value)
         return html.Div([
             html.Span(label, style={
-                'fontSize': '10px','letterSpacing':'.55px','textTransform':'uppercase',
-                'color':'#64748b','fontWeight':'600','display':'block','marginBottom':'4px'
+                'fontSize': '10px','letterSpacing':'.6px','textTransform':'uppercase',
+                'color':'#64748b','fontWeight':'600','display':'block','marginBottom':'8px'
             }),
             html.Span(fmt, style={
-                'fontSize': '18px','fontWeight':'600','color': color,
-                'fontFamily':'Inter, system-ui, sans-serif','lineHeight':'1.05'
+                'fontSize': '18px','fontWeight':'700','color': color,
+                'fontFamily':'Inter, system-ui, sans-serif','lineHeight':'1.1'
             }),
             (html.Span(unit, style={
-                'fontSize':'10px','fontWeight':'600','color':'#475569','marginTop':'4px',
-                'letterSpacing':'.5px'
+                'fontSize':'9px','fontWeight':'600','color':'#475569','marginTop':'6px',
+                'letterSpacing':'.4px'
             }) if unit else None)
         ], style={
-            'flex':'0 0 auto',
-            'padding':'14px 18px 14px 18px',
             'background':'#ffffff',
-            'border':'1px solid #e2e8f0',
-            'borderRadius':'12px',
-            'boxShadow':'0 1px 3px rgba(0,0,0,0.05)',
+            'border':'1px solid #e5e7eb',
+            'borderRadius': '10px',
+            'boxShadow':'0 1px 3px rgba(0,0,0,0.08)',
+            'padding':'16px 14px',
             'display':'flex',
             'flexDirection':'column',
-            'alignItems':'flex-start',
-            'minWidth':'140px',
-            'transition':'border-color .18s ease, transform .18s ease, box-shadow .18s ease'
+            'justifyContent':'center',
+            'alignItems':'center',
+            'textAlign':'center',
+            'height':'90px'
         })
 
     # --- Nested inline (multi-run) vertical layout ---
@@ -394,15 +395,17 @@ def create_metrics_table(metrics: dict, nautilus_result, layout_mode: str = "car
                             })
                         ], style={'display':'flex','alignItems':'center','marginBottom':'10px','gap':'4px'}),
                         html.Div(chips, style={
-                            'display':'flex','flexWrap':'wrap','gap':'10px'
+                            'display':'grid',
+                            'gridTemplateColumns':'repeat(auto-fit, minmax(160px, 1fr))',
+                            'gap':'16px',
+                            'width':'100%'
                         })
                     ], style={
                         'background':'linear-gradient(135deg,#ffffff,#f1f5f9)',
                         'border':'1px solid #e2e8f0',
                         'borderRadius':'18px',
-                        'padding':'16px 18px 14px 18px',
-                        'boxShadow':'0 4px 16px -4px rgba(0,0,0,0.10),0 2px 6px rgba(0,0,0,0.04)',
-                        'flex':'0 0 auto',
+                        'padding':'16px 18px 18px 18px',
+                        'boxShadow':'0 4px 12px -4px rgba(0,0,0,0.08),0 2px 4px rgba(0,0,0,0.04)',
                         'width':'100%',
                         'boxSizing':'border-box'
                     })
@@ -438,13 +441,21 @@ def create_metrics_table(metrics: dict, nautilus_result, layout_mode: str = "car
                 other[k] = v
         ordered = {**perf, **trade, **other}
         chips = [_inline_chip(k, v) for k, v in ordered.items()]
+        n = len(ordered)
+        ideal_cols = min(max(3, math.ceil(math.sqrt(n))), 6)
+        gap_px = 14
+        card_min = 200
+        grid_max_width = ideal_cols * card_min + (ideal_cols - 1) * gap_px
         return html.Div([
             html.Div("Metrics", style={
                 'fontSize':'15px','fontWeight':'700','color':'#0f172a',
                 'margin':'0 0 10px 0','letterSpacing':'-0.4px'
             }),
             html.Div(chips, style={
-                'display':'flex','flexWrap':'wrap','gap':'10px','width':'100%','boxSizing':'border-box'
+                'display':'grid',
+                'gridTemplateColumns':'repeat(auto-fit, minmax(160px, 1fr))',
+                'gap':'16px',
+                'width':'100%'
             })
         ], style={
             'width':'100%','boxSizing':'border-box','margin':'0'
@@ -478,7 +489,7 @@ def create_metrics_table(metrics: dict, nautilus_result, layout_mode: str = "car
                 'letterSpacing': '-0.5px'
             }),
             render_metrics_cards(flat)
-        ])
+        ], style={'width':'100%'})
 
     def create_metric_row(key, value):
         einheit = units.get(key, '')
