@@ -4,67 +4,39 @@ from core.visualizing.dashboard.slide_menu import SlideMenuComponent
 import pandas as pd
 import os
 
-def build_metrics_panel(metrics_path):
-    if not os.path.exists(metrics_path):
-        return html.Div("No metrics available.", style={'color': '#888', 'fontStyle': 'italic', 'marginTop': '20px'})
-    df = pd.read_csv(metrics_path)
-    if df.empty:
-        return html.Div("No metrics available.", style={'color': '#888', 'fontStyle': 'italic', 'marginTop': '20px'})
-    metrics = df.iloc[0].to_dict()
-    show_keys = [
-        ("final_realized_pnl", "Final Realized PnL"),
-        ("winrate", "Winrate"),
-        ("long_short_ratio", "Long/Short Ratio"),
-        ("n_trades", "Trades"),
-        ("n_long_trades", "Long Trades"),
-        ("n_short_trades", "Short Trades"),
-        ("avg_win", "Ø Win"),
-        ("avg_loss", "Ø Loss"),
-        ("max_win", "Max Win"),
-        ("max_loss", "Max Loss"),
-        ("max_consecutive_wins", "Max Consecutive Wins"),
-        ("max_consecutive_losses", "Max Consecutive Losses"),
-        ("commissions", "Commissions"),
-    ]
-    items = []
-    def _fmt(key, val):
-        try:
-            if val is None or (isinstance(val, float) and pd.isna(val)) or (isinstance(val, str) and val == ""):
-                return "N/A"
-            k = str(key).lower()
-            currency_keys = {'final_realized_pnl', 'avg_win', 'avg_loss', 'max_win', 'max_loss', 'commissions', 'commission', 'realized_pnl', 'unrealized_pnl'}
-            if any(ck in k for ck in currency_keys):
-                v = float(val)
-                return f"{v:.4f}"
-            count_terms = ['n_trades', 'n_long_trades', 'n_short_trades', 'trades', 'long_trades', 'short_trades', 'total', 'count', 'iterations', 'positions', 'max_consecutive']
-            if any(ct in k for ct in count_terms):
-                try:
-                    return str(int(float(val)))
-                except Exception:
-                    s = str(val)
-                    return s[:-2] if s.endswith('.0') else s
-            if 'winrate' in k or 'win rate' in k or 'win_rate' in k:
-                v = float(val)
-                return f"{(v*100 if v <= 1 else v):.2f}%"
-            if isinstance(val, float) or isinstance(val, int):
-                if abs(float(val) - int(float(val))) < 1e-9:
-                    return f"{int(float(val))}"
-                return f"{float(val):.4f}"
-            return str(val)
-        except Exception:
-            return str(val)
-    for key, label in show_keys:
-        raw = metrics.get(key, "")
-        currency_keys = {'final_realized_pnl', 'avg_win', 'avg_loss', 'max_win', 'max_loss', 'commissions', 'commission', 'realized_pnl', 'unrealized_pnl'}
-        display_label = f"{label} (USD/T)" if any(ck in key.lower() for ck in currency_keys) else label
-        val = _fmt(key, raw)
-        items.append(
-            html.Div([
-                html.Div(val, className="metric-value"),
-                html.Div(display_label, className="metric-label")
-            ], className="metric-item")
-        )
-    return html.Div(items, className="metrics-panel")
+def build_metrics_panel(metrics_path, single_mode: bool = False):
+    """
+    Placeholder panel only. Actual metrics injected later.
+    single_mode -> no outer border/background to avoid double frame.
+    """
+    base_style = {
+        'border': '1px solid #e2e8f0',
+        'background': 'linear-gradient(135deg,#ffffff 0%,#f1f5f9 100%)',
+        'boxShadow': '0 4px 14px -4px rgba(0,0,0,0.10), 0 2px 4px rgba(0,0,0,0.05)',
+        'padding': '12px 18px 10px 18px',
+        'borderRadius': '20px'
+    }
+    if single_mode:
+        # remove frame so inner inline metrics container stands alone
+        base_style.update({
+            'border': 'none',
+            'background': 'transparent',
+            'boxShadow': 'none',
+            'padding': '0',
+            'borderRadius': '0'
+        })
+    return html.Div(
+        id="metrics-panel",
+        children=[html.Div("Loading metrics ...",
+                           style={'fontSize': '13px','color': '#64748b','fontStyle': 'italic','padding': '4px 0 0 0'})],
+        style={
+            **base_style,
+            'minHeight': '60px',
+            'width': '100%',
+            'boxSizing': 'border-box',
+            'margin': '18px 0 30px 0'  # bottom space increased
+        }
+    )
 
 def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_id=None):
     toggle_button = html.Button([
@@ -283,43 +255,36 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
     indicators_container = html.Div([ html.Div(id='indicators-container') ],
                                     className="indicators-wrapper")
 
-    metrics_panel = None
-    from pathlib import Path
-    results_root = Path(__file__).resolve().parents[3] / "data" / "DATA_STORAGE" / "results"
-    if run_id:
-        run_dir = results_root / str(run_id)
-        if run_dir.exists() and run_dir.is_dir():
-            if selected:
-                candidate = run_dir / str(selected) / "trade_metrics.csv"
-                if candidate.exists():
-                    metrics_panel = build_metrics_panel(str(candidate))
-            if metrics_panel is None:
-                candidate2 = run_dir / "trade_metrics.csv"
-                if candidate2.exists():
-                    metrics_panel = build_metrics_panel(str(candidate2))
-        else:
-            pass
-    else:
-        pass
+    metrics_panel = build_metrics_panel(None, single_mode=single_mode)
 
-    if not metrics_panel:
-        metrics_panel = html.Div(
-            "No metrics available", 
-            id="metrics-panel",
-            className="panel empty metrics-wrapper"
-        )
-    else:
-        metrics_panel = html.Div(metrics_panel, id="metrics-panel", className="panel metrics-wrapper")
+    # NEW: unified padding (was only for single_mode)
+    base_pad = '28px' if single_mode else '26px'
+    main_content_style = {
+        'paddingLeft': base_pad,
+        'paddingRight': base_pad,
+        'paddingTop': '14px',
+        'paddingBottom': '60px',   # ensure bottom breathing room
+        'boxSizing': 'border-box',
+        'width': '100vw',          # FULL viewport width
+        'maxWidth': 'none',        # remove previous cap
+        'margin': '0',             # remove auto-centering
+        'flex': '1 1 auto',
+        'alignSelf': 'stretch'
+    }
+    # Wrap inner blocks to stabilize layout before slide-menu animation
+    main_inner = html.Div([
+        header,
+        collector_dropdown,
+        trade_details_panel,
+        price_block,
+        indicators_container,
+        metrics_panel
+    ], style={'display': 'flex','flexDirection':'column','gap':'18px'})
 
-    refresh = html.Div([
-        html.Button('Update Dashboard', id='refresh-btn', n_clicks=0,
-            className="btn primary-gradient lg shadow-md")
-    ], className="centered block-mt")
+    main_content = html.Div(main_inner, id="main-content", className="main-content", style=main_content_style)
 
-    main_content = html.Div([
-        header, collector_dropdown, trade_details_panel, price_block,
-        indicators_container, metrics_panel, refresh
-    ], id="main-content", className="main-content")
+    # Hidden placeholder to satisfy callbacks expecting 'refresh-btn'
+    hidden_refresh_btn = html.Button(id='refresh-btn', n_clicks=0, style={'display': 'none'})
 
     return html.Div([
         html.Div([
@@ -332,6 +297,7 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
         slide_menu,
         fullscreen_close_button,
         main_content,
+        hidden_refresh_btn,  # NEW hidden button
         dcc.Store(id='menu-open-store', data=menu_open),
         dcc.Store(id='menu-fullscreen-store', data=False),
         dcc.Store(id='selected-run-store', data=([run_id] if run_id else [])),
@@ -339,4 +305,9 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
         dcc.Store(id='quantstats-status', data=""),
         dcc.Store(id='show-trades-store', data=True),
         dcc.Store(id='time-slider-store', data=None),  # NEW: persist range slider selection
-    ], className="app-root font-default")
+    ], className="app-root font-default", style={
+        'overflowX': 'hidden',
+        'minHeight': '100vh',
+        'width': '100vw',       # ensure root spans full screen
+        'display': 'block'
+    })

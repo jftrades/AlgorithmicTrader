@@ -3,7 +3,6 @@ from dash import html, dcc, dash_table
 import pandas as pd
 import re
 
-
 # --------- Trade-Details: Defaults ---------
 def get_default_trade_details():
     return html.Div([
@@ -26,7 +25,6 @@ def get_default_trade_details_with_message(msg="Click a trade marker to view det
             'fontSize': '12px', 'color': '#6c757d', 'fontStyle': 'italic'
         })
     ])
-
 
 # --------- Trade-Details: Inhalt aus einer Trade-Zeile ---------
 def create_trade_details_content(trade_data: pd.Series):
@@ -163,9 +161,99 @@ def create_trade_details_content(trade_data: pd.Series):
         ])
     ]
 
-
 # --------- Metrics (nimmt Dict und optionales Nautilus-Result) ---------
-def create_metrics_table(metrics: dict, nautilus_result):
+def render_metrics_cards(flat_metrics: dict):
+    """
+    Render metrics in a responsive card grid (improved design).
+    flat_metrics: simple key->value dict (already flattened / selected).
+    """
+    if not flat_metrics:
+        return html.Div("No metrics available", style={
+            'textAlign': 'center',
+            'color': '#6c757d',
+            'fontFamily': 'Inter, system-ui, sans-serif',
+            'padding': '20px'
+        })
+
+    def classify(k):
+        lk = k.lower()
+        if any(w in lk for w in ['pnl', 'profit', 'commission', 'ø win', 'avg win', 'avg loss', 'max win', 'max loss']):
+            return 'currency'
+        if any(w in lk for w in ['trade', 'trades', 'positions', 'count', 'iterations', 'consecutive']):
+            return 'count'
+        if 'winrate' in lk or 'win rate' in lk:
+            return 'percent'
+        return 'generic'
+
+    def fmt(k, v):
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return "N/A"
+        cls = classify(k)
+        try:
+            if cls == 'currency':
+                return f"{float(v):.4f}"
+            if cls == 'count':
+                iv = int(float(v))
+                return f"{iv}"
+            if cls == 'percent':
+                f = float(v)
+                return f"{(f*100 if f <= 1 else f):.2f}%"
+            f = float(v)
+            if abs(f - int(f)) < 1e-9:
+                return str(int(f))
+            return f"{f:.4f}"
+        except Exception:
+            return str(v)
+
+    cards = []
+    for k, v in flat_metrics.items():
+        cls = classify(k)
+        accent = {
+            'currency': '#6366f1',
+            'count': '#0ea5e9',
+            'percent': '#10b981',
+            'generic': '#475569'
+        }.get(cls, '#475569')
+        cards.append(
+            html.Div([
+                html.Div(k, style={
+                    'fontSize': '11px',
+                    'letterSpacing': '.5px',
+                    'textTransform': 'uppercase',
+                    'color': '#64748b',
+                    'fontWeight': '600',
+                    'marginBottom': '6px'
+                }),
+                html.Div(fmt(k, v), style={
+                    'fontSize': '20px',
+                    'fontWeight': '600',
+                    'color': accent,
+                    'fontFamily': 'Inter, system-ui, sans-serif',
+                    'textShadow': '0 1px 0 rgba(0,0,0,0.04)'
+                })
+            ], style={
+                'background': 'linear-gradient(135deg,#ffffff 0%,#f8fafc 100%)',
+                'border': '1px solid #e2e8f0',
+                'borderRadius': '14px',
+                'padding': '14px 16px 16px 16px',
+                'minWidth': '140px',
+                'flex': '1 1 160px',
+                'boxShadow': '0 4px 14px -4px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04)',
+                'transition': 'transform .18s ease, box-shadow .18s ease',
+                'display': 'flex',
+                'flexDirection': 'column'
+            })
+        )
+    return html.Div(cards, style={
+        'display': 'flex',
+        'flexWrap': 'wrap',
+        'gap': '14px',
+        'alignItems': 'stretch',
+        'justifyContent': 'flex-start',
+        'marginTop': '4px'
+    })
+
+def create_metrics_table(metrics: dict, nautilus_result, layout_mode: str = "cards"):
     """Erstellt professionelle Metriken-Tabelle mit Einheiten.
     metrics: Dict[str, Any] – bereits extrahiert (z. B. deine self.metrics)
     nautilus_result: Optional[List[Any]] – z. B. dein self.nautilus_result (für Units)
@@ -178,205 +266,187 @@ def create_metrics_table(metrics: dict, nautilus_result):
             'padding': '20px'
         })
 
-    # Einheiten aus result extrahieren, falls vorhanden
-    units = {}
-    if nautilus_result and len(nautilus_result) > 0:
-        result_obj = nautilus_result[0]
+    # UPDATED: include underscore variants
+    CURRENCY_KEYWORDS = [
+        'pnl','profit','commission','avg win','avg loss','max win','max loss','expectancy',
+        'avg_win','avg_loss','max_win','max_loss'
+    ]
+    COUNT_KEYWORDS = ['trade','trades','positions','count','iterations','consecutive','n_','n ']
 
-        # PnL-Metriken in USDT
-        if hasattr(result_obj, 'stats_pnls') and 'USDT' in getattr(result_obj, 'stats_pnls', {}):
-            try:
-                for key in result_obj.stats_pnls['USDT'].keys():
-                    metric_name = key.replace('_', ' ').title()
-                    if 'pnl' in key.lower() and 'pnl%' not in key.lower():
-                        units[metric_name] = 'USDT'
-                    elif 'pnl%' in key.lower():
-                        units[metric_name] = '%'
-            except Exception:
-                pass
+    def _inline_classify(k: str):
+        kl = k.lower()
+        kl_sp = kl.replace('_', ' ')
+        if any(w in kl_sp for w in CURRENCY_KEYWORDS) and 'pnl%' not in kl and '% pnl' not in kl:
+            return 'currency'
+        if 'winrate' in kl or 'win rate' in kl:
+            return 'percent'
+        if any(w in kl for w in COUNT_KEYWORDS):
+            return 'count'
+        return 'generic'
 
-        # Return-Statistiken/Ratios in Prozent (meist)
-        if hasattr(result_obj, 'stats_returns'):
-            try:
-                for key in result_obj.stats_returns.keys():
-                    metric_name = key.replace('_', ' ').title()
-                    if any(term in key.lower() for term in ['volatility', 'average', 'sharpe', 'sortino']):
-                        units[metric_name] = '%'
-            except Exception:
-                pass
+    def _is_pnl_key(k: str):
+        kl = k.lower()
+        return (
+            ('pnl' in kl and 'pnl%' not in kl) or
+            kl.endswith('_pnl') or
+            'final_realized_pnl' in kl or
+            'realized_pnl' in kl
+        )
 
-        # Spezielle Behandlung
-        special_units = {
-            'Win Rate': '',
-            'Profit Factor': '',
-            'Risk Return Ratio': '',
-            'Total Positions': '',
-            'Total Orders': '',
-            'Total Events': '',
-            'Iterations': '',
-            'Elapsed Time (s)': 'time',
-            'Max Winner': 'USDT',
-            'Avg Winner': 'USDT',
-            'Min Winner': 'USDT',
-            'Max Loser': 'USDT',
-            'Avg Loser': 'USDT',
-            'Min Loser': 'USDT',
-            'Expectancy': 'USDT',
-        }
-        units.update(special_units)
-
-    # Wenn metrics ein Mapping von instrument->metrics_dict ist -> Vergleichstabelle
-    # Neu: unterstützt jetzt auch verschachtelte Maps: run_id -> { instrument -> metrics_dict }
-    if isinstance(metrics, dict) and any(isinstance(v, dict) for v in metrics.values()):
-        # Detect nested mapping: run_id -> {inst -> metrics_dict}
-        first_vals = list(metrics.values())
-        nested = any(isinstance(v, dict) and any(isinstance(x, dict) for x in v.values()) for v in first_vals)
-        if nested:
-            # metrics: { run_id: {inst: metrics_dict, ...}, ...}
-            runs = list(metrics.keys())
-            # collect instrument order (unique across runs)
-            instruments = []
-            for r in runs:
-                for inst in (metrics.get(r) or {}).keys():
-                    if inst not in instruments:
-                        instruments.append(inst)
-            # collect all metric keys across all run/inst combos
-            all_keys = set()
-            for r in runs:
-                for inst, m in (metrics.get(r) or {}).items():
-                    if isinstance(m, dict):
-                        all_keys.update(m.keys())
-            ordered_keys = sorted(all_keys, key=lambda s: str(s).lower())
-
-            def _format_value(k, v):
-                norm = re.sub(r'[^a-z0-9 ]', ' ', str(k).lower()).strip()
-                is_currency = (
-                    'pnl' in norm
-                    or ('avg' in norm and ('win' in norm or 'loss' in norm))
-                    or ('max' in norm and ('win' in norm or 'loss' in norm))
-                    or 'commission' in norm or 'commissions' in norm or ('ø' in str(k).lower())
-                )
-                if v is None or (isinstance(v, float) and pd.isna(v)):
-                    return "N/A"
-                try:
-                    if is_currency:
-                        return f"{float(v):.4f}"
-                    if any(w in norm for w in ['trade', 'trades', 'n_trades', 'long trades', 'short trades', 'total', 'count', 'iterations', 'positions', 'max consecutive']):
-                        return str(int(float(v)))
-                    if 'win rate' in norm or 'winrate' in norm or 'win_rate' in norm:
-                        vv = float(v)
-                        return f"{(vv*100 if vv <= 1 else vv):.1f}%"
-                    f = float(v)
-                    if abs(f - int(f)) < 1e-9:
-                        return f"{int(f)}"
-                    return f"{f:.4f}"
-                except Exception:
-                    return str(v)
-
-            # Build dual-header table: first row = Metric label + run headers (colspan = number of instruments present in that run)
-            # second header row = per-run instrument headers
-            # construct header rows
-            top_header_cells = [html.Th("Metric", style={'textAlign': 'left', 'padding':'8px 12px'})]
-            second_header_cells = [html.Th("", style={'padding':'8px 12px'})]
-            for r in runs:
-                insts_in_run = list((metrics.get(r) or {}).keys())
-                colspan = max(1, len(insts_in_run))
-                top_header_cells.append(html.Th(str(r), colSpan=colspan, style={'textAlign':'center', 'padding':'8px 12px', 'fontWeight':'700'}))
-                # instrument header cells for this run
-                if insts_in_run:
-                    for inst in insts_in_run:
-                        second_header_cells.append(html.Th(str(inst), style={'textAlign':'center', 'padding':'8px 12px'}))
-                else:
-                    # filler cell if no instruments
-                    second_header_cells.append(html.Th("", style={'padding':'8px 12px'}))
-
-            # Build rows
-            rows = []
-            for key in ordered_keys:
-                cells = [html.Td(str(key), style={'padding':'8px 12px', 'fontWeight':'500', 'color':'#2c3e50'})]
-                for r in runs:
-                    insts_in_run = list((metrics.get(r) or {}).keys())
-                    if insts_in_run:
-                        for inst in insts_in_run:
-                            m = (metrics.get(r) or {}).get(inst) or {}
-                            val = m.get(key, m.get(key.lower(), "N/A"))
-                            cells.append(html.Td(_format_value(key, val), style={'padding':'8px 12px', 'textAlign':'center'}))
-                    else:
-                        cells.append(html.Td("N/A", style={'padding':'8px 12px', 'textAlign':'center'}))
-                rows.append(html.Tr(cells))
-
-            table = html.Table([
-                html.Thead([html.Tr(top_header_cells), html.Tr(second_header_cells)]),
-                html.Tbody(rows)
-            ], style={
-                'width': '100%',
-                'backgroundColor': 'white',
-                'border': '1px solid #dee2e6',
-                'borderRadius': '8px',
-                'boxShadow': '0 2px 4px rgba(0,0,0,0.06)',
-            })
-            return html.Div([
-                html.H4("Metrics Comparison (Runs × Instruments)", style={'color': '#2c3e50', 'marginBottom': '12px', 'fontFamily': 'Inter, system-ui, sans-serif', 'fontWeight': '600'}),
-                table
-            ], style={'padding': '8px'})
-        # fallback: old single-level instrument->metrics rendering continues below
-        instruments = list(metrics.keys())
-        all_keys = set()
-        for m in metrics.values():
-            if isinstance(m, dict):
-                all_keys.update(m.keys())
-        ordered_keys = sorted(all_keys, key=lambda s: str(s).lower())
-        def _format_value(k, v):
-            norm = re.sub(r'[^a-z0-9 ]', ' ', str(k).lower()).strip()
-            is_currency = (
-                'pnl' in norm
-                or ('avg' in norm and ('win' in norm or 'loss' in norm))
-                or ('max' in norm and ('win' in norm or 'loss' in norm))
-                or 'commission' in norm or 'commissions' in norm or ('ø' in str(k).lower())
-            )
-            if v is None or (isinstance(v, float) and pd.isna(v)):
-                return "N/A"
-            try:
-                if is_currency:
-                    return f"{float(v):.4f}"
-                if any(w in norm for w in ['trade', 'trades', 'n_trades', 'long trades', 'short trades', 'total', 'count', 'iterations', 'positions', 'max consecutive']):
-                    return str(int(float(v)))
-                if 'win rate' in norm or 'winrate' in norm or 'win_rate' in norm:
-                    vv = float(v)
-                    return f"{(vv*100 if vv <= 1 else vv):.1f}%"
+    def _inline_fmt(k, v):
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return "N/A"
+        t = _inline_classify(k)
+        try:
+            if t == 'count':
+                return str(int(float(v)))
+            if t == 'percent':
                 f = float(v)
-                if abs(f - int(f)) < 1e-9:
-                    return f"{int(f)}"
-                return f"{f:.4f}"
+                return f"{(f*100 if f <= 1 else f):.2f}%"
+            # currency & generic -> two decimals
+            f = float(v)
+            return f"{f:.2f}"
+        except Exception:
+            return str(v)
+
+    def _value_color(k, v):
+        if _is_pnl_key(k):
+            try:
+                return '#10b981' if float(v) >= 0 else '#ef4444'
             except Exception:
-                return str(v)
+                return '#111827'
+        cls = _inline_classify(k)
+        if cls == 'currency':
+            return '#111827'  # black for non-PnL currency metrics
+        return {
+            'count': '#0ea5e9',
+            'percent': '#0f766e',
+            'generic': '#475569'
+        }.get(cls, '#475569')
 
-        header = [html.Th("Metric", style={'textAlign': 'left', 'padding':'8px 12px'})] + [
-            html.Th(str(inst), style={'textAlign': 'center', 'padding':'8px 12px'}) for inst in instruments
-        ]
-        rows = []
-        for key in ordered_keys:
-            cells = [html.Td(str(key), style={'padding':'8px 12px', 'fontWeight':'500', 'color':'#2c3e50'})]
-            for inst in instruments:
-                mv = metrics.get(inst) or {}
-                val = mv.get(key, mv.get(key.lower(), "N/A"))
-                cells.append(html.Td(_format_value(key, val), style={'padding':'8px 12px', 'textAlign':'center'}))
-            rows.append(html.Tr(cells))
+    def _unit_for(k):
+        cls = _inline_classify(k)
+        if cls == 'currency':
+            return 'USD(T)'
+        if cls == 'percent':
+            return ''  # never add second % unit
+        return ''
 
-        table = html.Table([
-            html.Thead(html.Tr(header)),
-            html.Tbody(rows)
-        ], style={
-            'width': '100%',
-            'backgroundColor': 'white',
-            'border': '1px solid #dee2e6',
-            'borderRadius': '8px',
-            'boxShadow': '0 2px 4px rgba(0,0,0,0.06)',
-        })
+    def _inline_chip(label, raw_value):
+        fmt = _inline_fmt(label, raw_value)
+        unit = _unit_for(label)
+        # guard: don't show unit if value already ends with % or N/A
+        if fmt.endswith('%'):
+            unit = ''
+        color = _value_color(label, raw_value)
         return html.Div([
-            html.H4("Metrics Comparison", style={'color': '#2c3e50', 'marginBottom': '12px', 'fontFamily': 'Inter, system-ui, sans-serif', 'fontWeight': '600'}),
-            table
-        ], style={'padding': '8px'})
+            html.Span(label, style={
+                'fontSize': '10px','letterSpacing':'.45px','textTransform':'uppercase',
+                'color':'#64748b','fontWeight':'600','display':'block','marginBottom':'2px'
+            }),
+            html.Span(fmt, style={
+                'fontSize': '15px','fontWeight':'700','color': color,
+                'fontFamily':'Inter, system-ui, sans-serif','lineHeight':'1.1'
+            }),
+            (html.Span(unit, style={
+                'fontSize':'10px','fontWeight':'600','color':'#475569','marginTop':'2px',
+                'letterSpacing':'.5px'
+            }) if unit else None)
+        ], style={
+            'flex':'0 0 auto',
+            'padding':'10px 14px 9px 14px',
+            'background':'linear-gradient(145deg,#ffffff 0%,#f6f9fb 100%)',
+            'border':'1px solid #e2e8f0',
+            'borderRadius':'14px',
+            'boxShadow':'0 2px 6px -2px rgba(0,0,0,0.07)',
+            'display':'flex',
+            'flexDirection':'column',
+            'alignItems':'flex-start',
+            'minWidth':'118px'
+        })
+
+    # --- Nested inline (multi-run) vertical layout ---
+    if layout_mode == "inline" and isinstance(metrics, dict) and any(isinstance(v, dict) for v in metrics.values()):
+        nested = {}
+        for run_key, maybe in metrics.items():
+            if isinstance(maybe, dict):
+                for inst_key, md in maybe.items():
+                    if isinstance(md, dict):
+                        nested.setdefault(str(run_key), {})[str(inst_key)] = md
+        segments = []
+        for run_id, inst_map in nested.items():
+            for inst_id, mdict in inst_map.items():
+                chips = [_inline_chip(k, v) for k, v in mdict.items()]
+                segments.append(
+                    html.Div([
+                        html.Div([
+                            html.Span(run_id, style={
+                                'padding':'4px 10px','background':'#1e3a8a','color':'#fff',
+                                'fontSize':'11px','fontWeight':'600','borderRadius':'10px',
+                                'letterSpacing':'.5px','marginRight':'6px'
+                            }),
+                            html.Span(inst_id, style={
+                                'padding':'4px 10px','background':'#0f766e','color':'#fff',
+                                'fontSize':'11px','fontWeight':'600','borderRadius':'10px',
+                                'letterSpacing':'.5px'
+                            })
+                        ], style={'display':'flex','alignItems':'center','marginBottom':'10px','gap':'4px'}),
+                        html.Div(chips, style={
+                            'display':'flex','flexWrap':'wrap','gap':'10px'
+                        })
+                    ], style={
+                        'background':'linear-gradient(135deg,#ffffff,#f1f5f9)',
+                        'border':'1px solid #e2e8f0',
+                        'borderRadius':'18px',
+                        'padding':'16px 18px 14px 18px',
+                        'boxShadow':'0 4px 16px -4px rgba(0,0,0,0.10),0 2px 6px rgba(0,0,0,0.04)',
+                        'flex':'0 0 auto',
+                        'width':'100%',
+                        'boxSizing':'border-box'
+                    })
+                )
+        if segments:
+            return html.Div([
+                html.Div("Metrics (Runs × Instruments)", style={
+                    'fontSize':'15px','fontWeight':'700','color':'#0f172a',
+                    'margin':'0 0 14px 0','letterSpacing':'-0.4px'
+                }),
+                html.Div(segments, style={
+                    'display':'flex','flexDirection':'column','gap':'18px','width':'100%'
+                })
+            ], style={
+                'background':'linear-gradient(125deg,#ffffff,#eef2f7)',
+                'border':'1px solid #dfe6ee',
+                'borderRadius':'22px',
+                'padding':'20px 22px 22px 22px',
+                'boxShadow':'0 6px 22px -6px rgba(0,0,0,0.12),0 3px 8px rgba(0,0,0,0.05)',
+                'width':'100%','boxSizing':'border-box','margin':'0'
+            })
+
+    # --- Flat inline single-run (no outer frame to avoid double border) ---
+    if layout_mode == "inline" and isinstance(metrics, dict) and not any(isinstance(v, dict) for v in metrics.values()):
+        perf, trade, other = {}, {}, {}
+        for k, v in metrics.items():
+            kl = k.lower()
+            if any(w in kl for w in ['return','pnl','profit','drawdown','sharpe','sortino']):
+                perf[k] = v
+            elif any(w in kl for w in ['trade','win','loss','position','consecutive']):
+                trade[k] = v
+            else:
+                other[k] = v
+        ordered = {**perf, **trade, **other}
+        chips = [_inline_chip(k, v) for k, v in ordered.items()]
+        return html.Div([
+            html.Div("Metrics", style={
+                'fontSize':'15px','fontWeight':'700','color':'#0f172a',
+                'margin':'0 0 10px 0','letterSpacing':'-0.4px'
+            }),
+            html.Div(chips, style={
+                'display':'flex','flexWrap':'wrap','gap':'10px','width':'100%','boxSizing':'border-box'
+            })
+        ], style={
+            'width':'100%','boxSizing':'border-box','margin':'0'
+        })
 
     performance_metrics = {}
     trade_metrics = {}
@@ -390,6 +460,23 @@ def create_metrics_table(metrics: dict, nautilus_result):
             trade_metrics[key] = value
         else:
             general_info[key] = value
+
+    if layout_mode == "cards" and isinstance(metrics, dict) and not any(isinstance(v, dict) for v in metrics.values()):
+        # flatten all three groups preserving insertion order
+        flat = {}
+        flat.update(performance_metrics)
+        flat.update(trade_metrics)
+        flat.update(general_info)
+        return html.Div([
+            html.Div("Metrics", style={
+                'fontSize': '15px',
+                'fontWeight': '700',
+                'color': '#1e293b',
+                'marginBottom': '10px',
+                'letterSpacing': '-0.5px'
+            }),
+            render_metrics_cards(flat)
+        ])
 
     def create_metric_row(key, value):
         einheit = units.get(key, '')
@@ -520,7 +607,6 @@ def create_metrics_table(metrics: dict, nautilus_result):
         create_section("Trading", trade_metrics),
         create_section("General", general_info)
     ])
-
 
 # --------- All Backtest Results (bekommt DataFrame) ---------
 def create_all_results_table(all_results_df: pd.DataFrame | None, filter_active: bool = False):

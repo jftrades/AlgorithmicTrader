@@ -351,7 +351,7 @@ def _build_single_instrument_multi_run(state, repo, instrument, active_runs, cli
                 nested_metrics[str(rid)] = per_inst
         if nested_metrics:
             try:
-                metrics_children = create_metrics_table(nested_metrics, [])
+                metrics_children = create_metrics_table(nested_metrics, [], layout_mode="inline")
             except Exception:
                 metrics_children = html.Div("No metrics available", style={'textAlign':'center','color':'#6c757d','padding':'20px'})
 
@@ -596,7 +596,7 @@ def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, cli
                 nested_metrics[str(rid)] = per_inst
         if nested_metrics:
             try:
-                metrics_children = create_metrics_table(nested_metrics, [])
+                metrics_children = create_metrics_table(nested_metrics, [], layout_mode="inline")
             except Exception:
                 metrics_children = html.Div("No metrics available", style={'textAlign':'center','color':'#6c757d','padding':'20px'})
 

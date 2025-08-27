@@ -114,7 +114,7 @@ def _single_instrument(state, repo, instrument, chart_mode, x_range, clickData, 
                     df = pd.read_csv(trade_metrics_path)
                     if not df.empty:
                         metrics = df.iloc[0].to_dict()
-                        metrics_children = create_metrics_table(metrics, [])
+                        metrics_children = create_metrics_table(metrics, [], layout_mode="inline")
                 except Exception:
                     pass
         except Exception:
@@ -140,7 +140,7 @@ def _single_instrument(state, repo, instrument, chart_mode, x_range, clickData, 
                     if not df2.empty:
                         metrics = df2.iloc[0].to_dict()
                 try:
-                    metrics_children = create_metrics_table(metrics, nautilus)
+                    metrics_children = create_metrics_table(metrics, nautilus, layout_mode="inline")
                 except Exception:
                     metrics_children = html.Div("No metrics available", style={'textAlign':'center','color':'#6c757d','padding':'20px'})
         except Exception:
@@ -464,7 +464,7 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
             if metrics:
                 metrics_map[str(inst)] = metrics
         if metrics_map:
-            metrics_children = create_metrics_table(metrics_map, [])
+            metrics_children = create_metrics_table(metrics_map, [], layout_mode="inline")
     else:
         # Single-instrument-like behavior (fallback to first instrument / primary)
         primary = instruments[0] if instruments else None
@@ -497,7 +497,7 @@ def _multi_instrument(state, repo, instruments, chart_mode, x_range, color_map, 
                             if not df2.empty:
                                 metrics = df2.iloc[0].to_dict()
                 if metrics:
-                    metrics_children = create_metrics_table(metrics, nautilus)
+                    metrics_children = create_metrics_table(metrics, nautilus, layout_mode="inline")
             except Exception:
                 pass
 
