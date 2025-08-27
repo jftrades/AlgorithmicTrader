@@ -147,61 +147,115 @@ def register_chart_callbacks(app, repo, state):
             state["time_slider_ts"] = []
             return 0, 1, [0, 1], {}, "", None
 
-        # Store full ordered timestamp list in state for unified callback
         ts_list = ts.reset_index(drop=True)
         state["time_slider_ts"] = ts_list
 
         min_idx = 0
         max_idx = len(ts_list) - 1
 
-        # Decide current visible window
-        if (
-            trig == "time-range-slider"
-            and isinstance(slider_value, (list, tuple))
-            and len(slider_value) == 2
-            and isinstance(slider_value[0], (int, float))
-            and isinstance(slider_value[1], (int, float))
-            and 0 <= int(slider_value[0]) < int(slider_value[1]) <= max_idx
-        ):
-            current_value = [int(slider_value[0]), int(slider_value[1])]
-        else:
-            # Try preserve previous stored selection if valid
-            if (isinstance(stored_value, (list, tuple)) and len(stored_value) == 2
-                and all(isinstance(v, (int, float)) for v in stored_value)):
-                a, b = int(stored_value[0]), int(stored_value[1])
-                if 0 <= a < b <= max_idx:
-                    current_value = [a, b]
-                else:
-                    current_value = [min_idx, max_idx]
-            else:
-                current_value = [min_idx, max_idx]
+        def nearest_index(ts_val):
+            try:
+                pos = int(ts_list.searchsorted(ts_val, side="left"))
+                if pos >= len(ts_list):
+                    pos = len(ts_list) - 1
+                if pos < 0:
+                    pos = 0
+                if pos > 0:
+                    prev_diff = abs(ts_val - ts_list.iloc[pos - 1])
+                    cur_diff = abs(ts_list.iloc[pos] - ts_val)
+                    if prev_diff <= cur_diff:
+                        return pos - 1
+                return pos
+            except Exception:
+                return None
 
-        # Marks: only start & end to avoid clutter
+        # Default full range
+        current_value = [min_idx, max_idx]
+
+        restored_from_store = False
+        original_store = stored_value  # keep to avoid overwriting on failed restore
+
+        if trig == "time-range-slider" and isinstance(slider_value, (list, tuple)) and len(slider_value) == 2:
+            a, b = int(slider_value[0]), int(slider_value[1])
+            if 0 <= a < b <= max_idx:
+                current_value = [a, b]
+        else:
+            # Any non-slider trigger (collector / timeframe) -> try restore from stored_value
+            start_ts = end_ts = None
+            if isinstance(stored_value, dict):
+                ts_pair = stored_value.get("ts")
+                if isinstance(ts_pair, (list, tuple)) and len(ts_pair) == 2:
+                    try:
+                        start_ts = pd.to_datetime(ts_pair[0])
+                        end_ts = pd.to_datetime(ts_pair[1])
+                    except Exception:
+                        start_ts = end_ts = None
+                # Fallback to indices only if timestamps missing
+                if (start_ts is None or end_ts is None) and isinstance(stored_value.get("idx"), (list, tuple)) and len(stored_value["idx"]) == 2:
+                    ia, ib = stored_value["idx"]
+                    if 0 <= int(ia) < int(ib) <= max_idx:
+                        current_value = [int(ia), int(ib)]
+                        restored_from_store = True
+            elif isinstance(stored_value, (list, tuple)) and len(stored_value) == 2:
+                ia, ib = stored_value
+                if 0 <= int(ia) < int(ib) <= max_idx:
+                    current_value = [int(ia), int(ib)]
+                    restored_from_store = True
+
+            if start_ts is not None and end_ts is not None and start_ts < end_ts:
+                ia = nearest_index(start_ts)
+                ib = nearest_index(end_ts)
+                if ia is not None and ib is not None and ia < ib:
+                    current_value = [ia, ib]
+                    restored_from_store = True
+
+        # Clamp
+        a, b = current_value
+        if not (0 <= a < b <= max_idx):
+            current_value = [min_idx, max_idx]
+            a, b = current_value
+            if trig == "timeframe-dropdown":
+                # If timeframe change caused invalid window -> keep previous store (do NOT overwrite)
+                s_dt = ts_list.iloc[min_idx]
+                e_dt = ts_list.iloc[max_idx]
+                disp = f"{s_dt.strftime('%d %b %H:%M')} – {e_dt.strftime('%d %b %H:%M')}"
+                # keep original store (may still hold meaningful timestamps for another timeframe)
+                return min_idx, max_idx, current_value, {min_idx: s_dt.strftime('%Y-%m-%d %H:%M'), max_idx: e_dt.strftime('%Y-%m-%d %H:%M')}, disp, original_store
+
+        # Marks (start & end)
         def fmt_label(dt):
             return dt.strftime("%Y-%m-%d %H:%M")
         start_dt = ts_list.iloc[min_idx]
         end_dt = ts_list.iloc[max_idx]
-        marks = {
-            min_idx: fmt_label(start_dt),
-            max_idx: fmt_label(end_dt)
-        }
+        marks = {min_idx: fmt_label(start_dt), max_idx: fmt_label(end_dt)}
 
-        s_idx, e_idx = current_value
-        s_dt = ts_list.iloc[s_idx]
-        e_dt = ts_list.iloc[e_idx]
+        s_dt = ts_list.iloc[a]
+        e_dt = ts_list.iloc[b]
 
-        def compact_span(a, b):
-            if a.date() == b.date():
-                # same day
-                return f"{a.strftime('%d %b %H:%M')} – {b.strftime('%H:%M')}"
-            if a.year == b.year and a.month == b.month:
-                # same month
-                return f"{a.strftime('%d')}–{b.strftime('%d %b')} {b.strftime('%H:%M')}"
-            if a.year == b.year:
-                return f"{a.strftime('%d %b')} – {b.strftime('%d %b')} {b.strftime('%H:%M')}"
-            return f"{a.strftime('%Y-%m-%d')} → {b.strftime('%Y-%m-%d')}"
+        def compact_span(xa, xb):
+            if xa.date() == xb.date():
+                return f"{xa.strftime('%d %b %H:%M')} – {xb.strftime('%H:%M')}"
+            if xa.year == xb.year and xa.month == xb.month:
+                return f"{xa.strftime('%d')}–{xb.strftime('%d %b')} {xb.strftime('%H:%M')}"
+            if xa.year == xb.year:
+                return f"{xa.strftime('%d %b')} – {xb.strftime('%d %b')} {xb.strftime('%H:%M')}"
+            return f"{xa.strftime('%Y-%m-%d')} → {xb.strftime('%Y-%m-%d')}"
         disp = compact_span(s_dt, e_dt)
-        return min_idx, max_idx, current_value, marks, disp, current_value
+
+        # Build new store payload ONLY if:
+        #  - user moved slider, or
+        #  - restore succeeded, or
+        #  - there was no previous store
+        if trig == "time-range-slider" or restored_from_store or not stored_value:
+            store_payload = {
+                "idx": current_value,
+                "ts": [s_dt.isoformat(), e_dt.isoformat()]
+            }
+        else:
+            # Keep previous store on timeframe change if restore failed
+            store_payload = stored_value
+
+        return min_idx, max_idx, current_value, marks, disp, store_payload
 
     # NEW: toggle trades visibility
     @app.callback(
@@ -270,7 +324,6 @@ def register_chart_callbacks(app, repo, state):
             active_runs = []
         
         state["active_runs"] = active_runs
-        print(f"[UNIFIED] active_runs={active_runs}")  # DEBUG
         # --- END OF SIMPLIFIED LOGIC ---
 
         # Reload any missing run objects (e.g., if app was restarted)
@@ -395,3 +448,4 @@ def register_chart_callbacks(app, repo, state):
             if hasattr(c, "props") and "className" not in getattr(c, "props", {}):
                 c.className = "indicator-chart"
         return price_fig, indicator_children, metrics_children, trade_details  # fixed (was 'trade')
+
