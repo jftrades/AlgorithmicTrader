@@ -158,34 +158,36 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
 
     header = html.Div([
         html.Div("by Raph & Ferdi", style={
-            'position': 'absolute','top': '8px','right': '15px',
-            'color': 'rgba(255,255,255,0.6)','fontSize': '10px',
+            'position': 'absolute','top': '6px','right': '12px',
+            'color': 'rgba(255,255,255,0.65)','fontSize': '9px',
             'fontFamily': 'Inter, system-ui, sans-serif','fontWeight': '400',
-            'letterSpacing': '0.5px'
+            'letterSpacing': '0.4px'
         }),
         html.H1("Algorithmic Trading Dashboard", style={
             'textAlign':'center','color':'#ffffff','margin':'0',
             'fontFamily':'Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
-            'fontWeight':'700','letterSpacing':'-0.02em','fontSize':'2rem',
-            'textShadow':'0 2px 4px rgba(0,0,0,0.1)'
+            'fontWeight':'700','letterSpacing':'-0.025em','fontSize':'1.85rem',
+            'textShadow':'0 2px 4px rgba(0,0,0,0.12)'
         }),
         html.P("Professional Trading Analytics & Performance Monitoring", style={
-            'textAlign':'center','color':'rgba(255,255,255,0.9)',
-            'fontFamily':'Inter, system-ui, sans-serif','fontSize':'0.9rem',
-            'fontWeight':'400','margin':'5px 0 0 0','letterSpacing':'0.01em'
+            'textAlign':'center','color':'rgba(255,255,255,0.88)',
+            'fontFamily':'Inter, system-ui, sans-serif','fontSize':'0.85rem',
+            'fontWeight':'400','margin':'4px 0 0 0','letterSpacing':'0.005em'
         }),
-    ], className="app-header gradient-primary shadow-md")
+    ], className="app-header gradient-primary shadow-md", style={
+        'padding': '18px 24px 16px 24px'  # kompakter
+    })
 
     collector_dropdown = html.Div([
         html.Div([
             html.Div("Instruments", style={
-                'fontSize': '12px','fontWeight':'600','letterSpacing':'.08em',
-                'color':'#111','textTransform':'uppercase'
+                'fontSize': '11px','fontWeight':'700','letterSpacing':'.06em',
+                'color':'#1f2937','textTransform':'uppercase','marginBottom':'2px'
             }),
             html.Div("Select one or multiple symbols", style={
-                'fontSize':'11px','color':'#555','marginTop':'2px'
+                'fontSize':'10px','color':'#6b7280','lineHeight':'1.2'
             })
-        ], style={'marginBottom':'8px'}),
+        ], style={'marginBottom':'6px'}),
         dcc.Dropdown(
             id="collector-dropdown",
             className="instrument-dropdown",
@@ -194,28 +196,39 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
             multi=True,
             placeholder="Choose instruments",
             clearable=False,
-            style={'fontSize':'13px'}
+            style={'fontSize':'12px'}
         ),
         html.Div(id="instrument-hint", style={
-            'fontSize':'11px','color':'#666','marginTop':'6px','fontStyle':'italic'
+            'fontSize':'10px','color':'#6b7280','marginTop':'4px','fontStyle':'italic'
         })
-    ], className="panel box border subtle-shadow")
+    ], className="panel box border subtle-shadow", style={
+        'padding': '12px 16px 10px 16px',  # kompakter
+        'marginBottom': '12px'  # weniger Abstand nach unten
+    })
 
     trade_details_panel = html.Div([
         html.Div(id='trade-details-panel', children=[
             html.Div([
                 html.H4("Trade Details", style={
-                    'color':'#2c3e50','marginBottom':'10px',
+                    'color':'#1f2937','marginBottom':'6px',
                     'fontFamily':'Inter, system-ui, sans-serif','fontWeight':'600',
-                    'textAlign':'center','fontSize':'18px','letterSpacing':'-0.01em'
+                    'textAlign':'left','fontSize':'14px','letterSpacing':'-0.01em'
                 }),
                 html.P("Click on a trade marker in the chart below to see details", style={
-                    'color':'#6c757d','fontFamily':'Inter, system-ui, sans-serif',
-                    'textAlign':'center','fontSize':'14px','margin':'0','fontWeight':'400'
+                    'color':'#6b7280','fontFamily':'Inter, system-ui, sans-serif',
+                    'textAlign':'left','fontSize':'12px','margin':'0','fontWeight':'400',
+                    'lineHeight':'1.3'
                 })
             ])
         ])
-    ], className="panel box glass-panel trade-details")
+    ], className="panel box glass-panel trade-details", style={
+        'padding': '12px 16px 10px 16px',  # kompakter
+        'marginBottom': '12px',  # weniger Abstand
+        'background': 'linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(248,250,252,0.90) 100%)',
+        'border': '1px solid rgba(226,232,240,0.8)',
+        'borderRadius': '12px',
+        'boxShadow': '0 2px 8px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.06)'
+    })
 
     price_block = html.Div([
         html.Div([
@@ -246,33 +259,23 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
                                     className="btn btn-toggle mini",
                                     style={})
                     ])
-                ])
+                ], style={'marginBottom': '8px'})  # weniger Abstand zur Chart
             ]),
-            dcc.Graph(id='price-chart', style={'height': '650px', 'width': '100%'})  # width hinzugefügt
+            dcc.Graph(id='price-chart', style={'height': '650px', 'width': '100%'})
         ], className="price-chart-container compact")
-    ], className="panel chart-panel compact", style={'width': '100%', 'boxSizing': 'border-box'})
+    ], className="panel chart-panel compact", style={
+        'width': '100%', 
+        'boxSizing': 'border-box',
+        'marginBottom': '14px'  # kompakter Abstand
+    })
 
     indicators_container = html.Div([ html.Div(id='indicators-container') ],
                                     className="indicators-wrapper")
 
     metrics_panel = build_metrics_panel(None, single_mode=single_mode)
 
-    # NEW: unified padding (was only for single_mode)
-    base_pad = '0'  # CHANGED: kein Außen-Padding mehr, für echten Full-Bleed Header
-    main_content_style = {
-        'paddingLeft': base_pad,
-        'paddingRight': base_pad,
-        'paddingTop': '0',          # Header hat eigenes Padding
-        'paddingBottom': '0',
-        'boxSizing': 'border-box',
-        'width': '100%',
-        'margin': '0',
-        'flex': '1 1 auto',
-        'alignSelf': 'stretch'
-    }
-    # Wrap inner blocks to stabilize layout before slide-menu animation
-    # Neuer innerer Content-Wrapper mit dem alten Innen-Padding (26/28px)
-    inner_padding = '28px' if single_mode else '26px'
+    # Neuer innerer Content-Wrapper mit reduziertem Padding
+    inner_padding = '24px' if single_mode else '22px'
     content_body = html.Div([
         collector_dropdown,
         trade_details_panel,
@@ -280,19 +283,30 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
         indicators_container,
         metrics_panel
     ], id="content-body", style={
-        'padding': f'14px {inner_padding} 60px {inner_padding}',
+        'padding': f'10px {inner_padding} 50px {inner_padding}',  # top padding reduziert
         'display': 'flex',
         'flexDirection': 'column',
-        'gap': '18px',
+        'gap': '0px',  # entfernt Gap, da Komponenten eigene Margins haben
         'width': '100%',
         'boxSizing': 'border-box'
     })
+
     main_inner = html.Div([
         header,          # full-bleed
         content_body     # gepaddeter Bereich
     ], style={'display': 'flex','flexDirection':'column','gap':'0'})
 
-    main_content = html.Div(main_inner, id="main-content", className="main-content", style=main_content_style)
+    main_content = html.Div(main_inner, id="main-content", className="main-content", style={
+        'paddingLeft': '0',
+        'paddingRight': '0',
+        'paddingTop': '0',          # Header hat eigenes Padding
+        'paddingBottom': '0',
+        'boxSizing': 'border-box',
+        'width': '100%',
+        'margin': '0',
+        'flex': '1 1 auto',
+        'alignSelf': 'stretch'
+    })
 
     # Hidden placeholder to satisfy callbacks expecting 'refresh-btn'
     hidden_refresh_btn = html.Button(id='refresh-btn', n_clicks=0, style={'display': 'none'})
