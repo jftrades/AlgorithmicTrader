@@ -17,7 +17,7 @@ def build_metrics_panel(metrics_path, single_mode: bool = False):
         'borderRadius': '20px'
     }
     if single_mode:
-        # remove frame so inner inline metrics container stands alone
+        # Remove framing to avoid double border in inline usage
         base_style.update({
             'border': 'none',
             'background': 'transparent',
@@ -248,9 +248,9 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
                     ])
                 ])
             ]),
-            dcc.Graph(id='price-chart', style={'height': '650px'})
+            dcc.Graph(id='price-chart', style={'height': '650px', 'width': '100%'})  # width hinzugefügt
         ], className="price-chart-container compact")
-    ], className="panel chart-panel compact")
+    ], className="panel chart-panel compact", style={'width': '100%', 'boxSizing': 'border-box'})
 
     indicators_container = html.Div([ html.Div(id='indicators-container') ],
                                     className="indicators-wrapper")
@@ -258,28 +258,39 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
     metrics_panel = build_metrics_panel(None, single_mode=single_mode)
 
     # NEW: unified padding (was only for single_mode)
-    base_pad = '28px' if single_mode else '26px'
+    base_pad = '0'  # CHANGED: kein Außen-Padding mehr, für echten Full-Bleed Header
     main_content_style = {
         'paddingLeft': base_pad,
         'paddingRight': base_pad,
-        'paddingTop': '14px',
-        'paddingBottom': '60px',   # ensure bottom breathing room
+        'paddingTop': '0',          # Header hat eigenes Padding
+        'paddingBottom': '0',
         'boxSizing': 'border-box',
-        'width': '100vw',          # FULL viewport width
-        'maxWidth': 'none',        # remove previous cap
-        'margin': '0',             # remove auto-centering
+        'width': '100%',
+        'margin': '0',
         'flex': '1 1 auto',
         'alignSelf': 'stretch'
     }
     # Wrap inner blocks to stabilize layout before slide-menu animation
-    main_inner = html.Div([
-        header,
+    # Neuer innerer Content-Wrapper mit dem alten Innen-Padding (26/28px)
+    inner_padding = '28px' if single_mode else '26px'
+    content_body = html.Div([
         collector_dropdown,
         trade_details_panel,
         price_block,
         indicators_container,
         metrics_panel
-    ], style={'display': 'flex','flexDirection':'column','gap':'18px'})
+    ], id="content-body", style={
+        'padding': f'14px {inner_padding} 60px {inner_padding}',
+        'display': 'flex',
+        'flexDirection': 'column',
+        'gap': '18px',
+        'width': '100%',
+        'boxSizing': 'border-box'
+    })
+    main_inner = html.Div([
+        header,          # full-bleed
+        content_body     # gepaddeter Bereich
+    ], style={'display': 'flex','flexDirection':'column','gap':'0'})
 
     main_content = html.Div(main_inner, id="main-content", className="main-content", style=main_content_style)
 
@@ -308,6 +319,10 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
     ], className="app-root font-default", style={
         'overflowX': 'hidden',
         'minHeight': '100vh',
-        'width': '100vw',       # ensure root spans full screen
-        'display': 'block'
+        'width': '100%',          # CHANGED from 100vw
+        'maxWidth': '100%',       # ensure no overflow
+        'display': 'flex',        # NEW to stabilize first paint
+        'flexDirection': 'column',
+        'padding':'0',          # NEW explicit
+        'margin':'0'            # NEW explicit
     })

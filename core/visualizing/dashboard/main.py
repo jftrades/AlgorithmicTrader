@@ -37,7 +37,11 @@ def create_app():
             {%favicon%}
             {%css%}
             <style>
-              body { margin:0; font-family: 'Inter', system-ui, sans-serif; }
+              html,body,#app-root,.app-root,#app-layout-wrapper {
+                  margin:0; padding:0; width:100%; min-height:100vh; box-sizing:border-box;
+              }
+              * { box-sizing:border-box; }
+              body { font-family: 'Inter', system-ui, sans-serif; background:#f1f5f9; }
             </style>
         </head>
         <body>
