@@ -209,48 +209,52 @@ def render_metrics_cards(flat_metrics: dict):
     for k, v in flat_metrics.items():
         cls = classify(k)
         accent = {
-            'currency': '#6366f1',
-            'count': '#0ea5e9',
-            'percent': '#10b981',
-            'generic': '#475569'
-        }.get(cls, '#475569')
+            'currency': '#1d4ed8',
+            'count': '#0f766e',
+            'percent': '#9333ea',
+            'generic': '#334155'
+        }.get(cls, '#334155')
         cards.append(
             html.Div([
                 html.Div(k, style={
                     'fontSize': '11px',
-                    'letterSpacing': '.5px',
+                    'letterSpacing': '.55px',
                     'textTransform': 'uppercase',
                     'color': '#64748b',
                     'fontWeight': '600',
-                    'marginBottom': '6px'
+                    'marginBottom': '8px',
+                    'lineHeight': '1.1'
                 }),
                 html.Div(fmt(k, v), style={
-                    'fontSize': '20px',
+                    'fontSize': '24px',              # größer
                     'fontWeight': '600',
                     'color': accent,
                     'fontFamily': 'Inter, system-ui, sans-serif',
-                    'textShadow': '0 1px 0 rgba(0,0,0,0.04)'
+                    'lineHeight': '1.05'
                 })
             ], style={
-                'background': 'linear-gradient(135deg,#ffffff 0%,#f8fafc 100%)',
+                'background': '#ffffff',            # cleaner
                 'border': '1px solid #e2e8f0',
                 'borderRadius': '14px',
-                'padding': '14px 16px 16px 16px',
-                'minWidth': '140px',
-                'flex': '1 1 160px',
-                'boxShadow': '0 4px 14px -4px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04)',
-                'transition': 'transform .18s ease, box-shadow .18s ease',
+                'padding': '18px 20px 20px 20px',
+                'minWidth': '180px',               # größer
+                'flex': '1 1 200px',
+                'boxShadow': '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
+                'transition': 'border-color .18s ease, transform .18s ease, box-shadow .18s ease',
                 'display': 'flex',
-                'flexDirection': 'column'
+                'flexDirection': 'column',
+                'cursor': 'default'
+            }, **{
+                # Inline on-hover Stil via CSS-in-JS (Pseudo nicht möglich, daher JS-frei Trick optional)
             })
         )
     return html.Div(cards, style={
         'display': 'flex',
         'flexWrap': 'wrap',
-        'gap': '14px',
+        'gap': '18px',                 # mehr Luft
         'alignItems': 'stretch',
         'justifyContent': 'flex-start',
-        'marginTop': '4px'
+        'marginTop': '6px'
     })
 
 def create_metrics_table(metrics: dict, nautilus_result, layout_mode: str = "cards"):
@@ -284,13 +288,16 @@ def create_metrics_table(metrics: dict, nautilus_result, layout_mode: str = "car
             return 'count'
         return 'generic'
 
-    def _is_pnl_key(k: str):
+    def _is_primary_pnl_key(k: str):
         kl = k.lower()
-        return (
-            ('pnl' in kl and 'pnl%' not in kl) or
-            kl.endswith('_pnl') or
-            'final_realized_pnl' in kl or
-            'realized_pnl' in kl
+        # Only these keys get red/green semantic coloring
+        return any(
+            pat in kl for pat in [
+                'final_realized_pnl',
+                'realized_pnl',
+                'net_pnl',
+                'total_pnl'
+            ]
         )
 
     def _inline_fmt(k, v):
@@ -310,19 +317,14 @@ def create_metrics_table(metrics: dict, nautilus_result, layout_mode: str = "car
             return str(v)
 
     def _value_color(k, v):
-        if _is_pnl_key(k):
+        # Only primary PnL keys are colored red/green
+        if _is_primary_pnl_key(k):
             try:
                 return '#10b981' if float(v) >= 0 else '#ef4444'
             except Exception:
                 return '#111827'
-        cls = _inline_classify(k)
-        if cls == 'currency':
-            return '#111827'  # black for non-PnL currency metrics
-        return {
-            'count': '#0ea5e9',
-            'percent': '#0f766e',
-            'generic': '#475569'
-        }.get(cls, '#475569')
+        # All other metrics neutral dark
+        return '#111827'
 
     def _unit_for(k):
         cls = _inline_classify(k)
@@ -335,34 +337,34 @@ def create_metrics_table(metrics: dict, nautilus_result, layout_mode: str = "car
     def _inline_chip(label, raw_value):
         fmt = _inline_fmt(label, raw_value)
         unit = _unit_for(label)
-        # guard: don't show unit if value already ends with % or N/A
         if fmt.endswith('%'):
-            unit = ''
+            unit = ''  # ...existing logic...
         color = _value_color(label, raw_value)
         return html.Div([
             html.Span(label, style={
-                'fontSize': '10px','letterSpacing':'.45px','textTransform':'uppercase',
-                'color':'#64748b','fontWeight':'600','display':'block','marginBottom':'2px'
+                'fontSize': '10px','letterSpacing':'.55px','textTransform':'uppercase',
+                'color':'#64748b','fontWeight':'600','display':'block','marginBottom':'4px'
             }),
             html.Span(fmt, style={
-                'fontSize': '15px','fontWeight':'700','color': color,
-                'fontFamily':'Inter, system-ui, sans-serif','lineHeight':'1.1'
+                'fontSize': '18px','fontWeight':'600','color': color,
+                'fontFamily':'Inter, system-ui, sans-serif','lineHeight':'1.05'
             }),
             (html.Span(unit, style={
-                'fontSize':'10px','fontWeight':'600','color':'#475569','marginTop':'2px',
+                'fontSize':'10px','fontWeight':'600','color':'#475569','marginTop':'4px',
                 'letterSpacing':'.5px'
             }) if unit else None)
         ], style={
             'flex':'0 0 auto',
-            'padding':'10px 14px 9px 14px',
-            'background':'linear-gradient(145deg,#ffffff 0%,#f6f9fb 100%)',
+            'padding':'14px 18px 14px 18px',
+            'background':'#ffffff',
             'border':'1px solid #e2e8f0',
-            'borderRadius':'14px',
-            'boxShadow':'0 2px 6px -2px rgba(0,0,0,0.07)',
+            'borderRadius':'12px',
+            'boxShadow':'0 1px 3px rgba(0,0,0,0.05)',
             'display':'flex',
             'flexDirection':'column',
             'alignItems':'flex-start',
-            'minWidth':'118px'
+            'minWidth':'140px',
+            'transition':'border-color .18s ease, transform .18s ease, box-shadow .18s ease'
         })
 
     # --- Nested inline (multi-run) vertical layout ---
