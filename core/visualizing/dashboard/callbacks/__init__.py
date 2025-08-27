@@ -2,7 +2,6 @@ from core.visualizing.dashboard.param_analysis.service import ParameterAnalysisS
 
 from .menu import register_menu_callbacks
 from .param_analyzer import register_param_analyzer_callbacks
-from .run_selection import register_run_selection_callbacks
 from .charts import register_chart_callbacks
 
 def register_callbacks(app, repo, dash_data=None):
@@ -25,5 +24,4 @@ def register_callbacks(app, repo, dash_data=None):
 
     register_menu_callbacks(app, repo, state)
     register_param_analyzer_callbacks(app, repo, analysis_service)
-    register_run_selection_callbacks(app, repo, state)
     register_chart_callbacks(app, repo, state)

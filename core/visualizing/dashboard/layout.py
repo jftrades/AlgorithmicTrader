@@ -334,7 +334,7 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
         main_content,
         dcc.Store(id='menu-open-store', data=menu_open),
         dcc.Store(id='menu-fullscreen-store', data=False),
-        dcc.Store(id='selected-run-store', data=run_id),
+        dcc.Store(id='selected-run-store', data=([run_id] if run_id else [])),
         dcc.Store(id='run-yaml-store', data={}),
         dcc.Store(id='quantstats-status', data=""),
         dcc.Store(id='show-trades-store', data=True),

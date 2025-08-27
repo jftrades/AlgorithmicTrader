@@ -259,39 +259,21 @@ def register_chart_callbacks(app, repo, state):
         # Ensure runs_cache dict exists
         if "runs_cache" not in state or not isinstance(state["runs_cache"], dict):
             state["runs_cache"] = {}
-        # NEW: ensure multi_run_lock exists
-        if "multi_run_lock" not in state or not isinstance(state["multi_run_lock"], list):
-            state["multi_run_lock"] = []
 
-        trig_id = (callback_context.triggered[0]["prop_id"].split(".")[0]
-                   if callback_context.triggered else None)
-        existing_active = state.get("active_runs", [])
-        parse_new = trig_id == "selected-run-store"
-        if parse_new:
-            # Normalize incoming selection (can be list / single / None)
-            if isinstance(selected_run_store, list):
-                new_list = [str(r) for r in selected_run_store if r not in (None, "", [])]
-            elif isinstance(selected_run_store, (str, int)):
-                new_list = [str(selected_run_store)]
-            else:
-                new_list = []
-
-            # Always adopt exactly what the store contains (including empty -> clear)
-            state["active_runs"] = new_list
-
-            # Maintain / shrink lock: if multi-run keep snapshot; if shrunk or cleared update/remove lock
-            if len(new_list) > 1:
-                state["multi_run_lock"] = list(new_list)
-            else:
-                # Shrink lock to single (or clear) so old multi-run does not resurrect
-                state["multi_run_lock"] = list(new_list)
+        # --- SIMPLIFIED AND CORRECTED RUN SELECTION LOGIC ---
+        # The selected_run_store is the single source of truth.
+        if isinstance(selected_run_store, list):
+            active_runs = [str(r) for r in selected_run_store if r]
+        elif isinstance(selected_run_store, (str, int)):
+            active_runs = [str(selected_run_store)]
         else:
-            # Non run-selection trigger: DO NOT resurrect previous multi-run automatically
-            # Just keep current active_runs as-is.
-            state["active_runs"] = state.get("active_runs", [])
-        # Removed: automatic restoration block that re-added deselected runs
+            active_runs = []
+        
+        state["active_runs"] = active_runs
+        print(f"[UNIFIED] active_runs={active_runs}")  # DEBUG
+        # --- END OF SIMPLIFIED LOGIC ---
 
-        # Reload any missing run objects (menu might have been hidden after initial selection)
+        # Reload any missing run objects (e.g., if app was restarted)
         for rid in state["active_runs"]:
             if rid not in state["runs_cache"]:
                 try:
@@ -300,7 +282,39 @@ def register_chart_callbacks(app, repo, state):
                 except Exception:
                     pass
 
-        active_runs = state.get("active_runs") or []
+        # This block is now redundant as menu.py handles collector sync, but keep as a fallback.
+        if active_runs:
+            first_rid = active_runs[0]
+            if state.get("current_collectors_run_id") != first_rid:
+                # load run object if missing
+                if first_rid not in state["runs_cache"]:
+                    try:
+                        state["runs_cache"][first_rid] = repo.load_specific_run(first_rid)
+                    except Exception:
+                        pass
+                run_obj = state["runs_cache"].get(first_rid)
+                if run_obj:
+                    new_collectors = run_obj.collectors or {}
+                    if new_collectors:
+                        state["collectors"] = new_collectors
+                        # pick previously selected collector if still present else run's selected else first key
+                        prev = state.get("selected_collector")
+                        if not prev or prev not in new_collectors:
+                            state["selected_collector"] = (
+                                run_obj.selected
+                                or (prev if prev in new_collectors else next(iter(new_collectors), None))
+                            )
+                        # reset trade selection when switching run
+                        state["selected_trade_index"] = None
+                        state["current_collectors_run_id"] = first_rid
+                # else: keep old collectors (run failed to load)
+        else:
+            # no active runs -> clear collectors
+            if state.get("collectors"):
+                state["collectors"] = {}
+                state["selected_collector"] = None
+                state["current_collectors_run_id"] = None
+                state["selected_trade_index"] = None
 
         if not sel_values:
             from plotly.graph_objects import Figure

@@ -7,12 +7,12 @@ from dash import html, dash_table, dcc
 class RunTableBuilder:
     """Erstellt Run-Tabellen für normale und Fullscreen-Ansicht"""
     
-    def create_table(self, runs_df: pd.DataFrame, is_fullscreen: bool = False, checkbox_states: dict = None) -> html.Div:
+    def create_table(self, runs_df: pd.DataFrame, is_fullscreen: bool = False, checkbox_states: dict = None, selected_run_indices: list = None) -> html.Div:
         """Hauptmethode für Tabellen-Erstellung"""
         if is_fullscreen:
             return self._create_fullscreen_table(runs_df, checkbox_states)
         else:
-            return self._create_normal_table(runs_df)
+            return self._create_normal_table(runs_df, selected_run_indices=selected_run_indices)
     
     def _extract_param_columns(self, runs_df: pd.DataFrame) -> list:
         """
@@ -102,7 +102,7 @@ class RunTableBuilder:
             'zIndex': 1     # NEU: unter Toolbar
         })
     
-    def _create_normal_table(self, runs_df: pd.DataFrame) -> dash_table.DataTable:
+    def _create_normal_table(self, runs_df: pd.DataFrame, selected_run_indices: list = None) -> dash_table.DataTable:
         """Erstellt normale DataTable"""
         # Dynamische Parameter auch in der normalen Tabelle ans Ende hängen
         param_cols = self._extract_param_columns(runs_df)
@@ -173,8 +173,10 @@ class RunTableBuilder:
                 {'if': {'column_id': 'run_id'}, 'display': 'none'}  # wirklich verstecken
             ],
             style_as_list_view=True,
-            row_selectable="multi",          # geändert von 'single' -> Multi-Choice aktiv
-            selected_rows=[0],               # initial weiterhin erster Run ausgewählt
+            row_selectable="multi",
+            selected_rows=selected_run_indices or [],              # was [0] -> no auto-selection (prevents auto reset)
+            persistence=True,              # keep user selection across redraws
+            persisted_props=["selected_rows"],
             page_size=25
         )
     

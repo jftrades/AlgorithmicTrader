@@ -51,7 +51,9 @@ class SlideMenuComponent:
         sidebar_content.append(header)
 
         # Run-Tabelle erstellen
-        run_table = self.table_builder.create_table(runs_df, is_fullscreen, checkbox_states)
+        run_table = self.table_builder.create_table(
+            runs_df, is_fullscreen, checkbox_states, selected_run_indices=selected_run_indices
+        )
 
         # Equity Curves für Fullscreen-Modus
         equity_charts = html.Div()
