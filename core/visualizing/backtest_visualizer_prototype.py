@@ -68,6 +68,7 @@ class BacktestDataCollector:
         self.indicators = {}
         self.indicator_plot_number = {}
         self.initialise_result_path()
+        self.plots_at_minus_one = 0
         
 
     def initialise_result_path(self):
@@ -83,6 +84,9 @@ class BacktestDataCollector:
  
     def initialise_logging_indicator(self, name, plot_number): #indicator -> [indicator_name, plot_number]
         self.indicators[name] = []
+        if plot_number == -1:
+            plot_number = 1000 + self.plots_at_minus_one
+            self.plots_at_minus_one += 1
         self.indicator_plot_number[name] = plot_number
 
     def add_bar(self, timestamp, open_, high, low, close, bar_type):

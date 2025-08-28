@@ -12,7 +12,7 @@ from core.visualizing.dashboard.data_repository import ResultsRepository
 
 RESULTS_DIR = ROOT / "data" / "DATA_STORAGE" / "results"
 
-def create_app():
+def launch_dashbaord():
     # CSS für Dash App konfigurieren
     external_stylesheets = [
         'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap'
@@ -82,16 +82,9 @@ def create_app():
         print(f"[CRITICAL ERROR] {e}")
         raise SystemExit(f"Dashboard startup failed: {e}")
 
-    # --- Entferne explizite YAML-Callback-Registrierung ---
-    # slide_menu_component = getattr(app.layout, "slide_menu_component", None)
-    # if slide_menu_component is not None:
-    #     slide_menu_component.viewer.register_callbacks(app)
-    # else:
-    #     print("[WARN] SlideMenuComponent instance not found for YAML callback registration.")
-
     register_callbacks(app, repo, dash_data)
     return app
 
 if __name__ == "__main__":
-    app = create_app()
+    app = launch_dashbaord()
     app.run(debug=True, host="127.0.0.1", port=8050, use_reloader=False)

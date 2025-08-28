@@ -3,18 +3,9 @@ import pandas as pd
 import uuid
 from pathlib import Path
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
-from nautilus_trader.backtest.config import (
-    BacktestDataConfig,
-    BacktestVenueConfig,
-    BacktestEngineConfig,
-    BacktestRunConfig,
-)
+from nautilus_trader.backtest.config import (BacktestDataConfig,BacktestVenueConfig,BacktestEngineConfig,BacktestRunConfig,)
 from nautilus_trader.trading.config import ImportableStrategyConfig
-from tools.help_funcs.help_funcs_execution import (
-    _clear_directory,
-    run_backtest,
-    extract_metrics,
-)
+from tools.help_funcs.help_funcs_execution import (_clear_directory,run_backtest,extract_metrics)
 from tools.help_funcs.yaml_loader import load_and_split_params
 import shutil
 import yaml
@@ -22,11 +13,11 @@ import copy
 from glob import glob
 import os
 import webbrowser
+from core.visualizing.dashboard.main import launch_dashbaord
+
 
 #STRAT PARAMETER
 yaml_name = "beta.yaml"
-strategy_path = "strategies.beta_strat:RSISimpleStrategy"
-config_path = "strategies.beta_strat:RSISimpleStrategyConfig"
 
 # ------------------------------------------------------------
 # YAML laden & vorbereiten
@@ -34,9 +25,12 @@ config_path = "strategies.beta_strat:RSISimpleStrategyConfig"
 yaml_path = str(Path(__file__).resolve().parents[1] / "config" / yaml_name)
 params, param_grid, keys, values, static_params, all_instrument_ids, all_bar_types = load_and_split_params(yaml_path)
 
+strategy_path = params["strategy_path"]
+config_path = params["config_path"]
 start_date = params["start_date"]
 end_date = params["end_date"]
 venue = params["venue"]
+visualize = params.get("visualise", True)
 
 # ------------------------------------------------------------
 # Daten-/Venue-Konfiguration
@@ -137,3 +131,7 @@ for result, run_id, run_params, run_dir in zip(results, run_ids, run_params_list
 df_all = pd.DataFrame(all_metrics)
 df_all.to_csv(results_dir / "all_backtest_results.csv", index=False)
 print("Finished Backtest runs. Results saved to:", results_dir)
+
+if visualize:
+    dash = launch_dashbaord()
+    dash.run(debug=True, host="127.0.0.1", port=8050, use_reloader=False)

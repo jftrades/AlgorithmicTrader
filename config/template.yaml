@@ -2,8 +2,8 @@
 # Globale Parameter
 # ===========================
 
-strategy_path: "strategies.beta_strat:RSISimpleStrategy"
-config_path: "strategies.beta_strat:RSISimpleStrategyConfig"
+strategy_path: "strategies.beta_strat:RSISimpleStrategy" #pathToClass
+config_path: "strategies.beta_strat:RSISimpleStrategyConfig" #pathToConfigClass
 
 visualize: true
 
@@ -11,12 +11,20 @@ venue: "BINANCE"
 
 # Instrumente
 instruments:
+  #first instrument -> bar types and instrument_id HAS TO be set... all other params (btc_param_XY, test.. etc) can be freely defined and used in the strategy
   - instrument_id: "BTCUSDT-PERP.BINANCE"
     bar_types: 
       - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
       - "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
-    trade_size_usdt: "100"
+    btc_param_XY: "100"
     test: 1
+
+  #first instrument
+  - instrument_id: "ETHUSDT-PERP.BINANCE"
+    bar_types: 
+      - "ETHUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
+    eth_param_XY: "100"
+    eth_param_ZZ: "200"
 
 # Backtest-Zeitraum
 start_date: "2024-10-01T00:00:00Z"
@@ -28,7 +36,7 @@ base_currency: "USDT"
 account_type: "MARGIN"
 oms_type: "NETTING"
 
-# Risiko-Parameter (global)
+# Risiko-Parameter (global) #should always be set (if the risk_manager is used)
 trade_size_usdt: 1000
 risk_percent: 0.01
 max_leverage: 2
@@ -39,7 +47,7 @@ close_positions_on_stop: [true]
 # Strategie-spezifische Parameter
 # ===========================
 
-# RSI-Strategie
-rsi_period: [10]
-rsi_overbought: [0.75]
-rsi_oversold: [0.25, 0.3]
+# Strategie XY
+param_aus_yaml1: [0.5]
+param_aus_yaml2: [1, 2] #multiple entries for grid search (parameter testing)
+#many more param can be defined here
