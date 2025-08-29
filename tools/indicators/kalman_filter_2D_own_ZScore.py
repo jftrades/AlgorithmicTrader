@@ -28,7 +28,7 @@ class KalmanFilterRegressionWithZScore:
         self.kalman_distance_history = deque(maxlen=zscore_window)
         self.current_kalman_mean = None
 
-    def update(self, value: float):
+    def update(self, value: float, calculate_zscore: bool = True):
         # Initialisierung
         if not self.initialized:
             self.window.append(value)
@@ -61,7 +61,8 @@ class KalmanFilterRegressionWithZScore:
         # Z-Score berechnung - EINFACHE Distanz zum Kalman Mean in Standardabweichungen
         # Z-Score = 0 wenn Preis EXAKT auf Kalman Mean ist
         zscore = None
-        if self.current_kalman_mean is not None:
+        if calculate_zscore and self.current_kalman_mean is not None:
+
             # Sammle die absoluten Distanzen für Standardabweichung (ohne Vorzeichen)
             abs_distance = abs(value - self.current_kalman_mean)
             self.kalman_distance_history.append(abs_distance)
