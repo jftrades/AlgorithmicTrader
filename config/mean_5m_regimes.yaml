@@ -2,8 +2,8 @@ symbol: "SPY"
 venue: "ARCA"
 instrument_id: "SPY.ARCA"
 bar_type_5m: "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
-start_date: "2025-01-01T00:00:00Z"
-end_date: "2025-07-29T23:59:59Z"
+start_date: "2024-01-01T00:00:00Z"
+end_date: "2024-12-29T23:59:59Z"
 
 only_trade_rth: true
 initialization_window: 150
@@ -57,10 +57,10 @@ base_parameters:
     scaling_method: "linear"
     base_long_risk: 1.0
     base_short_risk: 1.0
-    max_long_risk_uptrend: 3.0
-    max_long_risk_downtrend: 0.001
-    max_short_risk_uptrend: 0.001
-    max_short_risk_downtrend: 3.0
+    max_long_risk_uptrend: 1.1
+    max_long_risk_downtrend: 0.9
+    max_short_risk_uptrend: 0.9
+    max_short_risk_downtrend: 1.1
 
   slope_asymmetric_offset:
     enabled: true
@@ -72,10 +72,10 @@ base_parameters:
   # Hard stop loss configuration
   ATR_window_if_use_SL: 14
   use_hard_stop_long:
-    enabled: true
+    enabled: false
     atr_stop_long: 3.5
   use_hard_stop_short:
-    enabled: true
+    enabled: false
     atr_stop_short: 3.5
 
 # slope extracted and used directly in scaling systems
@@ -108,7 +108,7 @@ vix_fear_threshold: 38
 invest_percent: 3.0
 close_positions_on_stop: true
 risk_percent: 0.02
-max_leverage: 20.0
+max_leverage: 5.0
 min_account_balance: 1000
 
 starting_account_balance: "100000 USD"
