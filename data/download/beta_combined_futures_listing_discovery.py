@@ -6,7 +6,7 @@ import requests
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-def get_new_binance_perpetual_futures(months_back=0.2):
+def get_new_binance_perpetual_futures(months_back):
     url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
     resp = requests.get(url)
     resp.raise_for_status()
@@ -30,7 +30,9 @@ def get_new_binance_perpetual_futures(months_back=0.2):
 
 if __name__ == "__main__":
     print("start")
-    futures = get_new_binance_perpetual_futures(months_back=0.5)
+    futures = get_new_binance_perpetual_futures(months_back=12)
+    # Nur Symbole mit USDT am Ende behalten
+    futures = [f for f in futures if f["symbol"].endswith("USDT")]
     # Speichern als CSV
     import csv
     # Zielverzeichnis setzen

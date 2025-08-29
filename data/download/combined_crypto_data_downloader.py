@@ -9,14 +9,16 @@ import shutil
 
 # Parameter hier anpassen
 symbol = "BTCUSDT-PERP"
-start_date = "2024-10-01"
-end_date = "2024-10-04"
+start_date = "2023-01-01"
+end_date = "2025-08-15"
 base_data_dir = str(Path(__file__).resolve().parents[1] / "DATA_STORAGE")
-datatype = "tick"  # oder "tick"
-interval = "5min"    # nur für Bars relevant
+datatype = "bar"  # oder "tick"
+interval = "5m"    # nur für Bars relevant
+price_precision = 1
+size_precision = 1
 
 class CombinedCryptoDataDownloader:
-    def __init__(self, symbol, start_date, end_date, base_data_dir, datatype="tick", interval="1h"):
+    def __init__(self, symbol, start_date, end_date, base_data_dir, datatype="tick", interval="1h", price_precision=8, size_precision=8):
         # Symbol-Handling für Spot und Futures (PERP)
         self.is_perp = symbol.endswith("-PERP")
         self.symbol_for_binance = symbol.replace("-PERP", "")
@@ -27,6 +29,8 @@ class CombinedCryptoDataDownloader:
         self.base_data_dir = base_data_dir
         self.datatype = datatype
         self.interval = interval
+        self.price_precision = price_precision
+        self.size_precision = size_precision
 
     def run(self):
         if self.datatype == "tick":
@@ -61,7 +65,12 @@ class CombinedCryptoDataDownloader:
                 base_data_dir=self.base_data_dir
             )
             bar_downloader.run()
-            processed_dir = str(Path(self.base_data_dir) / f"processed_bar_data_{self.start_date}_to_{self.end_date}" / "csv")
+            
+            # Fix: Verwende das gleiche Format wie BarDownloader
+            start_str = self.start_date.strftime("%Y-%m-%d_%H%M%S") if hasattr(self.start_date, "strftime") else f"{self.start_date}_000000"
+            end_str = self.end_date.strftime("%Y-%m-%d_%H%M%S") if hasattr(self.end_date, "strftime") else f"{self.end_date}_000000"
+            processed_dir = str(Path(self.base_data_dir) / f"processed_bar_data_{start_str}_to_{end_str}" / "csv")
+            
             csv_path = find_csv_file(self.symbol_for_binance, processed_dir)
             catalog_root_path = f"{self.base_data_dir}/data_catalog_wrangled"
 
@@ -69,19 +78,38 @@ class CombinedCryptoDataDownloader:
             from nautilus_trader.core.nautilus_pyo3 import (
                 BarSpecification, BarType, BarAggregation, PriceType, AggregationSource, InstrumentId, Symbol, Venue
             )
-            interval_num = int(self.interval.lower().replace("m", ""))
-            interval_str = f"{interval_num}-MINUTE"
+            # Verwende das Intervall-Token direkt, keine Umrechnung in Minuten!
+            raw = str(self.interval).lower().strip()
+            if raw.endswith("h"):
+                step = int(float(raw[:-1]))
+                interval_token_for_wrangler = f"{step}-HOUR"
+                aggregation = BarAggregation.HOUR
+            elif raw.endswith("d"):
+                step = int(float(raw[:-1]))
+                interval_token_for_wrangler = f"{step}-DAY"
+                aggregation = BarAggregation.DAY
+            elif raw.endswith("m"):
+                step = int(float(raw[:-1]))
+                interval_token_for_wrangler = f"{step}-MINUTE"
+                aggregation = BarAggregation.MINUTE
+            elif raw.isdigit():
+                step = int(raw)
+                interval_token_for_wrangler = f"{step}-MINUTE"
+                aggregation = BarAggregation.MINUTE
+            else:
+                raise ValueError(f"Unbekanntes Interval-Format: {self.interval}")
 
             if self.is_perp:
-                wrangler_init_bar_type_string = f"{self.symbol_for_binance}-PERP.BINANCE-{interval_str}-LAST-EXTERNAL"
+                wrangler_init_bar_type_string = f"{self.symbol_for_binance}-PERP.BINANCE-{interval_token_for_wrangler}-LAST-EXTERNAL"
                 target_instrument_id = InstrumentId(Symbol(f"{self.symbol_for_binance}-PERP"), Venue("BINANCE"))
             else:
-                wrangler_init_bar_type_string = f"{self.symbol_for_binance}.BINANCE-{interval_str}-LAST-EXTERNAL"
+                wrangler_init_bar_type_string = f"{self.symbol_for_binance}.BINANCE-{interval_token_for_wrangler}-LAST-EXTERNAL"
                 target_instrument_id = InstrumentId(Symbol(self.symbol_for_binance), Venue("BINANCE"))
 
+            # BarSpecification: step ist jetzt ein Integer und aggregation korrekt gesetzt
             target_bar_spec = BarSpecification(
-                step=interval_num,
-                aggregation=BarAggregation.MINUTE,
+                step=step,
+                aggregation=aggregation,
                 price_type=PriceType.LAST
             )
             target_bar_type_obj = BarType(
@@ -89,8 +117,8 @@ class CombinedCryptoDataDownloader:
                 spec=target_bar_spec,
                 aggregation_source=AggregationSource.EXTERNAL
             )
-            price_precision = 1
-            size_precision = 3
+
+
             output_columns = [
                 "timestamp", "open_time_ms", "open", "high", "low", "close", "volume", "number_of_trades"
             ]
@@ -107,8 +135,8 @@ class CombinedCryptoDataDownloader:
             )
             bar_transformer.run()
             try:
-                shutil.rmtree(Path(self.base_data_dir) / f"processed_bar_data_{self.start_date}_to_{self.end_date}")
-                print(f"[INFO] Bar-Ordner gelöscht: {Path(self.base_data_dir) / f'processed_bar_data_{self.start_date}_to_{self.end_date}'}")
+                shutil.rmtree(Path(self.base_data_dir) / f"processed_bar_data_{start_str}_to_{end_str}")
+                print(f"[INFO] Bar-Ordner gelöscht: {Path(self.base_data_dir) / f'processed_bar_data_{start_str}_to_{end_str}'}")
             except Exception as e:
                 print(f"[WARN] Bar-Ordner konnte nicht gelöscht werden: {e}")
         else:
@@ -121,6 +149,8 @@ if __name__ == "__main__":
         end_date=end_date,
         base_data_dir=base_data_dir,
         datatype=datatype,
-        interval=interval
+        interval=interval,
+        price_precision=price_precision,
+        size_precision=size_precision
     )
     downloader.run()

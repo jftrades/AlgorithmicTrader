@@ -23,6 +23,7 @@ from nautilus_trader.persistence.catalog import ParquetDataCatalog
 import glob
 from nautilus_trader.core.nautilus_pyo3 import InstrumentId, Symbol, Venue
 import os
+import re
 
 class TickDownloader:
     def __init__(self, symbol, start_date, end_date, base_data_dir):
@@ -180,20 +181,33 @@ class BarDownloader:
         df.rename(columns={"open_time": "open_time_ms"}, inplace=True)
         df.drop_duplicates(subset=["open_time_ms"], inplace=True)
         df.sort_values(by="open_time_ms", inplace=True)
-        df["timestamp"] = pd.to_datetime(df["open_time_ms"], unit="ms", utc=True).astype("int64")
-        for col in ["open", "high", "low", "close", "volume", "number_of_trades"]:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+        # timestamp in Millisekunden (int64, wie von NautilusTrader erwartet)
+        df["timestamp"] = df["open_time_ms"].astype("int64")
         df_final = df[OUTPUT_COLUMNS].dropna()
-        if df_final.empty:
-            print("❌ Nach Filtern keine gültigen Zeilen übrig.")
-            return
+
+        # Zeitbereich erst nach Definition von df_final berechnen!
         start_dt = pd.to_datetime(df_final["open_time_ms"].min(), unit="ms")
         end_dt = pd.to_datetime(df_final["open_time_ms"].max(), unit="ms")
 
         # Korrekte Output-Path-Berechnung
-        interval_num = int(self.interval.lower().replace("m", ""))
-        interval_str = f"{interval_num}MINUTE"
-        # Zeitformat für Dateinamen: YYYY-MM-DD_HHMMSS
+        # Verwende das Intervall-Token direkt, keine Umrechnung in Minuten!
+        raw = str(self.interval).lower().strip()
+        if raw.endswith("h"):
+            token_count = int(float(raw[:-1]))
+            interval_str = f"{token_count}-HOUR"
+        elif raw.endswith("d"):
+            token_count = int(float(raw[:-1]))
+            interval_str = f"{token_count}-DAY"
+        elif raw.endswith("m"):
+            token_count = int(float(raw[:-1]))
+            interval_str = f"{token_count}-MINUTE"
+        elif raw.isdigit():
+            token_count = int(raw)
+            interval_str = f"{token_count}-MINUTE"
+        else:
+            raise ValueError(f"Unbekanntes Interval-Format: {self.interval}")
+
+        # Zeitformat für Dateinamen: YYYY-MM-DD_HH%M%S
         start_str = self.start_date.strftime("%Y-%m-%d_%H%M%S") if hasattr(self.start_date, "strftime") else str(self.start_date).replace(":", "").replace(" ", "_")
         end_str = self.end_date.strftime("%Y-%m-%d_%H%M%S") if hasattr(self.end_date, "strftime") else str(self.end_date).replace(":", "").replace(" ", "_")
         processed_dir = Path(self.base_data_dir) / f"processed_bar_data_{start_str}_to_{end_str}" / "csv"
@@ -236,8 +250,16 @@ class BarTransformer:
         print(f"INFO: Daten werden für BarType '{self.target_bar_type_obj}' vorbereitet.")
 
         df = pd.read_csv(self.csv_path, header=None, names=self.output_columns)
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ns")
+        # timestamp bleibt int64 (Millisekunden seit Epoch), keine weitere Umwandlung!
+        df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce").astype("int64")
         df[["open", "high", "low", "close", "volume"]] = df[["open", "high", "low", "close", "volume"]].apply(pd.to_numeric, errors='coerce')
+
+        # Clamp volume auf int32-Maximum, falls zu groß
+        int32_max = 2_147_483_647
+        num_clamped = (df["volume"] > int32_max).sum()
+        df.loc[df["volume"] > int32_max, "volume"] = int32_max
+        if num_clamped > 0:
+            print(f"[INFO] {num_clamped} volume-Werte für {self.symbol} auf int32_max ({int32_max}) gesetzt.")
 
         initial_len = len(df)
         df.dropna(inplace=True)
@@ -262,8 +284,8 @@ class BarTransformer:
                     low=b_in.low,
                     close=b_in.close,
                     volume=Quantity(b_in.volume.as_double(), self.size_precision),
-                    ts_event=b_in.ts_event,
-                    ts_init=b_in.ts_init,
+                    ts_event=b_in.ts_event * 1_000_000,
+                    ts_init=b_in.ts_init * 1_000_000,
                 ))
             print(f"INFO: {len(final_bars)} Bar-Objekte vom Wrangler erzeugt.")
         else:
@@ -279,7 +301,7 @@ class BarTransformer:
             print(f"[INFO] Entferne alten Zielordner: {bar_type_dir}")
             shutil.rmtree(bar_type_dir)
         catalog = ParquetDataCatalog(path=self.catalog_root_path)
-        instrument_for_meta = get_instrument(self.symbol, self.is_perp)
+        instrument_for_meta = get_instrument(self.symbol, self.is_perp, self.price_precision, self.size_precision)
         catalog.write_data([instrument_for_meta])
         catalog.write_data(final_bars)
 
@@ -291,6 +313,7 @@ class BarTransformer:
 
         if final_bars:
             from nautilus_trader.core.datetime import unix_nanos_to_dt
+            # ts_event ist bereits in Nanosekunden!
             ts_min = unix_nanos_to_dt(min(bar.ts_event for bar in final_bars))
             ts_max = unix_nanos_to_dt(max(bar.ts_event for bar in final_bars))
             print(f"📈 Gespeicherter Zeitbereich: {ts_min} bis {ts_max}")
@@ -304,23 +327,61 @@ def find_csv_file(symbol, processed_dir):
     """
     import glob
     import os
+    
+    # Debug: Prüfe verschiedene mögliche Verzeichnisse
+    base_dir = Path(processed_dir).parent.parent
+    print(f"[DEBUG] Suche in base_dir: {base_dir}")
+    
+    if base_dir.exists():
+        all_subdirs = [d for d in base_dir.iterdir() if d.is_dir() and d.name.startswith("processed_bar_data")]
+        print(f"[DEBUG] Gefundene processed_bar_data Ordner: {[d.name for d in all_subdirs]}")
+        
+        # Verwende den neuesten Ordner falls processed_dir nicht existiert
+        if all_subdirs and not os.path.exists(processed_dir):
+            latest_dir = max(all_subdirs, key=lambda x: x.stat().st_mtime)
+            processed_dir = str(latest_dir / "csv")
+            print(f"[DEBUG] Verwende neuesten Ordner: {processed_dir}")
+    
     pattern = os.path.join(processed_dir, f"{symbol}*.csv")
     csv_files = glob.glob(pattern)
+    
     if not csv_files:
+        # Erweiterte Debug-Info
+        if os.path.exists(processed_dir):
+            contents = os.listdir(processed_dir)
+            print(f"[DEBUG] Verzeichnisinhalt von {processed_dir}: {contents}")
+        else:
+            print(f"[DEBUG] Verzeichnis existiert nicht: {processed_dir}")
+            
         raise FileNotFoundError(f"Keine CSV gefunden mit Pattern: {pattern}\nVerzeichnisinhalt: {os.listdir(processed_dir) if os.path.exists(processed_dir) else 'Verzeichnis existiert nicht!'}")
+    
     if len(csv_files) > 1:
         print(f"[WARN] Mehrere CSV-Dateien gefunden: {csv_files}. Verwende die erste.")
+    
+    print(f"[INFO] Gefundene CSV-Datei: {csv_files[0]}")
     return csv_files[0]
 
-def get_instrument(symbol: str, is_perp: bool):
+def precision_to_increment_str(precision: int) -> str:
+    """
+    Gibt zu einer Dezimal-Precision (>=0) den Inkrement-String zurück.
+    Beispiele:
+      0 -> "1"
+      1 -> "0.1"
+      8 -> "0.00000001"
+    """
+    if precision < 0:
+        raise ValueError("precision must be >= 0")
+    if precision == 0:
+        return "1"
+    return "0." + ("0" * (precision - 1)) + "1"
+
+def get_instrument(symbol: str, is_perp: bool, price_precision, size_precision):
     from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
     from nautilus_trader.test_kit.providers import TestInstrumentProvider
     from nautilus_trader.model.objects import Price, Quantity
 
     if is_perp:
-        if symbol.upper() == "BTCUSDT":
-            return TestInstrumentProvider.btcusdt_perp_binance()
-        else:
+            increment = precision_to_increment_str(price_precision)
             # Erzeuge ein neues Instrument-Objekt auf Basis von BTCUSDT, aber mit angepasstem Symbol/ID
             template = TestInstrumentProvider.btcusdt_perp_binance()
             instrument_id = InstrumentId(Symbol(f"{symbol}-PERP"), Venue("BINANCE"))
@@ -331,10 +392,10 @@ def get_instrument(symbol: str, is_perp: bool):
                 quote_currency=template.quote_currency,
                 settlement_currency=template.settlement_currency,
                 is_inverse=template.is_inverse,
-                price_precision=8,
-                size_precision=8,
-                price_increment=Price.from_str("0.00000001"),
-                size_increment=Quantity.from_str("0.00000001"),
+                price_precision=price_precision,
+                size_precision=size_precision,
+                price_increment=Price.from_str(increment),
+                size_increment=Quantity.from_str(increment),
                 margin_init=template.margin_init,
                 margin_maint=template.margin_maint,
                 maker_fee=template.maker_fee,
@@ -343,9 +404,7 @@ def get_instrument(symbol: str, is_perp: bool):
                 ts_init=template.ts_init,
             )
     else:
-        if symbol.upper() == "BTCUSDT":
-            return TestInstrumentProvider.btcusdt_binance()
-        else:
+            increment = precision_to_increment_str(price_precision)
             template = TestInstrumentProvider.btcusdt_binance()
             instrument_id = InstrumentId(Symbol(symbol), Venue("BINANCE"))
             return template.__class__(
@@ -355,10 +414,10 @@ def get_instrument(symbol: str, is_perp: bool):
                 quote_currency=template.quote_currency,
                 settlement_currency=template.settlement_currency,
                 is_inverse=template.is_inverse,
-                price_precision=template.price_precision,
-                size_precision=template.size_precision,
-                price_increment=template.price_increment,
-                size_increment=template.size_increment,
+                price_precision=price_precision,
+                size_precision=size_precision,
+                price_increment=increment,
+                size_increment=increment,
                 margin_init=template.margin_init,
                 margin_maint=template.margin_maint,
                 maker_fee=template.maker_fee,
@@ -366,3 +425,5 @@ def get_instrument(symbol: str, is_perp: bool):
                 ts_event=template.ts_event,
                 ts_init=template.ts_init,
             )
+
+

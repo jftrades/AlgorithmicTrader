@@ -11,22 +11,16 @@ import quantstats as qs
 import webbrowser, os
 import glob
 import json
-from tools.help_funcs.yaml_loader import load_params
+from pathlib import Path
+import shutil
+
 
 # Nautilus Kern Importe
 from nautilus_trader.backtest.node import BacktestNode
-from core.visualizing.dashboard import TradingDashboard
-
-# Hilfsfunktion zum Laden und Aufteilen der Parameter
-def load_and_split_params(yaml_path):
-    params = load_params(yaml_path)
-    param_grid = {k: v for k, v in params.items() if isinstance(v, list)}
-    keys, values = zip(*param_grid.items()) if param_grid else ([], [])
-    static_params = {k: v for k, v in params.items() if not isinstance(v, list)}
-    return params, param_grid, keys, values, static_params
+from core.visualizing.dashboard1 import TradingDashboard
 
 def run_backtest(run_config):
-    node = BacktestNode([run_config])  # Übergib eine Liste!
+    node = BacktestNode(run_config)  # Übergib eine Liste!
     result = node.run()
     return result
 
@@ -59,25 +53,25 @@ def visualize_existing_run(data_path, TradingDashboard=None):
 
 def extract_metrics(result, run_params, run_id):
     metrics = {}
-    if result and hasattr(result, "__getitem__"):
-        result_obj = result[0]
+    result_obj = result
         # Standard-Infos
-        metrics.update(run_params)
-        metrics["run_id"] = getattr(result_obj, "run_id", None)
-        metrics["backtest_start"] = getattr(result_obj, "backtest_start", None)
-        metrics["backtest_end"] = getattr(result_obj, "backtest_end", None)
-        metrics["elapsed_time"] = getattr(result_obj, "elapsed_time", None)
-        metrics["iterations"] = getattr(result_obj, "iterations", None)
-        metrics["total_events"] = getattr(result_obj, "total_events", None)
-        metrics["total_orders"] = getattr(result_obj, "total_orders", None)
-        metrics["total_positions"] = getattr(result_obj, "total_positions", None)
+    metrics.update(run_params)
+    metrics["run_id"] = run_id
+    metrics["run_started"] = getattr(result_obj, "run_started", None)
+    metrics["run_finished"] = getattr(result_obj, "run_finished", None)
+    metrics["backtest_start"] = getattr(result_obj, "backtest_start", None)
+    metrics["backtest_end"] = getattr(result_obj, "backtest_end", None)
+    metrics["elapsed_time"] = getattr(result_obj, "elapsed_time", None)
+    metrics["total_orders"] = getattr(result_obj, "total_orders", None)
+    metrics["total_positions"] = getattr(result_obj, "total_positions", None)
+        
         # PnL/Return-Metriken (z.B. nur USDT)
-        if hasattr(result_obj, "stats_pnls") and "USDT" in result_obj.stats_pnls:
-            for k, v in result_obj.stats_pnls["USDT"].items():
-                metrics[f"USDT_{k}"] = v
-        if hasattr(result_obj, "stats_returns"):
-            for k, v in result_obj.stats_returns.items():
-                metrics[f"RET_{k}"] = v
+    if hasattr(result_obj, "stats_pnls") and "USDT" in result_obj.stats_pnls:
+        for k, v in result_obj.stats_pnls["USDT"].items():
+            metrics[f"USDT_{k}"] = v
+    if hasattr(result_obj, "stats_returns"):
+        for k, v in result_obj.stats_returns.items():
+            metrics[f"{k}"] = v
     else:
         # Fallback: nur Parameter speichern
         metrics.update(run_params)
@@ -184,3 +178,16 @@ def show_quantstats_report_from_equity_csv(
         benchmark = benchmark[equity_daily.index.min():equity_daily.index.max()]
 
     qs.reports.html(returns, benchmark=benchmark, output=str(output_path) if output_path else None)
+
+def _clear_directory(path: Path):
+    """Löscht sämtliche Inhalte eines Verzeichnisses ohne das Verzeichnis selbst zu entfernen."""
+    if not path.exists():
+        return
+    for child in path.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            try:
+                child.unlink()
+            except Exception:
+                pass
