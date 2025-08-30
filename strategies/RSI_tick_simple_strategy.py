@@ -1,89 +1,67 @@
-# hier rein kommt die normale simple RSI strategy, nur mit Tick Daten
-# das wird die erste implementuerung von tick Daten
-
-# Standard Library Importe
 from decimal import Decimal
-from typing import Any
-from pathlib import Path
-from collections import deque
-from datetime import datetime, timedelta, timezone
- 
-# Nautilus Kern offizielle Importe (für Backtest eigentlich immer hinzufügen)
+from typing import Any, Dict, Optional, List
+
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
-from nautilus_trader.model.data import Bar, BarType, TradeTick, QuoteTick
+from nautilus_trader.model.data import Bar, BarType, TradeTick
 from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.objects import Money, Price, Quantity
-from nautilus_trader.model.orders import MarketOrder, LimitOrder, StopMarketOrder
-from nautilus_trader.model.enums import OrderSide, TimeInForce
-from nautilus_trader.model.events import OrderEvent, PositionEvent
-from nautilus_trader.model.identifiers import AccountId
-from nautilus_trader.model.currencies import USDT, BTC
-from nautilus_trader.model.enums import AggressorSide  # für BUY/SELL
+from nautilus_trader.model.events import PositionEvent
+from nautilus_trader.model.currencies import Currency
 
-# Nautilus Kern eigene Importe !!! immer
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
-from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector  # Optional visualization
-from tools.help_funcs.help_funcs_strategy import create_tags
-from nautilus_trader.common.enums import LogColor
-
-# Weitere/Strategiespezifische Importe
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
-from nautilus_trader.model.objects import Currency
+
 
 class RSITickSimpleStrategyConfig(StrategyConfig):
-    instrument_id: InstrumentId
-    trade_size_usdt: Decimal
+    instruments: list[dict]
     risk_percent: float
-    max_leverage: float
+    max_leverage: float     
     min_account_balance: float
+    trade_size_usdt: Decimal
+    tick_buffer_size: int
     rsi_period: int
     rsi_overbought: float
     rsi_oversold: float
+    run_id: str
     close_positions_on_stop: bool = True
-    tick_buffer_size: int = 1000
-    close_positions_on_stop: bool = True 
-    
+
 class RSITickSimpleStrategy(BaseStrategy, Strategy):
     def __init__(self, config: RSITickSimpleStrategyConfig):
+        self.instrument_dict: Dict[InstrumentId, Dict[str, Any]] = {}
         super().__init__(config)
-        self.instrument_id = config.instrument_id
         self.trade_size_usdt = config.trade_size_usdt
         self.close_positions_on_stop = config.close_positions_on_stop
-        self.venue = self.instrument_id.venue
-        self.risk_manager = None
         self.tick_buffer_size = config.tick_buffer_size 
         self.rsi_period = config.rsi_period
         self.rsi_overbought = config.rsi_overbought
         self.rsi_oversold = config.rsi_oversold
-        self.rsi = RelativeStrengthIndex(period=self.rsi_period)
-        self.last_rsi_cross = None 
-        self.stopped = False  # Flag to indicate if the strategy has been stopped
+        self.stopped = False
         self.tick_counter = 0
-        self.last_rsi = None
-        self.trade_ticks = []
-        self.last_logged_balance = None
-        self.realized_pnl = 0   # Track last logged balance
+        self.realized_pnl = 0
+        
+        # Initialize per-instrument state tracking
+        self.instrument_state = {}
+        
+        # Add instrument context after BaseStrategy is initialized
+        self.add_instrument_context()
 
+    def add_instrument_context(self):
+        # Per-instrument state tracking using instrument_dict (populated by BaseStrategy)
+        for current_instrument in self.instrument_dict.values():
+            instrument_id = current_instrument["instrument_id"]
+            self.instrument_state[instrument_id] = {
+                'rsi': RelativeStrengthIndex(period=self.rsi_period),
+                'last_rsi_cross': None,
+                'last_rsi': None,
+                'trade_ticks': [],
+                'last_logged_balance': None,
+                'tick_counter': 0
+            }
 
     def on_start(self) -> None:
-        self.instrument = self.cache.instrument(self.instrument_id)
-        self.subscribe_trade_ticks(self.instrument_id)
-        bar_type = BarType.from_str(f"{self.instrument_id}-5-MINUTE-LAST-INTERNAL")
-        self.subscribe_bars(bar_type)
-        self.last_rsi = self.rsi.value
-        self.subscribe_trade_ticks(self.instrument_id)
-        self.log.info("Tick Strategy started!")
-
-        self.collector = BacktestDataCollector()  # Optional visualization
-        self.collector.initialise_logging_indicator("RSI", 1)
-        self.collector.initialise_logging_indicator("position", 2)
-        self.collector.initialise_logging_indicator("realized_pnl", 3)
-        self.collector.initialise_logging_indicator("unrealized_pnl", 4)
-        self.collector.initialise_logging_indicator("balance", 5)
-
+        # Initialize managers
         self.risk_manager = RiskManager(
             self,
             Decimal(str(self.config.risk_percent)),
@@ -91,60 +69,82 @@ class RSITickSimpleStrategy(BaseStrategy, Strategy):
             Decimal(str(self.config.min_account_balance)),
         )
         self.order_types = OrderTypes(self)
-
-        # Get the account using the venue instead of account_id
-        venue = self.instrument_id.venue
-        account = self.portfolio.account(venue)
-        if account:
-            usdt_balance = account.balance_total(Currency.from_str("USDT")).as_double()
-            self.last_logged_balance = usdt_balance
-            self.log.info(f"USDT balance: {usdt_balance}")
-        else:
-            self.log.warning(f"No account found for venue: {venue}")
-
-    def get_position(self):
-        return self.base_get_position()
+        
+        for inst_id, ctx in self.instrument_dict.items():
+            # Subscribe to trade ticks for tick-based strategy
+            self.subscribe_trade_ticks(inst_id)
+            
+            # Subscribe to bars for RSI calculation
+            for bar_type in ctx['bar_types']:
+                if isinstance(bar_type, str):
+                    bar_type = BarType.from_str(bar_type)
+                self.subscribe_bars(bar_type)
+            
+            # Initialize last RSI value
+            self.instrument_state[inst_id]['last_rsi'] = self.instrument_state[inst_id]['rsi'].value
+            
+            # Log starting balance for each venue
+            venue = inst_id.venue
+            account = self.portfolio.account(venue)
+            if account:
+                usdt_balance = account.balance_total(Currency.from_str("USDT")).as_double()
+                self.instrument_state[inst_id]['last_logged_balance'] = usdt_balance
+                self.log.info(f"USDT balance for {inst_id}: {usdt_balance}")
+            else:
+                self.log.warning(f"No account found for venue: {venue}")
+        
+        self.log.info("Multi-Instrument Tick Strategy started!")
 
     def on_bar(self, bar: Bar):
-        self.rsi.handle_bar(bar)
-        self.last_rsi = self.rsi.value if self.rsi.initialized else None
-        self.collector.add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close)
-        
+        instrument_id = bar.bar_type.instrument_id
+        if instrument_id in self.instrument_state:
+            state = self.instrument_state[instrument_id]
+            instrument_dict = self.instrument_dict[instrument_id]
+            state['rsi'].handle_bar(bar)
+            state['last_rsi'] = state['rsi'].value if state['rsi'].initialized else None
+            self.base_collect_bar_data(bar, instrument_dict)
 
     def on_trade_tick(self, tick: TradeTick) -> None:  
-        trade_size_usdt = float(self.config.trade_size_usdt)
-        qty = max(1, int(trade_size_usdt // float(tick.close)))
-        rsi_value = self.rsi.value if self.rsi.initialized else None
-        if rsi_value is None:
-            return  # RSI noch nicht initialisiert, daher keine Logik ausführen
-        self.tick_counter += 1
-        self.trade_ticks.append(tick)
-        if len(self.trade_ticks) > self.tick_buffer_size:
-            self.trade_ticks.pop(0)
+        instrument_id = tick.instrument_id
+        if instrument_id not in self.instrument_state:
+            return
+            
+        state = self.instrument_state[instrument_id]
         
-        # Prüfe, ob bereits eine Order offen ist (pending), um Endlos-Orders zu vermeiden
-        open_orders = self.cache.orders_open(instrument_id=self.instrument_id)
+        trade_size_usdt = float(self.trade_size_usdt)
+        qty = max(1, int(trade_size_usdt // float(tick.price)))
+        rsi_value = state['rsi'].value if state['rsi'].initialized else None
+        
+        if rsi_value is None:
+            return
+            
+        state['tick_counter'] += 1
+        state['trade_ticks'].append(tick)
+        if len(state['trade_ticks']) > self.tick_buffer_size:
+            state['trade_ticks'].pop(0)
+        
+        # Check for open orders to avoid endless orders
+        open_orders = self.cache.orders_open(instrument_id=instrument_id)
         if open_orders:
-            return  # Warten, bis Order ausgeführt ist
-
-        # Entry/Exit-Logik - tick-genau
+            return
+        
+        # Entry/Exit Logic - tick-precise
         if rsi_value > self.rsi_overbought:
-            if self.last_rsi_cross != "rsi_overbought":
-                self.close_position()
-                self.order_types.submit_short_market_order(qty)
-            self.last_rsi_cross = "rsi_overbought"
+            if state['last_rsi_cross'] != "rsi_overbought":
+                self.close_position(instrument_id)
+                self.order_types.submit_short_market_order(qty, instrument_id)
+            state['last_rsi_cross'] = "rsi_overbought"
         elif rsi_value < self.rsi_oversold:
-            if self.last_rsi_cross != "rsi_oversold":
-                self.close_position()
-                self.order_types.submit_long_market_order(qty)
-            self.last_rsi_cross = "rsi_oversold"
+            if state['last_rsi_cross'] != "rsi_oversold":
+                self.close_position(instrument_id)
+                self.order_types.submit_long_market_order(qty, instrument_id)
+            state['last_rsi_cross'] = "rsi_oversold"
 
-        venue = self.instrument_id.venue
+        venue = instrument_id.venue
         account = self.portfolio.account(venue)
         usdt_balance = account.balance_total(Currency.from_str("USDT")).as_double() if account else 0
 
-        self.update_visualizer_data(tick, usdt_balance, rsi_value)
-  
+        self.update_visualizer_data(tick, usdt_balance, rsi_value, instrument_id)
 
     def on_position_event(self, event: PositionEvent) -> None:
         pass
@@ -152,31 +152,15 @@ class RSITickSimpleStrategy(BaseStrategy, Strategy):
     def on_event(self, event: Any) -> None:
         pass
 
-    def close_position(self) -> None:
-        return self.base_close_position()
+    def close_position(self, instrument_id: InstrumentId = None) -> None:
+        if instrument_id:
+            return self.base_close_position(instrument_id)
+        else:
+            # Close all positions
+            for instrument_dict in self.config.instruments:
+                inst_id = InstrumentId.from_str(instrument_dict['instrument_id'])
+                self.base_close_position(inst_id)
     
-    def on_stop(self) -> None:
-        self.base_on_stop()
-
-        self.stopped = True  
-        net_position = self.portfolio.net_position(self.instrument_id)
-        unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)  # Unrealized PnL
-        realized_pnl = float(self.portfolio.realized_pnl(self.instrument_id))  # Unrealized PnL
-        self.realized_pnl += unrealized_pnl+realized_pnl if unrealized_pnl is not None else 0
-        unrealized_pnl = 0
-        venue = self.instrument_id.venue
-        account = self.portfolio.account(venue)
-        usdt_balance = account.balance_total(Currency.from_str("USDT")).as_double() 
-        
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="balance", value=usdt_balance)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="position", value=self.portfolio.net_position(self.instrument_id) if self.portfolio.net_position(self.instrument_id) is not None else None)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl is not None else None)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="realized_pnl", value=float(self.realized_pnl) if self.realized_pnl is not None else None)
-        self.collector.add_indicator(timestamp=self.clock.timestamp_ns(), name="RSI", value=float(self.last_rsi) if self.last_rsi is not None else None)
-        logging_message = self.collector.save_data()
-        self.log.info(logging_message, color=LogColor.GREEN)
-        #self.collector.visualize()  # Visualize the data if enabled
-
     def on_order_filled(self, order_filled) -> None:
         return self.base_on_order_filled(order_filled)
 
@@ -186,19 +170,19 @@ class RSITickSimpleStrategy(BaseStrategy, Strategy):
     def on_error(self, error: Exception) -> None:
         return self.base_on_error(error)
 
-    def update_visualizer_data(self, tick: TradeTick, usdt_balance: Decimal, rsi_value: float) -> None:
-        # VISUALIZER UPDATE - Jeden Tick für vollständige Tick-Daten
-        net_position = self.portfolio.net_position(self.instrument_id)
-        unrealized_pnl = self.portfolio.unrealized_pnl(self.instrument_id)
-        venue = self.instrument_id.venue
+    def update_visualizer_data(self, tick: TradeTick, usdt_balance: float, rsi_value: float, instrument_id: InstrumentId) -> None:
+        state = self.instrument_state[instrument_id]
+        net_position = self.portfolio.net_position(instrument_id)
+        unrealized_pnl = self.portfolio.unrealized_pnl(instrument_id)
+        venue = instrument_id.venue
         account = self.portfolio.account(venue)
         usdt_balance = account.balances_total()
-        #self.log.info(f"acc balances: {usdt_balance}", LogColor.RED)
         
-        self.tick_counter += 1
-        if self.tick_counter % 1000 == 0:
+        state['tick_counter'] += 1
+        if state['tick_counter'] % 1000 == 0:
             self.collector.add_indicator(timestamp=tick.ts_event, name="position", value=net_position)
             self.collector.add_indicator(timestamp=tick.ts_event, name="RSI", value=float(rsi_value))
-            self.collector.add_indicator(timestamp=tick.ts_event, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)
+            self.collector.add_indicator(timestamp=tick.ts_event, name="unrealized_pnl", 
+                                       value=float(unrealized_pnl) if unrealized_pnl else None)
             self.collector.add_indicator(timestamp=tick.ts_event, name="realized_pnl", value=float(self.realized_pnl))
             self.collector.add_indicator(timestamp=tick.ts_event, name="balance", value=usdt_balance.as_double())

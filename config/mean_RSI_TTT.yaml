@@ -1,28 +1,43 @@
-# Instrument
-symbol: "SPY"
+# ===========================
+# Globale Parameter
+# ===========================
+strategy_path: "strategies.mean_RSI_TTT_strategy:MeanRSITTTStrategy"
+config_path: "strategies.mean_RSI_TTT_strategy:MeanRSITTTStrategyConfig"
+
+visualize: true
 venue: "ARCA"
-instrument_id: "SPY.ARCA"
-bar_type: "SPY.ARCA-1-DAY-LAST-EXTERNAL"
+
+# Multi-Instrument Configuration
+instruments:
+  - instrument_id: "SPY.ARCA"
+    bar_types:
+      - "SPY.ARCA-1-DAY-LAST-EXTERNAL"
+    risk_percent: 0.01
+    max_leverage: 2
+    min_account_balance: 1000
 
 # Backtest-Zeitraum
-start_date: "2008-01-01T00:00:00Z"
+start_date: "2010-01-01T00:00:00Z"
 end_date: "2024-12-30T23:59:59Z"
 
-# Strategie-Parameter
-rsi_period: [15]
-rsi_overbought: [0.75]
-rsi_oversold: [0.25]
-ttt_lookback: [10]
-ttt_atr_mult: [1.5]
-ttt_max_counter: [10]
-
-# Risk-Parameter
-# trade_size_usd: 1000
-close_positions_on_stop: [true]
+# Risiko-Parameter (global)
 risk_percent: 0.01
 max_leverage: 2
 min_account_balance: 1000
-risk_reward_ratio: 2
+close_positions_on_stop: [true]
+run_id: "mean_rsi_ttt_test"
+
+# ===========================
+# Strategie-spezifische Parameter
+# ===========================
+
+# RSI-TTT-Strategie
+rsi_period: [15]
+rsi_overbought: [0.6]
+rsi_oversold: [0.4]
+ttt_lookback: [10]
+ttt_atr_mult: [1.5]
+ttt_max_counter: [10]
 
 # Account/Venue-Parameter
 starting_account_balance: "100000 USD"
