@@ -15,11 +15,10 @@ class RunValidator:
     # Mapping von CSV-Spalten zu erwarteten Spalten
     COLUMN_MAPPING = {
         'RET_Sharpe Ratio (252 days)': 'Sharpe',
-        'Sharpe Ratio (252 days)': 'Sharpe',              # NEU: aktueller Spaltenname
-        'USDT_PnL (total)': 'Total Return',  # Absolute PnL statt Prozent
-        'total_orders': 'Trades',          # NEU: primäre Quelle
-        # 'total_positions': 'Trades'      # Entfernt (Fallback unten)
-        # Max Drawdown ist nicht in den Daten - wird später behandelt
+        'Sharpe Ratio (252 days)': 'Sharpe',
+        'USDT_PnL (total)': 'Total Return',
+        'USDT_PnL': 'Total Return',
+        'total_orders': 'Trades',
     }
     
     def __init__(self, results_dir: Path):
@@ -94,14 +93,19 @@ class RunValidator:
                 except Exception:
                     df_mapped['Sharpe'] = float('nan')
 
-        # Trades Fallback (nur falls oben nicht gemappt)
+        if 'Total Return' not in df_mapped.columns:
+            for col in ['USDT_PnL (total)', 'USDT_PnL', 'USDT_Total PnL', 'PnL']:
+                if col in df_mapped.columns:
+                    df_mapped['Total Return'] = df_mapped[col]
+                    break
+            else:
+                df_mapped['Total Return'] = 0.0
         if 'Trades' not in df_mapped.columns:
             if 'total_orders' in df_mapped.columns:
                 df_mapped['Trades'] = df_mapped['total_orders']
             elif 'total_positions' in df_mapped.columns:
                 df_mapped['Trades'] = df_mapped['total_positions']
         
-        # Max Drawdown immer erzeugen falls fehlt (Dummy 0.0)
         if 'Max Drawdown' not in df_mapped.columns:
             df_mapped['Max Drawdown'] = 0.0
 

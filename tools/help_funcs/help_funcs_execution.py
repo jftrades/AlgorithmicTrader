@@ -53,8 +53,8 @@ def visualize_existing_run(data_path, TradingDashboard=None):
 
 def extract_metrics(result, run_params, run_id):
     metrics = {}
-    result_obj = result
-        # Standard-Infos
+    result_obj = result[0] if isinstance(result, list) and len(result) > 0 else result
+    
     metrics.update(run_params)
     metrics["run_id"] = run_id
     metrics["run_started"] = getattr(result_obj, "run_started", None)
@@ -64,18 +64,18 @@ def extract_metrics(result, run_params, run_id):
     metrics["elapsed_time"] = getattr(result_obj, "elapsed_time", None)
     metrics["total_orders"] = getattr(result_obj, "total_orders", None)
     metrics["total_positions"] = getattr(result_obj, "total_positions", None)
-        
-        # PnL/Return-Metriken (z.B. nur USDT)
-    if hasattr(result_obj, "stats_pnls") and "USDT" in result_obj.stats_pnls:
-        for k, v in result_obj.stats_pnls["USDT"].items():
-            metrics[f"USDT_{k}"] = v
+    
+    if hasattr(result_obj, "stats_pnls"):
+        for currency in ["USD", "USDT"]:
+            if currency in result_obj.stats_pnls:
+                for k, v in result_obj.stats_pnls[currency].items():
+                    metrics[f"USDT_{k}"] = v
+                break
+    
     if hasattr(result_obj, "stats_returns"):
         for k, v in result_obj.stats_returns.items():
             metrics[f"{k}"] = v
-    else:
-        # Fallback: nur Parameter speichern
-        metrics.update(run_params)
-        metrics["run_id"] = run_id
+    
     return metrics
 
 def run_backtest_and_visualize(run_config, data_path=None, TradingDashboard=None):
