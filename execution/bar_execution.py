@@ -17,7 +17,7 @@ from core.visualizing.dashboard.main import launch_dashbaord
 
 
 #STRAT PARAMETER
-yaml_name = "beta.yaml"
+yaml_name = "mean_5m_regimes.yaml"
 
 # ------------------------------------------------------------
 # YAML laden & vorbereiten

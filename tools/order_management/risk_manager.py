@@ -33,9 +33,9 @@ class RiskManager:
             #raise ValueError(f"Calculated position size must be greater than zero. {position_size} is not valid.")
         return position_size, valid_position
     
-    def calculate_investment_size(self, invest_percent: Decimal, price: Decimal) -> (int, bool):
+    def calculate_investment_size(self, invest_percent: Decimal, price: Decimal, instrument_id=None) -> (int, bool):
         valid_position = True
-        account_balance = self.get_account_balance()
+        account_balance = self.get_account_balance(instrument_id)
         invest_amount = account_balance * invest_percent
 
         # Maximal erlaubtes Investment nach Leverage
@@ -79,8 +79,13 @@ class RiskManager:
         return take_profit
     
     # Hilfsfunktion
-    def get_account_balance(self) -> Decimal:
-        venue = self.strategy.instrument_id.venue
+    def get_account_balance(self, instrument_id=None) -> Decimal:
+        # Use provided instrument_id or fallback to strategy.instrument_id for backward compatibility
+        if instrument_id is not None:
+            venue = instrument_id.venue
+        else:
+            venue = self.strategy.instrument_id.venue  # Fallback for single-instrument strategies
+        
         account_id = AccountId(f"{venue}-001")
         account = self.strategy.cache.account(account_id)
         if account is None:

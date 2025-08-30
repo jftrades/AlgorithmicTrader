@@ -1,12 +1,10 @@
 # ===========================
 # Globale Parameter
 # ===========================
-
 strategy_path: "strategies.beta_strat:RSISimpleStrategy"
 config_path: "strategies.beta_strat:RSISimpleStrategyConfig"
 
 visualize: true
-
 venue: "BINANCE"
 
 # Instrumente
