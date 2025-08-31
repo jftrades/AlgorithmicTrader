@@ -17,8 +17,7 @@ from core.visualizing.dashboard.main import launch_dashbaord
 
 
 #STRAT PARAMETER
-yaml_name = "RSI_tick_simple.yaml"
-
+yaml_name = "mean_RSI_TTT.yaml"
 # ------------------------------------------------------------
 # YAML laden & vorbereiten
 # ------------------------------------------------------------

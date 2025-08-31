@@ -25,7 +25,7 @@ account_type: "MARGIN"
 oms_type: "NETTING"
 
 # Risiko-Parameter (global)
-invest_percent: 0.10  # 10% of account balance per trade (was 3.0 = 300%!)
+invest_percent: 0.10  
 close_positions_on_stop: true
 risk_percent: 0.02
 max_leverage: 5.0
