@@ -15,9 +15,9 @@ import os
 import webbrowser
 from core.visualizing.dashboard.main import launch_dashbaord
 
-
 #STRAT PARAMETER
-yaml_name = "mean_RSI_TTT.yaml"
+yaml_name = "RSI_tick_simple.yaml"
+
 # ------------------------------------------------------------
 # YAML laden & vorbereiten
 # ------------------------------------------------------------
@@ -36,8 +36,15 @@ visualize = params.get("visualise", True)
 # ------------------------------------------------------------
 catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 
-data_config = BacktestDataConfig(
+# For tick strategies that also need bar data (like RSI), we need both tick and bar data
+tick_data_config = BacktestDataConfig(
     data_cls="nautilus_trader.model.data:TradeTick", 
+    catalog_path=catalog_path,
+    instrument_ids=all_instrument_ids,
+)
+
+bar_data_config = BacktestDataConfig(
+    data_cls="nautilus_trader.model.data:Bar", 
     catalog_path=catalog_path,
     bar_types=all_bar_types,
     instrument_ids=all_instrument_ids,
@@ -87,7 +94,7 @@ for i, combination in enumerate(itertools.product(*values)):
     )
     engine_config = BacktestEngineConfig(strategies=[strategy_config])
     run_config = BacktestRunConfig(
-        data=[data_config],
+        data=[tick_data_config, bar_data_config],  # Both tick and bar data
         venues=[venue_config],
         engine=engine_config,
         start=start_date,

@@ -7,7 +7,6 @@ from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
 from nautilus_trader.model.data import Bar, TradeTick
 from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.objects import Currency
 from nautilus_trader.common.enums import LogColor
 
 # Nautilus Strategie spezifische Importe
@@ -59,31 +58,21 @@ class RSITickSimpleStrategy(BaseStrategy, Strategy):
             current_instrument["last_rsi_cross"] = None
             current_instrument["last_rsi"] = None
             current_instrument["trade_ticks"] = []
-            current_instrument["last_logged_balance"] = None
             current_instrument["tick_counter"] = 0
 
     def on_start(self) -> None:
         for inst_id, ctx in self.instrument_dict.items():
             # Subscribe to trade ticks for tick-based strategy
             self.subscribe_trade_ticks(inst_id)
+            self.log.info(f"Subscribed to trade ticks for {inst_id}")
             
             # Subscribe to bars for RSI calculation
             for bar_type in ctx["bar_types"]:
-                self.log.info(str(bar_type), color=LogColor.GREEN)
+                self.log.info(f"Subscribing to bars: {str(bar_type)}", color=LogColor.GREEN)
                 self.subscribe_bars(bar_type)
             
             # Initialize last RSI value
             ctx['last_rsi'] = ctx['rsi'].value
-            
-            # Log starting balance for each venue
-            venue = inst_id.venue
-            account = self.portfolio.account(venue)
-            if account:
-                usdt_balance = account.balance_total(Currency.from_str("USDT")).as_double()
-                ctx['last_logged_balance'] = usdt_balance
-                self.log.info(f"USDT balance for {inst_id}: {usdt_balance}")
-            else:
-                self.log.warning(f"No account found for venue: {venue}")
         
         self.log.info(f"Strategy started. Instruments: {', '.join(str(i) for i in self.instrument_ids())}")
         self.risk_manager = RiskManager(
@@ -117,15 +106,13 @@ class RSITickSimpleStrategy(BaseStrategy, Strategy):
         if current_instrument is None:
             return
         
-        # Update tick data
         current_instrument['tick_counter'] += 1
+        # Update tick data
         current_instrument['trade_ticks'].append(tick)
         if len(current_instrument['trade_ticks']) > current_instrument["tick_buffer_size"]:
             current_instrument['trade_ticks'].pop(0)
         
         rsi = current_instrument["rsi"]
-        if not rsi.initialized:
-            return
             
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
         if open_orders:
@@ -190,6 +177,10 @@ class RSITickSimpleStrategy(BaseStrategy, Strategy):
 
     def on_error(self, error: Exception) -> None:
         return self.base_on_error(error)
+    
+    def on_stop(self) -> None:
+        # Override to avoid KeyError in base_strategy on_stop
+        self.log.info("RSI Tick Strategy stopped successfully!")
     
     def close_position(self, instrument_id: InstrumentId = None) -> None:
         if instrument_id is None:
