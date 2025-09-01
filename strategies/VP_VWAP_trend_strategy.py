@@ -14,7 +14,7 @@ from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 
-from tools.indicators.VWAP_ZScore_intraday import VWAPZScoreIntraday
+from tools.indicators.VWAP_intraday import VWAPIntraday
 
 
 class VPVWAPTrendStrategyConfig(StrategyConfig):
@@ -60,14 +60,14 @@ class VPVWAPTrendStrategy(BaseStrategy, Strategy):
 
         """
         for current_instrument in self.instrument_dict.values():
-            # Initialize standard indicators
             current_instrument["collector"].initialise_logging_indicator("position", 1)
             current_instrument["collector"].initialise_logging_indicator("realized_pnl", 2)
             current_instrument["collector"].initialise_logging_indicator("unrealized_pnl", 3)
             current_instrument["collector"].initialise_logging_indicator("balance", 4)
-            
-            # Add strategy-specific context here
-            # current_instrument["my_indicator"] = MyIndicator(period=20)
+            current_instrument["collector"].initialise_logging_indicator("vwap", 5)
+            current_instrument["collector"].initialise_logging_indicator("vwap_upper_band", 6)
+            current_instrument["collector"].initialise_logging_indicator("vwap_lower_band", 7)
+            current_instrument["vwap_indicator"] = VWAPIntraday()
             current_instrument["bar_counter"] = 0
 
     def on_start(self) -> None:
@@ -98,10 +98,10 @@ class VPVWAPTrendStrategy(BaseStrategy, Strategy):
 
         current_instrument["bar_counter"] += 1
         
-        # Update indicators with bar data
-        # current_instrument['my_indicator'].handle_bar(bar)
-        # if not current_instrument['my_indicator'].initialized:
-        #     return
+        # Update VWAP indicator with bar data
+        current_instrument['vwap_indicator'].update(bar)
+        if not current_instrument['vwap_indicator'].initialized:
+            return
         
         # Check for pending orders to avoid endless order loops
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
@@ -119,16 +119,19 @@ class VPVWAPTrendStrategy(BaseStrategy, Strategy):
         instrument_id = bar.bar_type.instrument_id
         trade_size_usdt = float(current_instrument["trade_size_usdt"])
         qty = max(1, int(trade_size_usdt / float(bar.close)))
+
+        vwap_indicator = current_instrument["vwap_indicator"]
+        if not vwap_indicator.initialized:
+            return
         
-        # Example trading logic (replace with your own):
-        # indicator_value = current_instrument["my_indicator"].value
-        # if indicator_value is None:
-        #     return
-        #
-        # if some_condition:
-        #     self.submit_long_market_order(instrument_id, qty)
-        # elif some_other_condition:
-        #     self.submit_short_market_order(instrument_id, qty)
+        vwap_value = vwap_indicator.value
+        current_price = bar.close
+        
+        # Get different band levels
+        _, upper_1, lower_1 = vwap_indicator.get_bands(1.0)  # 1-sigma
+        _, upper_2, lower_2 = vwap_indicator.get_bands(2.0)  # 2-sigma  
+        _, upper_3, lower_3 = vwap_indicator.get_bands(3.0)  # 3-sigma
+        
         pass
 
     # -------------------------------------------------
@@ -147,9 +150,17 @@ class VPVWAPTrendStrategy(BaseStrategy, Strategy):
         inst_id = bar.bar_type.instrument_id
         self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)
         
-        # Add custom indicators here:
-        # indicator_value = float(current_instrument["my_indicator"].value) if current_instrument["my_indicator"].value is not None else None
-        # current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="my_indicator", value=indicator_value)
+        # Add VWAP indicator values to logging
+        vwap_indicator = current_instrument["vwap_indicator"]
+        if vwap_indicator.initialized:
+            # Log VWAP value
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="vwap", value=float(vwap_indicator.value))
+            
+            # Get and log 1-sigma bands
+            _, upper_1, lower_1 = vwap_indicator.get_bands(1.0)
+            if upper_1 is not None:
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="vwap_upper_band", value=float(upper_1))
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="vwap_lower_band", value=float(lower_1))
         
     def on_order_filled(self, order_filled) -> None:
         return self.base_on_order_filled(order_filled)
