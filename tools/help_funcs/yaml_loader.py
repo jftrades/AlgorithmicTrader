@@ -1,5 +1,7 @@
 # yaml_loader.py
 import yaml
+import os
+import csv
 from typing import List, Dict, Any, Tuple
 
 
@@ -9,6 +11,97 @@ def load_params(yaml_path: str) -> Dict[str, Any]:
     """
     with open(yaml_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+def _expand_instruments_from_path_entries(params: Dict[str, Any], yaml_path: str) -> None:
+    """
+    Expands instruments from CSV definitions under 'instruments_from_path'.
+    Accepts either a single mapping or a list of mappings.
+
+    Each mapping supports:
+      path: <str> (relative to YAML file or absolute)
+      bar_type_endings: <str | List[str]>  (suffix(es) like "-15-MINUTE-LAST-EXTERNAL")
+      symbol_column: <str> (default 'symbol')
+      instrument_suffix: <str> (default '-PERP')
+      venue: <str> (optional override; else global params['venue'])
+      Any other key/value pairs are copied into each generated instrument (e.g. trade_size_usdt, test, etc.)
+
+    Generates instrument dicts:
+      instrument_id: <SYMBOL><instrument_suffix>.<VENUE>
+      bar_types: [instrument_id + ending for ending in bar_type_endings]
+      + passthrough custom keys.
+    """
+    entries = params.get("instruments_from_path")
+    if not entries:
+        return
+    if isinstance(entries, dict):
+        entries = [entries]
+
+    base_dir = os.path.dirname(os.path.abspath(yaml_path))
+    collected: List[Dict[str, Any]] = []
+
+    for idx, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            raise TypeError(f"instruments_from_path[{idx}] muss ein Mapping sein.")
+        rel_path = entry.get("path")
+        if not rel_path:
+            raise ValueError(f"instruments_from_path[{idx}] fehlt 'path'.")
+        abs_path = rel_path if os.path.isabs(rel_path) else os.path.join(base_dir, rel_path)
+        if not os.path.isfile(abs_path):
+            raise FileNotFoundError(f"CSV nicht gefunden: {abs_path}")
+
+        venue = entry.get("venue") or params.get("venue")
+        if not venue:
+            raise ValueError(f"instruments_from_path[{idx}]: 'venue' weder lokal noch global angegeben.")
+
+        symbol_col = entry.get("symbol_column", "symbol")
+        instrument_suffix = entry.get("instrument_suffix", "-PERP")
+        endings_raw = entry.get("bar_type_endings") or entry.get("bar_type_ending")
+        if not endings_raw:
+            raise ValueError(f"instruments_from_path[{idx}]: 'bar_type_endings' (oder 'bar_type_ending') erforderlich.")
+        if isinstance(endings_raw, str):
+            bar_type_endings = [endings_raw]
+        elif isinstance(endings_raw, list):
+            bar_type_endings = endings_raw
+        else:
+            raise TypeError(f"instruments_from_path[{idx}].bar_type_endings muss str oder List[str] sein.")
+
+        # Keys to exclude from passthrough
+        exclude = {
+            "path",
+            "symbol_column",
+            "instrument_suffix",
+            "bar_type_endings",
+            "bar_type_ending",
+            "venue",
+        }
+        passthrough = {k: v for k, v in entry.items() if k not in exclude}
+
+        with open(abs_path, "r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            if symbol_col not in reader.fieldnames:
+                raise ValueError(
+                    f"CSV '{abs_path}' hat keine Spalte '{symbol_col}'. Vorhanden: {reader.fieldnames}"
+                )
+            for row in reader:
+                symbol = row.get(symbol_col)
+                if not symbol:
+                    continue
+                instrument_id = f"{symbol}{instrument_suffix}.{venue}"
+                bar_types = [f"{instrument_id}{ending}" for ending in bar_type_endings]
+                inst: Dict[str, Any] = {
+                    "instrument_id": instrument_id,
+                    "bar_types": bar_types,
+                }
+                # Merge passthrough params
+                inst.update(passthrough)
+                collected.append(inst)
+
+    existing = params.get("instruments") or []
+    if not isinstance(existing, list):
+        raise TypeError("'instruments' muss eine Liste sein, falls vorhanden.")
+    # Append generated instruments
+    params["instruments"] = existing + collected
 
 
 def _normalize_instruments(params: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -104,19 +197,13 @@ def _normalize_instruments(params: Dict[str, Any]) -> List[Dict[str, Any]]:
         trade_size = item.get("trade_size_usdt", global_size)
 
         # --- Alle benutzerdefinierten Felder übernehmen ---
-        # Start mit einer flachen Kopie des Items (damit z. B. paramXY/paramAB erhalten bleiben)
-        out: Dict[str, Any] = dict(item)
-        # Pflichtfelder/normalisierte Felder setzen/überschreiben
+        out: Dict[str, Any] = dict(item)              # flache Kopie
         out["instrument_id"] = instr_id
         out["bar_types"] = bar_types_dedup
-        # Nur setzen, wenn vorhanden (wir wollen das Feld nicht erzwingen)
         if trade_size is not None:
             out["trade_size_usdt"] = trade_size
-
-        # Optional: 'bar_type' Einzelschlüssel entfernen, da in 'bar_types' überführt
-        if "bar_type" in out:
+        if "bar_type" in out:                          # Einzel-Schlüssel entfernen (nun vereinheitlicht)
             del out["bar_type"]
-
         normalized.append(out)
 
     return normalized
@@ -124,34 +211,27 @@ def _normalize_instruments(params: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def load_and_split_params(yaml_path: str) -> Tuple[
     Dict[str, Any],                # params (inkl. normalisiertem 'instruments')
-    Dict[str, List[Any]],          # param_grid (nur Nicht-Instrument-Keys mit Listenlänge > 1)
-    List[str],                     # keys (Grid-Keys in stabiler Reihenfolge)
-    List[List[Any]],               # values (Listen von Grid-Werten; gleiche Reihenfolge wie keys)
-    Dict[str, Any],                # static_params (Nicht-Grid-Parameter; Single-Listen -> Skalar)
-    List[str],                     # all_instrument_ids (duplikatfrei)
-    List[str],                     # all_bar_types (duplikatfrei)
+    Dict[str, List[Any]],          # param_grid
+    List[str],                     # keys
+    List[List[Any]],               # values
+    Dict[str, Any],                # static_params
+    List[str],                     # all_instrument_ids
+    List[str],                     # all_bar_types
 ]:
     """
-    Lädt die YAML, normalisiert 'instruments' und splittet in Grid-/Static-Parameter.
-
-    Regeln:
-      - 'instruments' wird NICHT als Grid-Parameter behandelt (die Liste beschreibt
-        konkrete Instrument-Spezifikationen, nicht einen Grid).
-      - Für alle anderen Keys gilt:
-          * Wenn Wert eine Liste mit Länge > 1 -> kommt in param_grid
-          * Wenn Wert eine Liste mit Länge == 1 -> wird in static_params zu Skalar reduziert
-          * Ansonsten -> direkt in static_params übernommen
-      - all_instrument_ids / all_bar_types werden aus instruments aggregiert (stabil, duplikatfrei)
-
-    Fehler/Validierungen passieren in _normalize_instruments.
+    Lädt YAML, expandiert instruments_from_path, normalisiert instruments
+    und splittet restliche Parameter in Grid- und Static-Teile.
     """
     params = load_params(yaml_path)
 
-    # 1) instruments normalisieren (inkl. Pflicht-Validierungen)
-    instruments_normalized = _normalize_instruments(params)
-    params["instruments"] = instruments_normalized  # optional: Original-Objekt anreichern/ersetzen
+    # CSV-basierte Instrumente zuerst hinzufügen (falls definiert)
+    _expand_instruments_from_path_entries(params, yaml_path)
 
-    # 2) param_grid: nur Keys mit Listen-Länge > 1 (exkl. 'instruments')
+    # instruments normalisieren
+    instruments_normalized = _normalize_instruments(params)
+    params["instruments"] = instruments_normalized
+
+    # param_grid bestimmen (nur Keys mit Liste Länge >1, exkl. instruments)
     param_grid: Dict[str, List[Any]] = {}
     for k, v in params.items():
         if k == "instruments":
@@ -159,7 +239,7 @@ def load_and_split_params(yaml_path: str) -> Tuple[
         if isinstance(v, list) and len(v) > 1:
             param_grid[k] = v
 
-    # 3) static_params: alle Keys, die nicht im Grid sind. Single-Element-Listen -> Skalar.
+    # static_params (inkl. Reduktion von Single-Listen)
     static_params: Dict[str, Any] = {}
     for k, v in params.items():
         if k in param_grid:
@@ -172,14 +252,14 @@ def load_and_split_params(yaml_path: str) -> Tuple[
             else:
                 static_params[k] = v
 
-    # 4) keys/values für das Grid (stabile Reihenfolge anhand Einfüge-Reihenfolge von dict)
+    # keys / values für Grid
     if param_grid:
         keys, values = zip(*param_grid.items())
         keys, values = list(keys), list(values)
     else:
         keys, values = [], []
 
-    # 5) Aggregationen für IDs und BarTypes (duplikatfrei, stabil)
+    # Aggregation Instrument-IDs & BarTypes (stabil, duplikatfrei)
     seen_ids, all_instrument_ids = set(), []
     seen_bt, all_bar_types = set(), []
     for instr in instruments_normalized:
@@ -193,4 +273,12 @@ def load_and_split_params(yaml_path: str) -> Tuple[
                 seen_bt.add(bt)
                 all_bar_types.append(bt)
 
-    return params, param_grid, keys, values, static_params, all_instrument_ids, all_bar_types
+    return (
+        params,
+        param_grid,
+        keys,
+        values,
+        static_params,
+        all_instrument_ids,
+        all_bar_types,
+    )

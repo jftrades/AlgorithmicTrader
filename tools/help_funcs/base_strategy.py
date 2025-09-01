@@ -81,7 +81,7 @@ class BaseStrategy(Strategy):
             current_instrument.setdefault("realized_pnl", 0.0)
             current_instrument.setdefault("unrealized_pnl", 0.0)
 
-                        # Collector
+            # Collector
             collector = BacktestDataCollector(str(inst_id), self.run_id)
             collector.initialise_logging_indicator("position", -1)
             collector.initialise_logging_indicator("realized_pnl", -1)
@@ -216,7 +216,17 @@ class BaseStrategy(Strategy):
             # timeframe ist z. B. "1m" oder "5m"
 
             bar_types = current_instrument["bar_types"]
-            last_timestamp = max(current_instrument["collector"].bars[extract_interval_from_bar_type(str(bt), str(bt.instrument_id))][-1]["timestamp"] for bt in bar_types)
+            # Robust Ermittlung des letzten Timestamps über alle vorhandenen Bar-Listen
+            bars_dict = getattr(current_instrument["collector"], "bars", {}) or {}
+            last_timestamp = None
+            for bar_list in bars_dict.values():
+                if bar_list:
+                    ts = bar_list[-1].get("timestamp")
+                    if ts is not None and (last_timestamp is None or ts > last_timestamp):
+                        last_timestamp = ts
+            if last_timestamp is None:
+                # Fallback falls keine Bars gesammelt wurden
+                last_timestamp = self.clock.timestamp_ns()
             #current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="equity", value=equity)
             current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="position", value=net_position if net_position is not None else None)
             current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="unrealized_pnl", value=0.0)

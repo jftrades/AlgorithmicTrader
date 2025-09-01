@@ -1,6 +1,5 @@
 # Standard Library Importe
 from decimal import Decimal
-import time
 from typing import Any, Dict, Optional, List
 
 # Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
