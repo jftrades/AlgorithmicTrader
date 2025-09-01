@@ -73,7 +73,8 @@ def build_price_chart(bars_df, indicators_df, trades_df, selected_trade_index, d
             zeroline=False,
             rangeslider=dict(visible=False)
         ),
-        yaxis=dict(gridcolor="rgba(0,0,0,0.06)", zeroline=False)
+        yaxis=dict(gridcolor="rgba(0,0,0,0.06)", zeroline=False),
+        uirevision="linked-range"  # Ensure zoom/pan persistence
     )
     # Toggle Buttons (nur wenn Bars vorhanden)
     if index_ohlc is not None and index_close is not None:

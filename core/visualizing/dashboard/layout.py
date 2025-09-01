@@ -17,14 +17,11 @@ def build_metrics_panel(metrics_path, single_mode: bool = False):
         'borderRadius': '20px'
     }
     if single_mode:
-        # Remove framing to avoid double border in inline usage
-        base_style.update({
-            'border': 'none',
-            'background': 'transparent',
-            'boxShadow': 'none',
-            'padding': '0',
-            'borderRadius': '0'
-        })
+        # Remove outer frame when embedded in single instrument/run context
+        base_style.pop('border', None)
+        base_style['background'] = 'transparent'
+        base_style['boxShadow'] = 'none'
+        base_style['padding'] = '0'
     return html.Div(
         id="metrics-panel",
         children=[html.Div("Loading metrics ...",

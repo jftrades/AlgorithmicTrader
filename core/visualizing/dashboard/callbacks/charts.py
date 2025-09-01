@@ -1,6 +1,7 @@
 from dash import Input, Output, State, html
 from dash.exceptions import PreventUpdate
 from dash import callback_context
+from dash import ALL  # für Pattern-Matching Outputs
 
 from core.visualizing.dashboard.colors import get_color_map
 from core.visualizing.dashboard.components import get_default_trade_details  # hinzugefügt
@@ -400,9 +401,45 @@ def register_chart_callbacks(app, repo, state):
         state["selected_time_window"] = x_window
 
         # Compute x_range (zoom) but override if slider window present
-        x_range = compute_x_range(relayoutData)
+        from dash import callback_context as _ctx
+        trigger_id = (_ctx.triggered[0]["prop_id"].split(".")[0] if _ctx.triggered else None)
+
+        # EARLY-ZOOM-HANDLING (NEU):
+        # Wenn nur der Price-Chart (relayoutData) getriggert hat (Pan/Zoom) -> kein kompletter Rebuild.
+        # Erkennung: trigger_id == "price-chart" UND relayoutData enthält mindestens ein "xaxis." Key.
+        if trigger_id == "price-chart" and isinstance(relayoutData, dict) and any(k.startswith("xaxis.") for k in relayoutData.keys()):
+            # Neue Range extrahieren & speichern
+            xr = compute_x_range(relayoutData)
+            if xr:
+                state["last_x_range"] = xr
+            # Verhindere Rebuild -> Sync-Callback aktualisiert Indicators separat
+            raise PreventUpdate
+
+        x_range = None  # wird weiter unten gesetzt (nicht mehr vorher aus relayoutData bei reinem Zoom)
+
+        # Hilfsfunktion: nachträgliche X-Range-Synchronisierung aller Indicator Charts
+        def _apply_range_sync(indicator_children, xr):
+            # Wenn dieser Code noch ausgeführt wird, handelt es sich NICHT um reines Zoom/Pan
+            if not xr:
+                return indicator_children
+            for comp in indicator_children:
+                try:
+                    fig = getattr(comp, "figure", None)
+                    if fig and hasattr(fig, "update_xaxes"):
+                        fig.update_xaxes(range=xr, autorange=False, constrain="domain", rangebreaks=[])
+                        fig.update_layout(uirevision="linked-range")
+                except Exception:
+                    continue
+            return indicator_children
+
+        # Bestimme x_range nun ausschließlich aus:
+        # 1) Slider Fenster
+        # 2) Gespeicherter state["last_x_range"] (falls vorhanden)
         if x_window:
             x_range = [x_window[0], x_window[1]]
+            state["last_x_range"] = x_range
+        elif "last_x_range" in state:
+            x_range = state["last_x_range"]
 
         # Force multi-run mode if we still have >1 preserved
         multi_run_mode = len(active_runs) > 1
@@ -447,5 +484,49 @@ def register_chart_callbacks(app, repo, state):
         for c in indicator_children:
             if hasattr(c, "props") and "className" not in getattr(c, "props", {}):
                 c.className = "indicator-chart"
-        return price_fig, indicator_children, metrics_children, trade_details  # fixed (was 'trade')
+        return price_fig, indicator_children, metrics_children, trade_details
+
+    # --- NEU: Reine X-Achsen-Synchronisierung (leichtgewichtig) ---
+    @app.callback(
+        Output({'type': 'indicator-graph', 'index': ALL}, 'figure'),
+        [
+            Input("price-chart", "relayoutData"),
+            Input("collector-dropdown", "value"),          # bei Instrument-Wechsel erneut anwenden
+            Input("timeframe-dropdown", "value"),          # bei TF-Wechsel erneut anwenden
+        ],
+        State({'type': 'indicator-graph', 'index': ALL}, 'figure'),
+        prevent_initial_call=True
+    )
+    def sync_indicator_xaxis(relayoutData, _sel_instruments, _tf, figures):
+        # Keine Indicator-Figuren -> nichts tun
+        if not figures:
+            raise PreventUpdate
+
+        # Versuche Range aus relayoutData
+        xr = compute_x_range(relayoutData) if isinstance(relayoutData, dict) else None
+
+        # Fallback: vorhandene gespeicherte Range aus server-side state (falls vorhanden)
+        if xr is None:
+            xr = state.get("last_x_range")
+
+        if xr is None or len(xr) != 2:
+            raise PreventUpdate  # keine explizite Range -> nichts ändern
+
+        start, end = xr
+        out = []
+        for fig in figures:
+            try:
+                # Sicherstellen, dass Layout-Strukturen existieren
+                lay = fig.get("layout", {})
+                xaxis = lay.get("xaxis", {})
+                xaxis["range"] = [str(start), str(end)]
+                xaxis["autorange"] = False
+                lay["xaxis"] = xaxis
+                # Persistenter Zoom
+                lay["uirevision"] = "linked-range"
+                fig["layout"] = lay
+                out.append(fig)
+            except Exception:
+                out.append(fig)
+        return out
 

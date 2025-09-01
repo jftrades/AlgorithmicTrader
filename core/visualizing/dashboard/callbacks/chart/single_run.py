@@ -112,12 +112,18 @@ def _single_instrument(state, repo, instrument, chart_mode, x_range, clickData, 
     for pid, lst in sorted(iter_indicator_groups(indicators).items()):
         fig_ind = build_indicator_figure(lst)
         if x_range:
-            fig_ind.update_xaxes(range=x_range, autorange=False)
+            try:
+                fig_ind.update_xaxes(range=x_range, autorange=False, constrain="domain", rangebreaks=[])
+            except Exception:
+                pass
         fig_ind.update_layout(uirevision="linked-range")
         indicator_children.append(
-            dcc.Graph(id=f"indicators-plot-{pid}", figure=fig_ind,
-                      className="indicator-chart",
-                      style={"height": "300px", "marginBottom": "10px"})
+            dcc.Graph(
+                id={'type': 'indicator-graph', 'index': pid},  # CHANGED
+                figure=fig_ind,
+                className="indicator-chart",
+                style={"height": "300px", "marginBottom": "10px"}
+            )
         )
 
     # Metrics: bevorzugt trade_metrics.csv vom angegebenen run (run_id), ansonsten repo.load_metrics als Fallback

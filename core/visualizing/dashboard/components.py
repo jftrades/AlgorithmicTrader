@@ -278,6 +278,23 @@ def create_metrics_table(metrics: dict, nautilus_result, layout_mode: str = "car
     ]
     COUNT_KEYWORDS = ['trade','trades','positions','count','iterations','consecutive','n_','n ']
 
+    # ADD: units mapping (was previously referenced but not defined)
+    units = {}
+    try:
+        # If nautilus_result supplies units (e.g. list[ dict ] or tuple), try to extract
+        if isinstance(nautilus_result, dict):
+            units = {k: v for k, v in nautilus_result.items() if isinstance(v, str)}
+        elif isinstance(nautilus_result, (list, tuple)) and nautilus_result:
+            # heuristic: look for first mapping with 'metric' / 'unit' keys
+            for item in nautilus_result:
+                if isinstance(item, dict):
+                    m = item.get("metric")
+                    u = item.get("unit")
+                    if m and isinstance(u, str):
+                        units[m] = u
+    except Exception:
+        units = {}
+
     def _inline_classify(k: str):
         kl = k.lower()
         kl_sp = kl.replace('_', ' ')
@@ -367,129 +384,6 @@ def create_metrics_table(metrics: dict, nautilus_result, layout_mode: str = "car
             'textAlign':'center',
             'height':'90px'
         })
-
-    # --- Nested inline (multi-run) vertical layout ---
-    if layout_mode == "inline" and isinstance(metrics, dict) and any(isinstance(v, dict) for v in metrics.values()):
-        nested = {}
-        for run_key, maybe in metrics.items():
-            if isinstance(maybe, dict):
-                for inst_key, md in maybe.items():
-                    if isinstance(md, dict):
-                        nested.setdefault(str(run_key), {})[str(inst_key)] = md
-        segments = []
-        for run_id, inst_map in nested.items():
-            for inst_id, mdict in inst_map.items():
-                chips = [_inline_chip(k, v) for k, v in mdict.items()]
-                segments.append(
-                    html.Div([
-                        html.Div([
-                            html.Span(run_id, style={
-                                'padding':'4px 10px','background':'#1e3a8a','color':'#fff',
-                                'fontSize':'11px','fontWeight':'600','borderRadius':'10px',
-                                'letterSpacing':'.5px','marginRight':'6px'
-                            }),
-                            html.Span(inst_id, style={
-                                'padding':'4px 10px','background':'#0f766e','color':'#fff',
-                                'fontSize':'11px','fontWeight':'600','borderRadius':'10px',
-                                'letterSpacing':'.5px'
-                            })
-                        ], style={'display':'flex','alignItems':'center','marginBottom':'10px','gap':'4px'}),
-                        html.Div(chips, style={
-                            'display':'grid',
-                            'gridTemplateColumns':'repeat(auto-fit, minmax(160px, 1fr))',
-                            'gap':'16px',
-                            'width':'100%'
-                        })
-                    ], style={
-                        'background':'linear-gradient(135deg,#ffffff,#f1f5f9)',
-                        'border':'1px solid #e2e8f0',
-                        'borderRadius':'18px',
-                        'padding':'16px 18px 18px 18px',
-                        'boxShadow':'0 4px 12px -4px rgba(0,0,0,0.08),0 2px 4px rgba(0,0,0,0.04)',
-                        'width':'100%',
-                        'boxSizing':'border-box'
-                    })
-                )
-        if segments:
-            return html.Div([
-                html.Div("Metrics (Runs × Instruments)", style={
-                    'fontSize':'15px','fontWeight':'700','color':'#0f172a',
-                    'margin':'0 0 14px 0','letterSpacing':'-0.4px'
-                }),
-                html.Div(segments, style={
-                    'display':'flex','flexDirection':'column','gap':'18px','width':'100%'
-                })
-            ], style={
-                'background':'linear-gradient(125deg,#ffffff,#eef2f7)',
-                'border':'1px solid #dfe6ee',
-                'borderRadius':'22px',
-                'padding':'20px 22px 22px 22px',
-                'boxShadow':'0 6px 22px -6px rgba(0,0,0,0.12),0 3px 8px rgba(0,0,0,0.05)',
-                'width':'100%','boxSizing':'border-box','margin':'0'
-            })
-
-    # --- Flat inline single-run (no outer frame to avoid double border) ---
-    if layout_mode == "inline" and isinstance(metrics, dict) and not any(isinstance(v, dict) for v in metrics.values()):
-        perf, trade, other = {}, {}, {}
-        for k, v in metrics.items():
-            kl = k.lower()
-            if any(w in kl for w in ['return','pnl','profit','drawdown','sharpe','sortino']):
-                perf[k] = v
-            elif any(w in kl for w in ['trade','win','loss','position','consecutive']):
-                trade[k] = v
-            else:
-                other[k] = v
-        ordered = {**perf, **trade, **other}
-        chips = [_inline_chip(k, v) for k, v in ordered.items()]
-        n = len(ordered)
-        ideal_cols = min(max(3, math.ceil(math.sqrt(n))), 6)
-        gap_px = 14
-        card_min = 200
-        grid_max_width = ideal_cols * card_min + (ideal_cols - 1) * gap_px
-        return html.Div([
-            html.Div("Metrics", style={
-                'fontSize':'15px','fontWeight':'700','color':'#0f172a',
-                'margin':'0 0 10px 0','letterSpacing':'-0.4px'
-            }),
-            html.Div(chips, style={
-                'display':'grid',
-                'gridTemplateColumns':'repeat(auto-fit, minmax(160px, 1fr))',
-                'gap':'16px',
-                'width':'100%'
-            })
-        ], style={
-            'width':'100%','boxSizing':'border-box','margin':'0'
-        })
-
-    performance_metrics = {}
-    trade_metrics = {}
-    general_info = {}
-
-    for key, value in metrics.items():
-        key_lower = key.lower()
-        if any(word in key_lower for word in ['return', 'pnl', 'profit', 'drawdown', 'sharpe', 'sortino']):
-            performance_metrics[key] = value
-        elif any(word in key_lower for word in ['trade', 'win', 'loss', 'position']):
-            trade_metrics[key] = value
-        else:
-            general_info[key] = value
-
-    if layout_mode == "cards" and isinstance(metrics, dict) and not any(isinstance(v, dict) for v in metrics.values()):
-        # flatten all three groups preserving insertion order
-        flat = {}
-        flat.update(performance_metrics)
-        flat.update(trade_metrics)
-        flat.update(general_info)
-        return html.Div([
-            html.Div("Metrics", style={
-                'fontSize': '15px',
-                'fontWeight': '700',
-                'color': '#1e293b',
-                'marginBottom': '10px',
-                'letterSpacing': '-0.5px'
-            }),
-            render_metrics_cards(flat)
-        ], style={'width':'100%'})
 
     def create_metric_row(key, value):
         einheit = units.get(key, '')
@@ -614,6 +508,129 @@ def create_metrics_table(metrics: dict, nautilus_result, layout_mode: str = "car
                 'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'
             })
         ])
+
+    # --- Nested inline (multi-run) vertical layout ---
+    if layout_mode == "inline" and isinstance(metrics, dict) and any(isinstance(v, dict) for v in metrics.values()):
+        nested = {}
+        for run_key, maybe in metrics.items():
+            if isinstance(maybe, dict):
+                for inst_key, md in maybe.items():
+                    if isinstance(md, dict):
+                        nested.setdefault(str(run_key), {})[str(inst_key)] = md
+        segments = []
+        for run_id, inst_map in nested.items():
+            for inst_id, mdict in inst_map.items():
+                chips = [_inline_chip(k, v) for k, v in mdict.items()]
+                segments.append(
+                    html.Div([
+                        html.Div([
+                            html.Span(run_id, style={
+                                'padding':'4px 10px','background':'#1e3a8a','color':'#fff',
+                                'fontSize':'11px','fontWeight':'600','borderRadius':'10px',
+                                'letterSpacing':'.5px','marginRight':'6px'
+                            }),
+                            html.Span(inst_id, style={
+                                'padding':'4px 10px','background':'#0f766e','color':'#fff',
+                                'fontSize':'11px','fontWeight':'600','borderRadius':'10px',
+                                'letterSpacing':'.5px'
+                            })
+                        ], style={'display':'flex','alignItems':'center','marginBottom':'10px','gap':'4px'}),
+                        html.Div(chips, style={
+                            'display':'grid',
+                            'gridTemplateColumns':'repeat(auto-fit, minmax(160px, 1fr))',
+                            'gap':'16px',
+                            'width':'100%'
+                        })
+                    ], style={
+                        'background':'linear-gradient(135deg,#ffffff,#f1f5f9)',
+                        'border':'1px solid #e2e8f0',
+                        'borderRadius':'18px',
+                        'padding':'16px 18px 18px 18px',
+                        'boxShadow':'0 4px 12px -4px rgba(0,0,0,0.08),0 2px 4px rgba(0,0,0,0.04)',
+                        'width':'100%',
+                        'boxSizing':'border-box'
+                    })
+                )
+        if segments:
+            return html.Div([
+                html.Div("Metrics (Runs × Instruments)", style={
+                    'fontSize':'15px','fontWeight':'700','color':'#0f172a',
+                    'margin':'0 0 14px 0','letterSpacing':'-0.4px'
+                }),
+                html.Div(segments, style={
+                    'display':'flex','flexDirection':'column','gap':'18px','width':'100%'
+                })
+            ], style={
+                'background':'linear-gradient(125deg,#ffffff,#eef2f7)',
+                'border':'1px solid #dfe6ee',
+                'borderRadius':'22px',
+                'padding':'20px 22px 22px 22px',
+                'boxShadow':'0 6px 22px -6px rgba(0,0,0,0.12),0 3px 8px rgba(0,0,0,0.05)',
+                'width':'100%','boxSizing':'border-box','margin':'0'
+            })
+
+    # --- Flat inline single-run (no outer frame to avoid double border) ---
+    if layout_mode == "inline" and isinstance(metrics, dict) and not any(isinstance(v, dict) for v in metrics.values()):
+        perf, trade, other = {}, {}, {}
+        for k, v in metrics.items():
+            kl = k.lower()
+            if any(w in kl for w in ['return','pnl','profit','drawdown','sharpe','sortino']):
+                perf[k] = v
+            elif any(w in kl for w in ['trade','win','loss','position','consecutive']):
+                trade[k] = v
+            else:
+                other[k] = v
+        ordered = {**perf, **trade, **other}
+        chips = [_inline_chip(k, v) for k, v in ordered.items()]
+        n = len(ordered)
+        ideal_cols = min(max(3, math.ceil(math.sqrt(n))), 6)
+        gap_px = 14
+        card_min = 200
+        grid_max_width = ideal_cols * card_min + (ideal_cols - 1) * gap_px
+        return html.Div([
+            html.Div("Metrics", style={
+                'fontSize':'15px','fontWeight':'700','color':'#0f172a',
+                'margin':'0 0 10px 0','letterSpacing':'-0.4px'
+            }),
+            html.Div(chips, style={
+                'display':'grid',
+                'gridTemplateColumns':'repeat(auto-fit, minmax(160px, 1fr))',
+                'gap':'16px',
+                'width':'100%'
+            })
+        ], style={
+            'width':'100%','boxSizing':'border-box','margin':'0'
+        })
+
+    performance_metrics = {}
+    trade_metrics = {}
+    general_info = {}
+
+    for key, value in metrics.items():
+        key_lower = key.lower()
+        if any(word in key_lower for word in ['return', 'pnl', 'profit', 'drawdown', 'sharpe', 'sortino']):
+            performance_metrics[key] = value
+        elif any(word in key_lower for word in ['trade', 'win', 'loss', 'position']):
+            trade_metrics[key] = value
+        else:
+            general_info[key] = value
+
+    if layout_mode == "cards" and isinstance(metrics, dict) and not any(isinstance(v, dict) for v in metrics.values()):
+        # flatten all three groups preserving insertion order
+        flat = {}
+        flat.update(performance_metrics)
+        flat.update(trade_metrics)
+        flat.update(general_info)
+        return html.Div([
+            html.Div("Metrics", style={
+                'fontSize': '15px',
+                'fontWeight': '700',
+                'color': '#1e293b',
+                'marginBottom': '10px',
+                'letterSpacing': '-0.5px'
+            }),
+            render_metrics_cards(flat)
+        ], style={'width':'100%'})
 
     return html.Div([
         create_section("Performance", performance_metrics),

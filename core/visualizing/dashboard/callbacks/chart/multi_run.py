@@ -121,7 +121,7 @@ def _indicator_overlay_single(active_runs, indicators_per_run, x_range):
                              constrain="domain", rangebreaks=[])
         fig.update_layout(uirevision="linked-range")
         out.append(dcc.Graph(
-            id=f"multi-run-indicators-plot-{pid}",
+            id={'type': 'indicator-graph', 'index': pid},  # CHANGED
             figure=fig,
             className="indicator-chart",
             style={"height": "300px", "marginBottom": "10px"}
@@ -826,7 +826,7 @@ def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, cli
         fig_ind.update_layout(uirevision="linked-range")
         indicator_children.append(
             dcc.Graph(
-                id=f"multi-run-all-plot-{pid}",
+                id={'type': 'indicator-graph', 'index': pid},  # CHANGED
                 figure=fig_ind,
                 className="indicator-chart",
                 style={"height": "300px", "marginBottom": "10px"}

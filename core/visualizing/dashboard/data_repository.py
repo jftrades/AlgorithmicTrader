@@ -196,7 +196,8 @@ class ResultsRepository:
                 except Exception as e:
                     print(f"[repo] Indicator error {ind_file}: {e}")
 
-        # return None if everything empty
-        if not any([out["bars_df"] is not None, out["trades_df"] is not None, out["indicators_df"]]):
+        # Neu: Collector nur ausschließen, wenn GAR KEINE CSV (weder bars, trades.csv noch indicator CSVs) gefunden wurde.
+        has_any_csv = bool(out["bars_variants"]) or (out["trades_df"] is not None) or bool(out["indicators_df"])
+        if not has_any_csv:
             return None
         return out
