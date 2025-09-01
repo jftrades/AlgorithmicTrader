@@ -115,8 +115,8 @@ def calculate_max_drawdown(run_id):
             return 0.0
         # Laufendes Hoch
         running_peak = equity.cummax()
-        # Vermeide Division durch 0
-        running_peak = running_peak.replace(0, pd.NA).fillna(method="ffill")
+        # Vermeide Division durch 0 (FutureWarning Fix: statt fillna(method="ffill") -> ffill())
+        running_peak = running_peak.replace(0, pd.NA).ffill()
         if running_peak.isna().all():
             return 0.0
         drawdowns = (running_peak - equity) / running_peak
