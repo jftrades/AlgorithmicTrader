@@ -1,0 +1,40 @@
+# ===========================
+# Globale Parameter
+# ===========================
+strategy_path: "strategies.VP_VWAP_trend_strategy:VPVWAPTrendStrategy"
+config_path: "strategies.VP_VWAP_trend_strategy:VPVWAPTrendStrategyConfig"
+
+visualize: true
+venue: "GLBX"
+
+# Multi-Instrument Configuration
+instruments:
+  - instrument_id: "ESH4.GLBX"
+    bar_types:
+      - "ESH4.GLBX-1-MINUTE-LAST-EXTERNAL"
+    test: 1
+
+# Backtest-Zeitraum
+start_date: "2024-01-01T00:00:00Z"
+end_date: "2024-03-30T23:59:59Z"
+
+# Account/Venue Parameter
+starting_account_balance: "100000 USD"
+base_currency: "USD"
+account_type: "MARGIN"
+oms_type: "NETTING"
+
+# Risiko-Parameter (global)
+risk_percent: 0.01
+max_leverage: 2
+min_account_balance: 1000
+close_positions_on_stop: [true]
+
+# ===========================
+# Strategie-spezifische Parameter
+# ===========================
+
+# RSI-TTT-Strategie
+# rsi_period: [14]
+# rsi_overbought: [0.65]
+# rsi_oversold: [0.35]

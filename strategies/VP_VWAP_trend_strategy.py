@@ -14,12 +14,10 @@ from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 
-# from nautilus_trader.indicators.xxx import XXX
+from tools.indicators.VWAP_ZScore_intraday import VWAPZScoreIntraday
 
-# -------------------------------------------------
-# Multi-Instrument Configuration
-# -------------------------------------------------
-class BarStrategyConfig(StrategyConfig):
+
+class VPVWAPTrendStrategyConfig(StrategyConfig):
     instruments: List[dict]  # Each entry: {"instrument_id": <InstrumentId>, "bar_types": List of <BarType>, "trade_size_usdt": <Decimal|int|float>}
     risk_percent: float
     max_leverage: float
@@ -27,8 +25,8 @@ class BarStrategyConfig(StrategyConfig):
     run_id: str
     close_positions_on_stop: bool = True
 
-class BarStrategy(BaseStrategy, Strategy):
-    def __init__(self, config: BarStrategyConfig):
+class VPVWAPTrendStrategy(BaseStrategy, Strategy):
+    def __init__(self, config: VPVWAPTrendStrategyConfig):
         self.instrument_dict: Dict[InstrumentId, Dict[str, Any]] = {}
         super().__init__(config)
     
