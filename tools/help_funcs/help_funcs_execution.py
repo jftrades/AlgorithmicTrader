@@ -76,7 +76,56 @@ def extract_metrics(result, run_params, run_id):
         for k, v in result_obj.stats_returns.items():
             metrics[f"{k}"] = v
     
+    max_dd = calculate_max_drawdown(run_id)
+    metrics["Max Drawdown"] = max_dd
+    
     return metrics
+
+def calculate_max_drawdown(run_id):
+    """
+    Berechnet den maximalen Drawdown (als positiver Anteil 0..1) aus der total_equity.csv
+    für den angegebenen run_id. Liefert 0.0 falls Datei fehlt oder keine validen Daten.
+    """
+    try:
+        root_dir = Path(__file__).resolve().parents[2]  # .../AlgorithmicTrader
+        equity_csv = (
+            root_dir
+            / "data"
+            / "DATA_STORAGE"
+            / "results"
+            / str(run_id)
+            / "general"
+            / "indicators"
+            / "total_equity.csv"
+        )
+        if not equity_csv.exists():
+            return 0.0
+        df = pd.read_csv(equity_csv, usecols=["timestamp", "value"])
+        if df.empty or "value" not in df.columns:
+            return 0.0
+        # Bereinigung
+        df = df.dropna(subset=["value"])
+        if df.empty:
+            return 0.0
+        # Nach Zeit sortieren (falls nötig)
+        if "timestamp" in df.columns:
+            df = df.sort_values("timestamp")
+        equity = pd.to_numeric(df["value"], errors="coerce").dropna()
+        if equity.empty:
+            return 0.0
+        # Laufendes Hoch
+        running_peak = equity.cummax()
+        # Vermeide Division durch 0
+        running_peak = running_peak.replace(0, pd.NA).fillna(method="ffill")
+        if running_peak.isna().all():
+            return 0.0
+        drawdowns = (running_peak - equity) / running_peak
+        max_dd = drawdowns.max()
+        if pd.isna(max_dd) or max_dd < 0:
+            return 0.0
+        return float(round(max_dd, 6))
+    except Exception:
+        return 0.0
 
 def run_backtest_and_visualize(run_config, data_path=None, TradingDashboard=None):
     # Backtest ausführenp
