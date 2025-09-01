@@ -224,15 +224,15 @@ class BaseStrategy(Strategy):
                     ts = bar_list[-1].get("timestamp")
                     if ts is not None and (last_timestamp is None or ts > last_timestamp):
                         last_timestamp = ts
-            if last_timestamp is None:
+            if last_timestamp is not None:
                 # Fallback falls keine Bars gesammelt wurden
-                last_timestamp = self.clock.timestamp_ns()
-            #current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="equity", value=equity)
-            current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="position", value=net_position if net_position is not None else None)
-            current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="unrealized_pnl", value=0.0)
-            current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="realized_pnl", value=float(current_instrument["realized_pnl"]))
-            logging_message = f"{inst_id}: " + current_instrument["collector"].save_data()
-            self.log.info(logging_message, color=LogColor.GREEN)
+                
+                #current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="equity", value=equity)
+                current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="position", value=net_position if net_position is not None else None)
+                current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="unrealized_pnl", value=0.0)
+                current_instrument["collector"].add_indicator(timestamp=last_timestamp, name="realized_pnl", value=float(current_instrument["realized_pnl"]))
+                logging_message = f"{inst_id}: " + current_instrument["collector"].save_data()
+                self.log.info(logging_message, color=LogColor.GREEN)
             # Legacy aggregat
             self.realized_pnl += current_instrument["realized_pnl"]
         # Nach Instrument-Aggregation finaler General-Snapshot
