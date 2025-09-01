@@ -1,0 +1,44 @@
+# ===========================
+# Globale Parameter
+# ===========================
+strategy_path: "strategies.VWAP_trend_strategy:VWAPTrendStrategy"
+config_path: "strategies.VWAP_trend_strategy:VWAPTrendStrategyConfig"
+
+visualize: true
+venue: "GLBX"
+
+# Multi-Instrument Configuration
+instruments:
+  - instrument_id: "ESH4.GLBX"
+    bar_types:
+      - "ESH4.GLBX-1-MINUTE-LAST-EXTERNAL"
+    trade_size_usdt: 1000
+    test: 1
+
+# Backtest-Zeitraum
+start_date: "2024-01-01T00:00:00Z"
+end_date: "2024-03-30T23:59:59Z"
+
+# Account/Venue Parameter
+starting_account_balance: "100000 USD"
+base_currency: "USD"
+account_type: "MARGIN"
+oms_type: "NETTING"
+
+# Risiko-Parameter (global)
+risk_percent: 1.0
+max_leverage: 10.0
+min_account_balance: 1000.0
+close_positions_on_stop: true
+
+# ===========================
+# VP VWAP Trend Strategy Parameters
+# ===========================
+only_trade_rth: true 
+
+bars_after_break: 40          # Wait N bars after PDH/PDL break
+entry_band_long: 0.0         # Long entries: 0.0 = VWAP, 1.0 = lower 1-sigma band
+entry_band_short: 0.0        # Short entries: 0.0 = VWAP, 1.0 = upper 1-sigma band
+sl_atr_multiplier: 1.5     
+tp_atr_multiplier: 6.0      
+atr_period: 14               # ATR calculation period
