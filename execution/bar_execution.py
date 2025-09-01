@@ -17,7 +17,7 @@ from core.visualizing.dashboard.main import launch_dashbaord
 
 
 #STRAT PARAMETER
-yaml_name = "mean_RSI_TTT.yaml"
+yaml_name = "VWAP_trend.yaml"
 # ------------------------------------------------------------
 # YAML laden & vorbereiten
 # ------------------------------------------------------------

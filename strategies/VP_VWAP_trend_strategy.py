@@ -3,6 +3,7 @@
 
 from decimal import Decimal
 from typing import Any, Dict, List
+import pandas as pd
 
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
@@ -15,14 +16,21 @@ from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 
 from tools.indicators.VWAP_intraday import VWAPIntraday
+from nautilus_trader.indicators.atr import AverageTrueRange
 
 
 class VPVWAPTrendStrategyConfig(StrategyConfig):
-    instruments: List[dict]  # Each entry: {"instrument_id": <InstrumentId>, "bar_types": List of <BarType>, "trade_size_usdt": <Decimal|int|float>}
+    instruments: List[dict]
     risk_percent: float
     max_leverage: float
     min_account_balance: float
     run_id: str
+    bars_after_break: int = 5
+    entry_band_long: float = 0.0
+    entry_band_short: float = 0.0
+    sl_atr_multiplier: float = 2.0
+    tp_atr_multiplier: float = 4.0
+    atr_period: int = 14
     close_positions_on_stop: bool = True
 
 class VPVWAPTrendStrategy(BaseStrategy, Strategy):
@@ -36,29 +44,6 @@ class VPVWAPTrendStrategy(BaseStrategy, Strategy):
         self.add_instrument_context()
 
     def add_instrument_context(self):
-        """
-        Struktur von self.instrument_dict (gefüllt in BaseStrategy.__init__ / deren Helper):
-
-        self.instrument_dict: Dict[InstrumentId, Dict[str, Any]]
-
-        Beispiel (konzeptionell):
-        {
-          InstrumentId("BTCUSDT-PERP","BINANCE"): {
-            "instrument_id": InstrumentId("BTCUSDT-PERP","BINANCE"),
-            "bar_types": [BarType(...15-MINUTE...), BarType(...5-MINUTE...)],
-            # Alle YAML-Schlüssel des Instruments (dynamisch übernommen):
-            "instrument param XY": Decimal('100'),
-            # Basis-Keys, die BaseStrategy immer hinzufügt:
-            "realized_pnl": 0.0,
-            "unrealized_pnl": 0.0,
-            "collector": BacktestDataCollector(...),
-          },
-          InstrumentId("ETHUSDT-PERP","BINANCE"): {
-            ... gleiche Struktur ...
-          }
-        }
-
-        """
         for current_instrument in self.instrument_dict.values():
             current_instrument["collector"].initialise_logging_indicator("position", 1)
             current_instrument["collector"].initialise_logging_indicator("realized_pnl", 2)
@@ -67,8 +52,22 @@ class VPVWAPTrendStrategy(BaseStrategy, Strategy):
             current_instrument["collector"].initialise_logging_indicator("vwap", 5)
             current_instrument["collector"].initialise_logging_indicator("vwap_upper_band", 6)
             current_instrument["collector"].initialise_logging_indicator("vwap_lower_band", 7)
+            current_instrument["collector"].initialise_logging_indicator("pdh", 8)
+            current_instrument["collector"].initialise_logging_indicator("pdl", 9)
+            
+            # Indicators
             current_instrument["vwap_indicator"] = VWAPIntraday()
+            current_instrument["atr"] = AverageTrueRange(period=self.config.atr_period)
+            
+            # State tracking
+            current_instrument["prev_day_high"] = None
+            current_instrument["prev_day_low"] = None
+            current_instrument["pdh_pdl_broken"] = False
+            current_instrument["break_direction"] = None
+            current_instrument["bars_since_break"] = 0
+            current_instrument["second_bar_price"] = None
             current_instrument["bar_counter"] = 0
+            current_instrument["last_day"] = None
 
     def on_start(self) -> None:
         for inst_id, ctx in self.instrument_dict.items():
@@ -97,13 +96,35 @@ class VPVWAPTrendStrategy(BaseStrategy, Strategy):
             return
 
         current_instrument["bar_counter"] += 1
+        current_day = pd.Timestamp(bar.ts_init, tz="UTC").day
         
-        # Update VWAP indicator with bar data
+        # Track previous day high/low
+        if current_instrument["last_day"] is not None and current_day != current_instrument["last_day"]:
+            # New day - reset states
+            current_instrument["pdh_pdl_broken"] = False
+            current_instrument["break_direction"] = None
+            current_instrument["bars_since_break"] = 0
+            current_instrument["second_bar_price"] = None
+            
+        current_instrument["last_day"] = current_day
+        
+        # Update indicators
         current_instrument['vwap_indicator'].update(bar)
-        if not current_instrument['vwap_indicator'].initialized:
+        current_instrument["atr"].handle_bar(bar)
+        
+        if not current_instrument['vwap_indicator'].initialized or not current_instrument["atr"].initialized:
             return
         
-        # Check for pending orders to avoid endless order loops
+        # Store daily H/L for comparison
+        if current_instrument["prev_day_high"] is None:
+            current_instrument["prev_day_high"] = bar.high
+            current_instrument["prev_day_low"] = bar.low
+        else:
+            if current_day != current_instrument["last_day"]:
+                current_instrument["prev_day_high"] = bar.high
+                current_instrument["prev_day_low"] = bar.low
+        
+        # Check for pending orders
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
         if open_orders:
             return
@@ -116,23 +137,118 @@ class VPVWAPTrendStrategy(BaseStrategy, Strategy):
     # Entry Logic per Instrument
     # -------------------------------------------------
     def entry_logic(self, bar: Bar, current_instrument: Dict[str, Any]):
-        instrument_id = bar.bar_type.instrument_id
-        trade_size_usdt = float(current_instrument["trade_size_usdt"])
-        qty = max(1, int(trade_size_usdt / float(bar.close)))
-
+        current_price = bar.close
         vwap_indicator = current_instrument["vwap_indicator"]
-        if not vwap_indicator.initialized:
+        
+        # Step 1: Check for PDH/PDL break
+        if not current_instrument["pdh_pdl_broken"]:
+            if (current_instrument["prev_day_high"] and current_price > current_instrument["prev_day_high"]):
+                current_instrument["pdh_pdl_broken"] = True
+                current_instrument["break_direction"] = "high"
+                current_instrument["bars_since_break"] = 0
+                self.log.info(f"PDH broken: {current_price} > {current_instrument['prev_day_high']}")
+                
+            elif (current_instrument["prev_day_low"] and current_price < current_instrument["prev_day_low"]):
+                current_instrument["pdh_pdl_broken"] = True
+                current_instrument["break_direction"] = "low"
+                current_instrument["bars_since_break"] = 0
+                self.log.info(f"PDL broken: {current_price} < {current_instrument['prev_day_low']}")
             return
         
-        vwap_value = vwap_indicator.value
+        # Step 2: Count bars after break and store second bar price
+        current_instrument["bars_since_break"] += 1
+        if current_instrument["bars_since_break"] == 2:
+            current_instrument["second_bar_price"] = current_price
+            
+        # Step 3: Wait for required bars after break (more robust logic)
+        if current_instrument["bars_since_break"] <= self.config.bars_after_break:
+            return
+            
+        # Step 4 & 5: Execute long or short entry
+        if current_instrument["break_direction"] == "high":
+            self._execute_long_entry(bar, current_instrument, vwap_indicator)
+        else:
+            self._execute_short_entry(bar, current_instrument, vwap_indicator)
+
+    def _execute_long_entry(self, bar: Bar, current_instrument: Dict[str, Any], vwap_indicator):
+        """Execute long entry after PDH break and retrace to VWAP band"""
         current_price = bar.close
+        vwap_value = vwap_indicator.value
         
-        # Get different band levels
-        _, upper_1, lower_1 = vwap_indicator.get_bands(1.0)  # 1-sigma
-        _, upper_2, lower_2 = vwap_indicator.get_bands(2.0)  # 2-sigma  
-        _, upper_3, lower_3 = vwap_indicator.get_bands(3.0)  # 3-sigma
+        # Get entry level based on long band configuration
+        if self.config.entry_band_long == 0.0:
+            entry_level = vwap_value
+        else:
+            _, upper_band, lower_band = vwap_indicator.get_bands(self.config.entry_band_long)
+            entry_level = vwap_value if lower_band is None else lower_band
         
-        pass
+        # Check if price retraced to entry level
+        if current_price > entry_level:
+            return
+            
+        # Get ATR for SL/TP calculation
+        atr_value = current_instrument["atr"].value
+        if atr_value is None or atr_value <= 0:
+            return
+            
+        # Calculate levels
+        entry_price = current_price
+        sl_distance = atr_value * self.config.sl_atr_multiplier
+        tp_distance = atr_value * self.config.tp_atr_multiplier
+        sl_price = entry_price - sl_distance
+        tp_price = entry_price + tp_distance
+        
+        # 1% risk position sizing
+        risk_amount = self.portfolio.base_currency.balance().amount.as_double() * (self.config.risk_percent / 100)
+        position_size = int(risk_amount / sl_distance)
+        
+        if position_size > 0:
+            self.order_types.submit_long_bracket_order(
+                bar.bar_type.instrument_id, position_size, 
+                Decimal(str(entry_price)), Decimal(str(sl_price)), Decimal(str(tp_price))
+            )
+            current_instrument["pdh_pdl_broken"] = False
+            self.log.info(f"LONG entry: {entry_price}, SL: {sl_price}, TP: {tp_price}, Size: {position_size}")
+
+    def _execute_short_entry(self, bar: Bar, current_instrument: Dict[str, Any], vwap_indicator):
+        """Execute short entry after PDL break and retrace to VWAP band"""
+        current_price = bar.close
+        vwap_value = vwap_indicator.value
+        
+        # Get entry level based on short band configuration
+        if self.config.entry_band_short == 0.0:
+            entry_level = vwap_value
+        else:
+            _, upper_band, lower_band = vwap_indicator.get_bands(self.config.entry_band_short)
+            entry_level = vwap_value if upper_band is None else upper_band
+        
+        # Check if price retraced to entry level
+        if current_price < entry_level:
+            return
+            
+        # Get ATR for SL/TP calculation
+        atr_value = current_instrument["atr"].value
+        if atr_value is None or atr_value <= 0:
+            return
+            
+        # Calculate levels
+        entry_price = current_price
+        sl_distance = atr_value * self.config.sl_atr_multiplier
+        tp_distance = atr_value * self.config.tp_atr_multiplier
+        sl_price = entry_price + sl_distance
+        tp_price = entry_price - tp_distance
+        
+        # 1% risk position sizing
+        risk_amount = self.portfolio.base_currency.balance().amount.as_double() * (self.config.risk_percent / 100)
+        position_size = int(risk_amount / sl_distance)
+        
+        if position_size > 0:
+            self.order_types.submit_short_bracket_order(
+                bar.bar_type.instrument_id, position_size,
+                Decimal(str(entry_price)), Decimal(str(sl_price)), Decimal(str(tp_price))
+            )
+            current_instrument["pdh_pdl_broken"] = False
+            self.log.info(f"SHORT entry: {entry_price}, SL: {sl_price}, TP: {tp_price}, Size: {position_size}")
 
     # -------------------------------------------------
     # Order Submission Wrappers
@@ -150,17 +266,21 @@ class VPVWAPTrendStrategy(BaseStrategy, Strategy):
         inst_id = bar.bar_type.instrument_id
         self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)
         
-        # Add VWAP indicator values to logging
         vwap_indicator = current_instrument["vwap_indicator"]
         if vwap_indicator.initialized:
-            # Log VWAP value
+            # Log VWAP and bands
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="vwap", value=float(vwap_indicator.value))
             
-            # Get and log 1-sigma bands
             _, upper_1, lower_1 = vwap_indicator.get_bands(1.0)
             if upper_1 is not None:
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="vwap_upper_band", value=float(upper_1))
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="vwap_lower_band", value=float(lower_1))
+        
+        # Log PDH/PDL
+        if current_instrument["prev_day_high"]:
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="pdh", value=float(current_instrument["prev_day_high"]))
+        if current_instrument["prev_day_low"]:
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="pdl", value=float(current_instrument["prev_day_low"]))
         
     def on_order_filled(self, order_filled) -> None:
         return self.base_on_order_filled(order_filled)

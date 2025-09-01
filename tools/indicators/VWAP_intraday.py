@@ -1,5 +1,6 @@
 from nautilus_trader.indicators.vwap import VolumeWeightedAveragePrice
 import numpy as np
+import pandas as pd
 
 class VWAPIntraday:
     def __init__(self):
@@ -7,16 +8,25 @@ class VWAPIntraday:
         self.prices = []
         self.volumes = []
         self.weighted_prices = []
+        self.last_day = None
         
     def update(self, bar):
         """Update VWAP with new bar data."""
+        # Let Nautilus VWAP handle daily reset automatically
+        self.vwap.handle_bar(bar)
+        
+        # Check for new day to reset our data
+        current_day = pd.Timestamp(bar.ts_init, tz="UTC").day
+        if self.last_day is not None and current_day != self.last_day:
+            self.prices.clear()
+            self.volumes.clear()
+            self.weighted_prices.clear()
+        self.last_day = current_day
+        
+        # Store data for band calculation
         typical_price = (bar.high.as_double() + bar.low.as_double() + bar.close.as_double()) / 3.0
         volume = bar.volume.as_double()
         
-        # Update the nautilus VWAP (handles daily reset automatically)
-        self.vwap.handle_bar(bar)
-        
-        # Store data for band calculation
         if volume > 0:
             self.prices.append(typical_price)
             self.volumes.append(volume)

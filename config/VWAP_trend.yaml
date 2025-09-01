@@ -1,8 +1,8 @@
 # ===========================
 # Globale Parameter
 # ===========================
-strategy_path: "strategies.VP_VWAP_trend_strategy:VPVWAPTrendStrategy"
-config_path: "strategies.VP_VWAP_trend_strategy:VPVWAPTrendStrategyConfig"
+strategy_path: "strategies.VWAP_trend_strategy:VWAPTrendStrategy"
+config_path: "strategies.VWAP_trend_strategy:VWAPTrendStrategyConfig"
 
 visualize: true
 venue: "GLBX"
@@ -34,10 +34,11 @@ close_positions_on_stop: true
 # ===========================
 # VP VWAP Trend Strategy Parameters
 # ===========================
-only_trade_rth: true          # Only trade during regular trading hours
-bars_after_break: 5          # Wait N bars after PDH/PDL break
+only_trade_rth: true 
+
+bars_after_break: 40          # Wait N bars after PDH/PDL break
 entry_band_long: 0.0         # Long entries: 0.0 = VWAP, 1.0 = lower 1-sigma band
 entry_band_short: 0.0        # Short entries: 0.0 = VWAP, 1.0 = upper 1-sigma band
-sl_atr_multiplier: 2.0       # Stop loss at 2 ATR
-tp_atr_multiplier: 4.0       # Take profit at 4 ATR (1:2 ratio)
+sl_atr_multiplier: 1.5     
+tp_atr_multiplier: 6.0      
 atr_period: 14               # ATR calculation period
