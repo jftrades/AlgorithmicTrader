@@ -1,57 +1,43 @@
-# Standard Library Importe
-from decimal import Decimal
-import time
-from typing import Any, Dict, Optional, List
+# in here will be the code for the VP_VWAP_trend_strategy
+# the VP will be used if broken to indicate trend day and VWAP will be used for entry
 
-# Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
+from decimal import Decimal
+from typing import Any, Dict, List
+
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
-from nautilus_trader.model.data import Bar, TradeTick, BarType
-from nautilus_trader.model.identifiers import InstrumentId, Venue
-from nautilus_trader.model.objects import Money, Price, Quantity, Currency
-from nautilus_trader.model.orders import MarketOrder
-from nautilus_trader.model.enums import OrderSide, TimeInForce
+from nautilus_trader.model.data import Bar, BarType
+from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.common.enums import LogColor
 
-# Nautilus Strategie spezifische Importe
 from tools.help_funcs.base_strategy import BaseStrategy
-from tools.structure.TTTbreakout import TTTBreakout_Analyser
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
-from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
-from tools.help_funcs.help_funcs_strategy import create_tags
-from nautilus_trader.common.enums import LogColor
 
-
-# Strategiespezifische Importe
-from nautilus_trader.indicators.rsi import RelativeStrengthIndex
+# from nautilus_trader.indicators.xxx import XXX
 
 # -------------------------------------------------
-# Multi-Instrument Konfiguration (jetzt Pflicht)
+# Multi-Instrument Configuration
 # -------------------------------------------------
-class RSISimpleStrategyConfig(StrategyConfig):
-    instruments: List[dict]  
-    param_aus_yaml1: float
-    param_aus_yaml2: int
+class BarStrategyConfig(StrategyConfig):
+    instruments: List[dict]  # Each entry: {"instrument_id": <InstrumentId>, "bar_types": List of <BarType>, "trade_size_usdt": <Decimal|int|float>}
+    risk_percent: float
+    max_leverage: float
     min_account_balance: float
-
-    #params that should always be included
     run_id: str
     close_positions_on_stop: bool = True
 
-
-class RSISimpleStrategy(BaseStrategy, Strategy):
-    def __init__(self, config: RSISimpleStrategyConfig):
+class BarStrategy(BaseStrategy, Strategy):
+    def __init__(self, config: BarStrategyConfig):
         self.instrument_dict: Dict[InstrumentId, Dict[str, Any]] = {}
         super().__init__(config)
     
+        # Remove: primary instrument derivations (self.instrument_id, self.bar_type, etc.)
         self.risk_manager = None
         self.order_types = None
         self.add_instrument_context()
 
-
     def add_instrument_context(self):
-        #the self.instrument_dict is automatically filled by the BaseStrategy
         """
         Struktur von self.instrument_dict (gefüllt in BaseStrategy.__init__ / deren Helper):
 
@@ -75,61 +61,80 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         }
 
         """
-        
-        # hier fügtr man eigene Kontexte pro Instrument hinzu
-        # Strategy-spezifische / nachträglich ergänzte Keys (hier in add_instrument_context):
-        """
-            "rsi_period": 10,
-            "rsi_overbought": 0.75,
-            "rsi_oversold": 0.25,
-            "rsi": RelativeStrengthIndex(...),
-            "last_rsi_cross": None,
-            # Weitere mögliche spätere Ergänzungen:
-            # "param_aus_yaml1": <Wert>,
-            # "indicator_XY": <Wert>,
-        """
         for current_instrument in self.instrument_dict.values():
-            param_aus_yaml1 = current_instrument.get("param_aus_yaml1", getattr(self.config, "param_aus_yaml1"))
-            current_instrument["collector"].initialise_logging_indicator("indicator_XY", 1)
-            current_instrument["param_aus_yaml1"] = param_aus_yaml1
-
+            # Initialize standard indicators
+            current_instrument["collector"].initialise_logging_indicator("position", 1)
+            current_instrument["collector"].initialise_logging_indicator("realized_pnl", 2)
+            current_instrument["collector"].initialise_logging_indicator("unrealized_pnl", 3)
+            current_instrument["collector"].initialise_logging_indicator("balance", 4)
+            
+            # Add strategy-specific context here
+            # current_instrument["my_indicator"] = MyIndicator(period=20)
+            current_instrument["bar_counter"] = 0
 
     def on_start(self) -> None:
-        #subscribe to all bars of all instruments
         for inst_id, ctx in self.instrument_dict.items():
             for bar_type in ctx["bar_types"]:
-                #if isinstance(bar_type, BarType):
-                self.log.info(str(bar_type), color=LogColor.GREEN)
-                self.subscribe_bars(bar_type) 
+                self.log.info(f"Subscribing to bars: {str(bar_type)}", color=LogColor.GREEN)
+                self.subscribe_bars(bar_type)
+        
         self.log.info(f"Strategy started. Instruments: {', '.join(str(i) for i in self.instrument_ids())}")
-        self.risk_manager = RiskManager(self, Decimal(str(self.config.risk_percent)), Decimal(str(self.config.max_leverage)), Decimal(str(self.config.min_account_balance)),)
+        
+        # Initialize risk and order management
+        self.risk_manager = RiskManager(
+            self,
+            Decimal(str(self.config.risk_percent)),
+            Decimal(str(self.config.max_leverage)),
+            Decimal(str(self.config.min_account_balance)),
+        )
         self.order_types = OrderTypes(self)
 
     # -------------------------------------------------
-    # Ereignis Routing
+    # Event Routing
     # -------------------------------------------------
     def on_bar(self, bar: Bar) -> None:
-        
         instrument_id = bar.bar_type.instrument_id
         current_instrument = self.instrument_dict.get(instrument_id)
+        if current_instrument is None:
+            return
 
+        current_instrument["bar_counter"] += 1
+        
+        # Update indicators with bar data
+        # current_instrument['my_indicator'].handle_bar(bar)
+        # if not current_instrument['my_indicator'].initialized:
+        #     return
+        
+        # Check for pending orders to avoid endless order loops
+        open_orders = self.cache.orders_open(instrument_id=instrument_id)
+        if open_orders:
+            return
+            
         self.entry_logic(bar, current_instrument)
         self.base_collect_bar_data(bar, current_instrument)
         self.update_visualizer_data(bar, current_instrument)
 
     # -------------------------------------------------
-    # Entry Logic pro Instrument
+    # Entry Logic per Instrument
     # -------------------------------------------------
     def entry_logic(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
-        qty = 1 # has to be calcualted
-        #example on how to palce orders:
-        self.submit_short_market_order(instrument_id, qty)
-        self.submit_long_market_order(instrument_id, qty)
-        self.close_position(instrument_id)
+        trade_size_usdt = float(current_instrument["trade_size_usdt"])
+        qty = max(1, int(trade_size_usdt / float(bar.close)))
+        
+        # Example trading logic (replace with your own):
+        # indicator_value = current_instrument["my_indicator"].value
+        # if indicator_value is None:
+        #     return
+        #
+        # if some_condition:
+        #     self.submit_long_market_order(instrument_id, qty)
+        # elif some_other_condition:
+        #     self.submit_short_market_order(instrument_id, qty)
+        pass
 
     # -------------------------------------------------
-    # Order Submission Wrapper (Instrument-Aware, intern noch Single)
+    # Order Submission Wrappers
     # -------------------------------------------------
     def submit_long_market_order(self, instrument_id: InstrumentId, qty: int):
         self.order_types.submit_long_market_order(instrument_id, qty)
@@ -138,20 +143,16 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         self.order_types.submit_short_market_order(instrument_id, qty)
 
     # -------------------------------------------------
-    # Visualizer / Logging pro Instrument
+    # Visualizer / Logging per Instrument
     # -------------------------------------------------
     def update_visualizer_data(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         inst_id = bar.bar_type.instrument_id
-        self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id) #logs all relevant basic data
-        #custom indicators -> add indicatos for visualiser (such as RSI, ..)
-        indicatorXY_value = float(current_instrument["indicatorXY"])
-        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="indicatorXY", value=indicatorXY_value)
+        self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)
         
-
-    # -------------------------------------------------
-    # Help Functions
-    # -------------------------------------------------
-
+        # Add custom indicators here:
+        # indicator_value = float(current_instrument["my_indicator"].value) if current_instrument["my_indicator"].value is not None else None
+        # current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="my_indicator", value=indicator_value)
+        
     def on_order_filled(self, order_filled) -> None:
         return self.base_on_order_filled(order_filled)
 
@@ -161,9 +162,8 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
     def on_error(self, error: Exception) -> None:
         return self.base_on_error(error)
     
-    def close_position(self, instrument_id: Optional[InstrumentId] = None) -> None:
+    def close_position(self, instrument_id: InstrumentId = None) -> None:
         if instrument_id is None:
-            raise ValueError("InstrumentId erforderlich (kein globales primäres Instrument mehr).")
+            raise ValueError("InstrumentId required (no global primary instrument anymore).")
         position = self.base_get_position(instrument_id)
         return self.base_close_position(position)
-

@@ -44,6 +44,29 @@ class TickStrategy(BaseStrategy, Strategy):
         self.add_instrument_context()
 
     def add_instrument_context(self):
+        """
+        Struktur von self.instrument_dict (gefüllt in BaseStrategy.__init__ / deren Helper):
+
+        self.instrument_dict: Dict[InstrumentId, Dict[str, Any]]
+
+        Beispiel (konzeptionell):
+        {
+          InstrumentId("BTCUSDT-PERP","BINANCE"): {
+            "instrument_id": InstrumentId("BTCUSDT-PERP","BINANCE"),
+            "bar_types": [BarType(...15-MINUTE...), BarType(...5-MINUTE...)],
+            # Alle YAML-Schlüssel des Instruments (dynamisch übernommen):
+            "instrument param XY": Decimal('100'),
+            # Basis-Keys, die BaseStrategy immer hinzufügt:
+            "realized_pnl": 0.0,
+            "unrealized_pnl": 0.0,
+            "collector": BacktestDataCollector(...),
+          },
+          InstrumentId("ETHUSDT-PERP","BINANCE"): {
+            ... gleiche Struktur ...
+          }
+        }
+
+        """
         for current_instrument in self.instrument_dict.values():
             tick_buffer_size = current_instrument.get("tick_buffer_size", getattr(self.config, "tick_buffer_size"))
             
