@@ -9,12 +9,12 @@ venue: "BINANCE"
 
 # Instrumente
 instruments:
-  - instrument_id: "BTCUSDT-PERP.BINANCE"
-    bar_types: 
-      - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
-      - "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
-    trade_size_usdt: "100"
-    test: 1
+  #- instrument_id: "BTCUSDT-PERP.BINANCE"
+  #  bar_types: 
+  #    - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
+  #    - "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
+  #  trade_size_usdt: "100"
+  #  test: 1
 
 # Automatischer Import aus CSV:
 # CSV Beispiel (Spaltenkopf 'symbol'): symbol,onboardDate
@@ -53,4 +53,4 @@ close_positions_on_stop: [true]
 # RSI-Strategie
 rsi_period: [10]
 rsi_overbought: [0.75]
-rsi_oversold: [0.25, 0.3]
+rsi_oversold: [0.25]

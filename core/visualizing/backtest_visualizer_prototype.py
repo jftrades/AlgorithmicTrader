@@ -201,7 +201,9 @@ class BacktestDataCollector:
     def analyse_trades(self):
         """
         Analysiert die Trades und gibt ein Dictionary mit Metriken zurück:
-        final_realized_pnl, winrate, long/short ratio, anzahl trades, anzahl long/short trades,
+        final_realized_pnl, winrate (gesamt), winrate_long, winrate_short,
+        pnl_long, pnl_short,
+        long/short ratio, anzahl trades, anzahl long/short trades,
         avg win, avg loss, max win, max loss, max consecutive wins/losses, commissions.
         """
         if not self.trades:
@@ -228,12 +230,22 @@ class BacktestDataCollector:
         n_long = len(long_trades)
         n_short = len(short_trades)
 
+        # Aggregiertes PnL nach Richtung (neu)
+        pnl_long = sum(to_float(t.realized_pnl) for t in long_trades)
+        pnl_short = sum(to_float(t.realized_pnl) for t in short_trades)
+
+        # Neu: separate Gewinnlisten für Long / Short
+        long_wins = [to_float(t.realized_pnl) for t in long_trades if to_float(t.realized_pnl) > 0]
+        short_wins = [to_float(t.realized_pnl) for t in short_trades if to_float(t.realized_pnl) > 0]
+
         wins = [to_float(t.realized_pnl) for t in self.trades if to_float(t.realized_pnl) > 0]
         losses = [to_float(t.realized_pnl) for t in self.trades if to_float(t.realized_pnl) < 0]
         n_wins = len(wins)
         n_losses = len(losses)
 
         winrate = n_wins / n_trades if n_trades > 0 else 0.0
+        winrate_long = len(long_wins) / n_long if n_long > 0 else 0.0    # Neu
+        winrate_short = len(short_wins) / n_short if n_short > 0 else 0.0 # Neu
         long_short_ratio = n_long / n_short if n_short > 0 else float('inf') if n_long > 0 else 0.0
         avg_win = sum(wins) / n_wins if n_wins > 0 else 0.0
         avg_loss = sum(losses) / n_losses if n_losses > 0 else 0.0
@@ -262,6 +274,10 @@ class BacktestDataCollector:
         result = {
             "final_realized_pnl": final_realized_pnl,
             "winrate": winrate,
+            "winrate_long": winrate_long,     # Neu
+            "winrate_short": winrate_short,   # Neu
+            "pnl_long": pnl_long,       # Neu
+            "pnl_short": pnl_short,     # Neu
             "long_short_ratio": long_short_ratio,
             "n_trades": n_trades,
             "n_long_trades": n_long,
