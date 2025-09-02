@@ -1,11 +1,9 @@
 # in here will be the code for the VP_VWAP_trend_strategy
 # the VP will be used if broken to indicate trend day and VWAP will be used for entry
 
-# problems rn: if market ranges, and we detect a break above PD high but then in ETH drop below vwap 
-# - we execute long at vwap in RTH even though we arent trending anymore...
+# problems rn:
 # - we have to define what which open means (if we open above through gap should directly look for VWAP trend following)
-# - also visualize Band2 and 3 to see what would work 
-
+# - risk not working rigt -> 
 from decimal import Decimal
 from typing import Any, Dict, List
 
@@ -21,6 +19,7 @@ from tools.order_management.risk_manager import RiskManager
 
 from tools.indicators.VWAP_intraday import VWAPIntraday
 from nautilus_trader.indicators.atr import AverageTrueRange
+from tools.structure.ChoCh import ChoCh, BreakType
 
 
 class VWAPTrendStrategyConfig(StrategyConfig):
@@ -29,9 +28,13 @@ class VWAPTrendStrategyConfig(StrategyConfig):
     max_leverage: float
     min_account_balance: float
     run_id: str
-    bars_after_break: int = 5
-    entry_band_long: float = 0.0
-    entry_band_short: float = 0.0
+    min_bars_vwap_extremes: int = 10
+    min_band_trend_long: float = 1.0
+    min_band_trend_short: float = 1.0
+    lower_band_entry_threshold: float = 0.5
+    upper_band_entry_threshold: float = 0.5
+    choch_lookback_period: int = 50
+    choch_min_swing_strength: int = 3
     sl_atr_multiplier: float = 2.0
     tp_atr_multiplier: float = 4.0
     atr_period: int = 14
@@ -57,12 +60,26 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
             current_instrument["collector"].initialise_logging_indicator("vwap", 0)
             current_instrument["collector"].initialise_logging_indicator("vwap_upper_band", 0)
             current_instrument["collector"].initialise_logging_indicator("vwap_lower_band", 0)
+            current_instrument["collector"].initialise_logging_indicator("vwap_upper_band_2", 0)
+            current_instrument["collector"].initialise_logging_indicator("vwap_lower_band_2", 0)
+            current_instrument["collector"].initialise_logging_indicator("vwap_upper_band_3", 0)
+            current_instrument["collector"].initialise_logging_indicator("vwap_lower_band_3", 0)
             current_instrument["collector"].initialise_logging_indicator("pdh", 8)
             current_instrument["collector"].initialise_logging_indicator("pdl", 9)
             
             # Indicators
             current_instrument["vwap_indicator"] = VWAPIntraday()
+            # Configure VWAP extremes tracking with strategy parameters
+            current_instrument["vwap_indicator"].configure_extremes(
+                min_bars_vwap_extremes=self.config.min_bars_vwap_extremes,
+                min_band_trend_long=self.config.min_band_trend_long,
+                min_band_trend_short=self.config.min_band_trend_short
+            )
             current_instrument["atr"] = AverageTrueRange(period=self.config.atr_period)
+            current_instrument["choch"] = ChoCh(
+                lookback_period=self.config.choch_lookback_period,
+                min_swing_strength=self.config.choch_min_swing_strength
+            )
             
             # State tracking
             current_instrument["prev_day_high"] = None
@@ -72,11 +89,12 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
             current_instrument["last_bar_date"] = None
             current_instrument["pdh_broken"] = False
             current_instrument["pdl_broken"] = False
-            current_instrument["bars_since_break"] = 0
             current_instrument["bar_counter"] = 0
             current_instrument["only_trade_rth"] = self.config.only_trade_rth
             current_instrument["traded_today"] = False
             current_instrument["prev_bar_close"] = None
+            current_instrument["opening_validated"] = False  # Track if opening is within PDH/PDL range
+            current_instrument["first_bar_of_day"] = True    # Track first bar to capture opening
             # RTH setup for US futures/stocks (9:30 AM - 4:00 PM ET = 14:30 - 21:00 UTC)
             current_instrument["rth_start_hour"] = 14
             current_instrument["rth_start_minute"] = 30
@@ -93,6 +111,11 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
         rth_end = datetime.time(current_instrument["rth_end_hour"], current_instrument["rth_end_minute"])
         
         return rth_start <= bar_time <= rth_end
+
+    def has_valid_previous_day_levels(self, current_instrument: Dict[str, Any]) -> bool:
+        """Check if we have valid previous day high/low levels for trading."""
+        return (current_instrument["prev_day_high"] is not None and 
+                current_instrument["prev_day_low"] is not None)
 
     def on_start(self) -> None:
         for inst_id, ctx in self.instrument_dict.items():
@@ -128,20 +151,40 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
         
         # Check if new day started
         if current_instrument["last_bar_date"] != current_date:
-            # BEFORE overwriting lists: Save the complete previous day's extreme values
+            # SMART: Only update prev_day levels if we actually had trading data yesterday
             if current_instrument["daily_highs"] and current_instrument["daily_lows"]:
                 # Save the highest high and lowest low from the complete 24h previous day
                 current_instrument["prev_day_high"] = current_instrument["daily_highs"][0]  # Highest value from complete day
                 current_instrument["prev_day_low"] = current_instrument["daily_lows"][0]    # Lowest value from complete day
-                self.log.info(f"New day: Saved complete PDH={float(current_instrument['prev_day_high']):.2f}, PDL={float(current_instrument['prev_day_low']):.2f}")
             
-            # NOW reset for new day (after saving previous day values)
+            # NOW reset for new day (after preserving/updating previous day values)
             current_instrument["daily_highs"] = []
             current_instrument["daily_lows"] = []
             current_instrument["last_bar_date"] = current_date
             current_instrument["traded_today"] = False
             current_instrument["pdh_broken"] = False
             current_instrument["pdl_broken"] = False
+            current_instrument["opening_validated"] = False
+            current_instrument["first_bar_of_day"] = True
+        
+        # Validate opening is within PDH/PDL range (first bar of the day)
+        if (current_instrument["first_bar_of_day"] and 
+            self.has_valid_previous_day_levels(current_instrument)):
+            
+            opening_price = bar.open
+            prev_day_high = current_instrument["prev_day_high"]
+            prev_day_low = current_instrument["prev_day_low"]
+            
+            if prev_day_low <= opening_price <= prev_day_high:
+                current_instrument["opening_validated"] = True
+            else:
+                current_instrument["opening_validated"] = False
+            
+            current_instrument["first_bar_of_day"] = False
+        elif current_instrument["first_bar_of_day"] and not self.has_valid_previous_day_levels(current_instrument):
+            # First day or no valid levels - reject opening
+            current_instrument["opening_validated"] = False
+            current_instrument["first_bar_of_day"] = False
         
         # Add current bar's high/low to sorted lists (convert Price objects to float)
         current_instrument["daily_highs"].append(float(bar.high))
@@ -152,11 +195,24 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
         current_instrument["daily_lows"].sort()
         
         # Update indicators
-        current_instrument['vwap_indicator'].update(bar)
+        # Pass RTH status to VWAP for extremes tracking
+        is_rth = self.is_rth_time(bar, current_instrument)
+        current_instrument['vwap_indicator'].update(bar, is_rth=is_rth)
         current_instrument["atr"].handle_bar(bar)
+        choch_signal = current_instrument["choch"].handle_bar(bar)
         
         if not current_instrument['vwap_indicator'].initialized or not current_instrument["atr"].initialized:
             return
+        
+        trend_status = current_instrument["vwap_indicator"].get_trend_validation_status()
+        if not hasattr(current_instrument, "last_trend_status"):
+            current_instrument["last_trend_status"] = {
+                'long_trend_validated': False,
+                'short_trend_validated': False
+            }
+        
+        # Check if trend validation status changed
+        current_instrument["last_trend_status"] = trend_status.copy()
         
         # Check for pending orders
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
@@ -167,42 +223,20 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
         prev_close = current_instrument["prev_bar_close"]
         current_instrument["prev_bar_close"] = bar.close
             
-        self.entry_logic(bar, current_instrument, prev_close)
+        self.entry_logic(bar, current_instrument, prev_close, choch_signal)
         self.base_collect_bar_data(bar, current_instrument)
         self.update_visualizer_data(bar, current_instrument)
 
     # -------------------------------------------------
     # Entry Logic per Instrument
     # -------------------------------------------------
-    def entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_close: float = None):
-        # Simple break detection using prev_day_high and prev_day_low
-        prev_day_high = current_instrument["prev_day_high"]
-        prev_day_low = current_instrument["prev_day_low"]
-        
-        if prev_close is None or prev_day_high is None or prev_day_low is None:
+    def entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_close: float = None, choch_signal=None):
+        # Only enter trades during RTH
+        if not self.is_rth_time(bar, current_instrument):
             return
         
-        vwap_indicator = current_instrument["vwap_indicator"]
-        
-        # Step 1: ALWAYS detect breaks (even outside RTH) to maintain proper state
-        if prev_close < prev_day_high and bar.close > prev_day_high:
-            current_instrument["pdh_broken"] = True
-            current_instrument["pdl_broken"] = False  # Reset opposite break
-            current_instrument["bars_since_break"] = 0
-            self.log.info(f"PDH break detected: prev={float(prev_close):.2f} < PDH={prev_day_high:.2f} < current={float(bar.close):.2f}")
-                
-        elif prev_close > prev_day_low and bar.close < prev_day_low:
-            current_instrument["pdl_broken"] = True
-            current_instrument["pdh_broken"] = False  # Reset opposite break
-            current_instrument["bars_since_break"] = 0
-            self.log.info(f"PDL break detected: prev={float(prev_close):.2f} > PDL={prev_day_low:.2f} > current={float(bar.close):.2f}")
-
-        # Increment bars since break for active breaks
-        if current_instrument["pdh_broken"] or current_instrument["pdl_broken"]:
-            current_instrument["bars_since_break"] += 1
-
-        # Step 2: ONLY enter trades during RTH
-        if not self.is_rth_time(bar, current_instrument):
+        # Check if opening was within PDH/PDL range (first filter)
+        if not current_instrument["opening_validated"]:
             return
             
         # Check if we already have a position (no stacking)
@@ -214,39 +248,53 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
         if current_instrument["traded_today"]:
             return
 
-        # Step 3: Wait for retrace to entry bands (with timing validation)
-        if (current_instrument["pdh_broken"] and 
-            not current_instrument["traded_today"] and
-            current_instrument["bars_since_break"] >= self.config.bars_after_break):
+        # Step 1: Check if we have a ChoCh signal
+        if not choch_signal:
+            return
             
-            # Long entry after PDH break - wait for retrace to entry band
-            _, upper_band, lower_band = vwap_indicator.get_bands(1.0)
-            if lower_band is not None:
-                # Calculate entry level: VWAP - (multiplier * distance_to_lower_band)
-                band_distance = vwap_indicator.value - lower_band
-                entry_level = vwap_indicator.value - (self.config.entry_band_long * band_distance)
-            else:
-                entry_level = vwap_indicator.value  # Fallback to VWAP
+        vwap_indicator = current_instrument["vwap_indicator"]
+        
+        # Step 1.5: Check VWAP trend validation - must have established strong trend first
+        trend_status = vwap_indicator.get_trend_validation_status()
+        
+        # For BEARISH ChoCh (SHORT), we need prior LONG trend validation (market was in strong downtrend, now retracing up, break down = continuation SHORT)
+        # For BULLISH ChoCh (LONG), we need prior SHORT trend validation (market was in strong uptrend, now retracing down, break up = continuation LONG)
+        if choch_signal.signal_type == BreakType.BEARISH_CHOCH:
+            if not trend_status['short_trend_validated']:
+                return
+        elif choch_signal.signal_type == BreakType.BULLISH_CHOCH:
+            if not trend_status['long_trend_validated']:
+                return
+        
+        # Step 2: Check if price is within our VWAP band entry range
+        vwap_value = vwap_indicator.value
+        current_price = float(bar.close)
+        
+        # Calculate band levels using the entry thresholds
+        _, upper_band_1std, lower_band_1std = vwap_indicator.get_bands(1.0)
+        
+        if upper_band_1std is None or lower_band_1std is None:
+            return
             
-            if entry_level and bar.close <= entry_level:
-                self.log.info(f"LONG entry on retrace to band: close={float(bar.close):.2f} <= entry_level={float(entry_level):.2f} (after {current_instrument['bars_since_break']} bars)")
+        # Calculate entry range based on standard deviation multipliers
+        band_distance_upper = upper_band_1std - vwap_value
+        band_distance_lower = vwap_value - lower_band_1std
+        
+        # Define entry zones
+        upper_entry_level = vwap_value + (self.config.upper_band_entry_threshold * band_distance_upper)
+        lower_entry_level = vwap_value - (self.config.lower_band_entry_threshold * band_distance_lower)
+        
+        # Step 3: Entry logic based on ChoCh signal type and VWAP band position
+        if choch_signal.signal_type == BreakType.BULLISH_CHOCH:
+            # Was in downtrend, price broke up -> LONG signal
+            # Check if we're within the upper band entry threshold (above VWAP but not too far)
+            if vwap_value <= current_price <= upper_entry_level:
                 self._execute_long_entry(bar, current_instrument, vwap_indicator)
-
-        elif (current_instrument["pdl_broken"] and 
-              not current_instrument["traded_today"] and
-              current_instrument["bars_since_break"] >= self.config.bars_after_break):
-              
-            # Short entry after PDL break - wait for retrace to entry band  
-            _, upper_band, lower_band = vwap_indicator.get_bands(1.0)
-            if upper_band is not None:
-                # Calculate entry level: VWAP + (multiplier * distance_to_upper_band)
-                band_distance = upper_band - vwap_indicator.value
-                entry_level = vwap_indicator.value + (self.config.entry_band_short * band_distance)
-            else:
-                entry_level = vwap_indicator.value  # Fallback to VWAP
-            
-            if entry_level and bar.close >= entry_level:
-                self.log.info(f"SHORT entry on retrace to band: close={float(bar.close):.2f} >= entry_level={float(entry_level):.2f} (after {current_instrument['bars_since_break']} bars)")
+                
+        elif choch_signal.signal_type == BreakType.BEARISH_CHOCH:
+            # Was in uptrend, price broke down -> SHORT signal  
+            # Check if we're within the lower band entry threshold (below VWAP but not too far)
+            if lower_entry_level <= current_price <= vwap_value:
                 self._execute_short_entry(bar, current_instrument, vwap_indicator)
 
     def _execute_long_entry(self, bar: Bar, current_instrument: Dict[str, Any], vwap_indicator):
@@ -325,10 +373,23 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
             # Log VWAP and bands
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="vwap", value=float(vwap_indicator.value))
             
+            # 1-sigma bands
             _, upper_1, lower_1 = vwap_indicator.get_bands(1.0)
             if upper_1 is not None:
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="vwap_upper_band", value=float(upper_1))
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="vwap_lower_band", value=float(lower_1))
+            
+            # 2-sigma bands
+            _, upper_2, lower_2 = vwap_indicator.get_bands(2.0)
+            if upper_2 is not None:
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="vwap_upper_band_2", value=float(upper_2))
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="vwap_lower_band_2", value=float(lower_2))
+            
+            # 3-sigma bands
+            _, upper_3, lower_3 = vwap_indicator.get_bands(3.0)
+            if upper_3 is not None:
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="vwap_upper_band_3", value=float(upper_3))
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="vwap_lower_band_3", value=float(lower_3))
         
         # Log PDH/PDL
         if current_instrument["prev_day_high"]:

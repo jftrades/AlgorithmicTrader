@@ -45,9 +45,13 @@ def build_price_chart(bars_df, indicators_df, trades_df, selected_trade_index, d
             try:
                 pid = int(df['plot_id'].iloc[0]) if 'plot_id' in df.columns else 0
                 if pid == 0:
+                    # Check if this is a VWAP band indicator and make it black
+                    line_color = '#000000' if 'vwap' in name.lower() and 'band' in name.lower() else None
+                    line_config = dict(width=2.0, color=line_color) if line_color else dict(width=2.0)
+                    
                     fig.add_trace(go.Scatter(
                         x=df['timestamp'], y=df['value'], mode='lines',
-                        name=name.upper(), line=dict(width=2.0)
+                        name=name.upper(), line=line_config
                     ))
             except Exception:
                 # ignore indicator errors silently
