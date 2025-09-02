@@ -40,6 +40,7 @@ class VWAPTrendStrategyConfig(StrategyConfig):
     atr_period: int = 14
     close_positions_on_stop: bool = True
     only_trade_rth: bool = True
+    require_PDH_PDL_broken: bool = True
 
 class VWAPTrendStrategy(BaseStrategy, Strategy):
     def __init__(self, config: VWAPTrendStrategyConfig):
@@ -235,8 +236,8 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
         if not self.is_rth_time(bar, current_instrument):
             return
         
-        # Check if opening was within PDH/PDL range (first filter)
-        if not current_instrument["opening_validated"]:
+        # Check if opening was within PDH/PDL range (first filter) - only if required
+        if self.config.require_PDH_PDL_broken and not current_instrument["opening_validated"]:
             return
             
         # Check if we already have a position (no stacking)
