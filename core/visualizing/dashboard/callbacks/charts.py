@@ -407,13 +407,20 @@ def register_chart_callbacks(app, repo, state):
         # EARLY-ZOOM-HANDLING (NEU):
         # Wenn nur der Price-Chart (relayoutData) getriggert hat (Pan/Zoom) -> kein kompletter Rebuild.
         # Erkennung: trigger_id == "price-chart" UND relayoutData enthält mindestens ein "xaxis." Key.
-        if trigger_id == "price-chart" and isinstance(relayoutData, dict) and any(k.startswith("xaxis.") for k in relayoutData.keys()):
-            # Neue Range extrahieren & speichern
-            xr = compute_x_range(relayoutData)
-            if xr:
-                state["last_x_range"] = xr
-            # Verhindere Rebuild -> Sync-Callback aktualisiert Indicators separat
-            raise PreventUpdate
+        # FIX: Previously this blocked processing of clickData when both relayoutData and clickData fired
+        # (common after zooming then clicking a marker). We now skip rebuild ONLY if relayoutData is
+        # the sole trigger (pure pan/zoom). If a click occurred, we continue so trade selection works.
+        if isinstance(relayoutData, dict) and any(k.startswith("xaxis.") for k in relayoutData.keys()):
+            triggered_props = [_t.get("prop_id") for _t in _ctx.triggered] if _ctx.triggered else []
+            only_relayout = (
+                len(triggered_props) > 0
+                and all(p.startswith("price-chart.relayoutData") for p in triggered_props)
+            )
+            if only_relayout:
+                xr = compute_x_range(relayoutData)
+                if xr:
+                    state["last_x_range"] = xr
+                raise PreventUpdate
 
         x_range = None  # wird weiter unten gesetzt (nicht mehr vorher aus relayoutData bei reinem Zoom)
 
