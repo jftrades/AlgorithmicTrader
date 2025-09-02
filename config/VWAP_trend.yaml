@@ -9,14 +9,14 @@ venue: "GLBX"
 
 # Multi-Instrument Configuration
 instruments:
-  - instrument_id: "ESM4.GLBX"
+  - instrument_id: "ESU4.GLBX"
     bar_types:
-      - "ESM4.GLBX-1-MINUTE-LAST-EXTERNAL"
+      - "ESU4.GLBX-1-MINUTE-LAST-EXTERNAL"
     trade_size_usdt: 1000
     test: 1
 
 # Backtest-Zeitraum
-start_date: "2024-01-01T00:00:00Z"
+start_date: "2024-06-01T00:00:00Z"
 end_date: "2024-12-30T23:59:59Z"
 
 # Account/Venue Parameter
@@ -35,21 +35,22 @@ close_positions_on_stop: true
 # VWAP Trend Strategy Parameters
 # ===========================
 only_trade_rth: true 
+require_PDH_PDL_broken: false   # Require previous day high/low break before trading
 
-# determine trend/extremes
-min_bars_vwap_extremes: 60
-min_band_trend_long: 1.0   
-min_band_trend_short: 1.0
+# determine trend/extremes (RTH bars only)
+min_bars_vwap_extremes: 15      # 15 minutes of sustained trend
+min_band_trend_long: 1.5        # 1.5 sigma for trend validation (more reasonable)
+min_band_trend_short: 1.5       # 1.5 sigma for trend validation
 
-# Entries - ChoCh VWAP band ranges
-lower_band_entry_threshold: 0.3   # Trade within X standard deviations below VWAP
-upper_band_entry_threshold: 0.3   # Trade within X standard deviations above VWAP
+# Entries - ChoCh VWAP band ranges  
+lower_band_entry_threshold: 0.8    # Enter within 0.8 std dev below VWAP
+upper_band_entry_threshold: 0.8    # Enter within 0.8 std dev above VWAP
 
-# ChoCh Parameters
-choch_lookback_period: 35
-choch_min_swing_strength: 3
+# ChoCh Parameters  
+choch_lookback_period: 100         # 100 bars lookback for pivot archive like in the picture
+choch_min_swing_strength: 5        # Higher swing strength for more reliable pivots
 
-# ATR sh*t
-sl_atr_multiplier: 1.5     
-tp_atr_multiplier: 3.0      
-atr_period: 14           
+# Risk Management
+sl_atr_multiplier: 1.5             # Tighter stops for intraday
+tp_atr_multiplier: 3.0             # 2:1 risk/reward ratio
+atr_period: 20                     # Longer ATR for smoother calculation           
