@@ -19,6 +19,7 @@ from tools.order_management.risk_manager import RiskManager
 
 from tools.indicators.VWAP_intraday import VWAPIntraday
 from nautilus_trader.indicators.atr import AverageTrueRange
+from tools.structure.ChoCh import ChoCh, BreakType
 
 
 class VWAPTrendStrategyConfig(StrategyConfig):
@@ -30,8 +31,10 @@ class VWAPTrendStrategyConfig(StrategyConfig):
     min_bars_vwap_extremes: int = 10
     min_band_trend_long: float = 1.0
     min_band_trend_short: float = 1.0
-    entry_band_long: float = 0.0
-    entry_band_short: float = 0.0
+    lower_band_entry_threshold: float = 0.5
+    upper_band_entry_threshold: float = 0.5
+    choch_lookback_period: int = 50
+    choch_min_swing_strength: int = 3
     sl_atr_multiplier: float = 2.0
     tp_atr_multiplier: float = 4.0
     atr_period: int = 14
@@ -73,6 +76,10 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
                 min_band_trend_short=self.config.min_band_trend_short
             )
             current_instrument["atr"] = AverageTrueRange(period=self.config.atr_period)
+            current_instrument["choch"] = ChoCh(
+                lookback_period=self.config.choch_lookback_period,
+                min_swing_strength=self.config.choch_min_swing_strength
+            )
             
             # State tracking
             current_instrument["prev_day_high"] = None
@@ -200,9 +207,33 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
         # Update indicators
         current_instrument['vwap_indicator'].update(bar)
         current_instrument["atr"].handle_bar(bar)
+        choch_signal = current_instrument["choch"].handle_bar(bar)
         
         if not current_instrument['vwap_indicator'].initialized or not current_instrument["atr"].initialized:
             return
+        
+        # Log VWAP trend validation status when it changes
+        trend_status = current_instrument["vwap_indicator"].get_trend_validation_status()
+        if not hasattr(current_instrument, "last_trend_status"):
+            current_instrument["last_trend_status"] = {
+                'long_trend_validated': False,
+                'short_trend_validated': False
+            }
+        
+        # Check if trend validation status changed
+        if trend_status['long_trend_validated'] != current_instrument["last_trend_status"]['long_trend_validated']:
+            if trend_status['long_trend_validated']:
+                self.log.info(f"VWAP LONG trend VALIDATED: {trend_status['bars_above_long_band']} bars above {self.config.min_band_trend_long}σ band", color=LogColor.GREEN)
+            else:
+                self.log.info("VWAP LONG trend validation LOST", color=LogColor.YELLOW)
+                
+        if trend_status['short_trend_validated'] != current_instrument["last_trend_status"]['short_trend_validated']:
+            if trend_status['short_trend_validated']:
+                self.log.info(f"VWAP SHORT trend VALIDATED: {trend_status['bars_below_short_band']} bars below -{self.config.min_band_trend_short}σ band", color=LogColor.RED)
+            else:
+                self.log.info("VWAP SHORT trend validation LOST", color=LogColor.YELLOW)
+        
+        current_instrument["last_trend_status"] = trend_status.copy()
         
         # Check for pending orders
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
@@ -213,40 +244,15 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
         prev_close = current_instrument["prev_bar_close"]
         current_instrument["prev_bar_close"] = bar.close
             
-        self.entry_logic(bar, current_instrument, prev_close)
+        self.entry_logic(bar, current_instrument, prev_close, choch_signal)
         self.base_collect_bar_data(bar, current_instrument)
         self.update_visualizer_data(bar, current_instrument)
 
     # -------------------------------------------------
     # Entry Logic per Instrument
     # -------------------------------------------------
-    def entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_close: float = None):
-        # Robust break detection using prev_day_high and prev_day_low
-        prev_day_high = current_instrument["prev_day_high"]
-        prev_day_low = current_instrument["prev_day_low"]
-        
-        # ROBUST: Require valid previous day levels (handles weekends/holidays properly)
-        if prev_close is None or prev_day_high is None or prev_day_low is None:
-            # Log why we're not trading if it's during RTH
-            if self.is_rth_time(bar, current_instrument):
-                if prev_day_high is None or prev_day_low is None:
-                    self.log.info("No previous day levels available - skipping trades (possible first day)")
-            return
-        
-        vwap_indicator = current_instrument["vwap_indicator"]
-        
-        # Step 1: ALWAYS detect breaks (even outside RTH) to maintain proper state
-        if prev_close < prev_day_high and bar.close > prev_day_high:
-            current_instrument["pdh_broken"] = True
-            current_instrument["pdl_broken"] = False  # Reset opposite break
-            self.log.info(f"PDH break detected: prev={float(prev_close):.2f} < PDH={prev_day_high:.2f} < current={float(bar.close):.2f}")
-                
-        elif prev_close > prev_day_low and bar.close < prev_day_low:
-            current_instrument["pdl_broken"] = True
-            current_instrument["pdh_broken"] = False  # Reset opposite break
-            self.log.info(f"PDL break detected: prev={float(prev_close):.2f} > PDL={prev_day_low:.2f} > current={float(bar.close):.2f}")
-
-        # Step 2: ONLY enter trades during RTH
+    def entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_close: float = None, choch_signal=None):
+        # Only enter trades during RTH
         if not self.is_rth_time(bar, current_instrument):
             return
         
@@ -263,41 +269,57 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
         if current_instrument["traded_today"]:
             return
 
-        # Step 3: Entry logic with VWAP extremes validation
-        vwap_status = vwap_indicator.get_trend_validation_status()
+        # Step 1: Check if we have a ChoCh signal
+        if not choch_signal:
+            return
+            
+        vwap_indicator = current_instrument["vwap_indicator"]
         
-        if (current_instrument["pdh_broken"] and 
-            not current_instrument["traded_today"] and
-            vwap_status['long_trend_validated']):  # NEW: Use VWAP indicator's validation
+        # Step 1.5: Check VWAP trend validation - must have established strong trend first
+        trend_status = vwap_indicator.get_trend_validation_status()
+        
+        # For BEARISH ChoCh (SHORT), we need prior LONG trend validation (market was in strong downtrend, now retracing up, break down = continuation SHORT)
+        # For BULLISH ChoCh (LONG), we need prior SHORT trend validation (market was in strong uptrend, now retracing down, break up = continuation LONG)
+        if choch_signal.signal_type == BreakType.BEARISH_CHOCH:
+            if not trend_status['short_trend_validated']:
+                self.log.info(f"BEARISH ChoCh SHORT rejected: No prior SHORT trend validation (strong downtrend). Bars below band: {trend_status['bars_below_short_band']}")
+                return
+        elif choch_signal.signal_type == BreakType.BULLISH_CHOCH:
+            if not trend_status['long_trend_validated']:
+                self.log.info(f"BULLISH ChoCh LONG rejected: No prior LONG trend validation (strong uptrend). Bars above band: {trend_status['bars_above_long_band']}")
+                return
+        
+        # Step 2: Check if price is within our VWAP band entry range
+        vwap_value = vwap_indicator.value
+        current_price = float(bar.close)
+        
+        # Calculate band levels using the entry thresholds
+        _, upper_band_1std, lower_band_1std = vwap_indicator.get_bands(1.0)
+        
+        if upper_band_1std is None or lower_band_1std is None:
+            return
             
-            # Long entry after PDH break - wait for retrace to entry band
-            _, upper_band, lower_band = vwap_indicator.get_bands(1.0)
-            if lower_band is not None:
-                # Calculate entry level: VWAP - (multiplier * distance_to_lower_band)
-                band_distance = vwap_indicator.value - lower_band
-                entry_level = vwap_indicator.value - (self.config.entry_band_long * band_distance)
-            else:
-                entry_level = vwap_indicator.value  # Fallback to VWAP
-            
-            if entry_level and bar.close <= entry_level:
-                self.log.info(f"LONG entry on retrace to band: close={float(bar.close):.2f} <= entry_level={float(entry_level):.2f} (trend validated: {vwap_status['bars_above_long_band']} bars)")
+        # Calculate entry range based on standard deviation multipliers
+        band_distance_upper = upper_band_1std - vwap_value
+        band_distance_lower = vwap_value - lower_band_1std
+        
+        # Define entry zones
+        upper_entry_level = vwap_value + (self.config.upper_band_entry_threshold * band_distance_upper)
+        lower_entry_level = vwap_value - (self.config.lower_band_entry_threshold * band_distance_lower)
+        
+        # Step 3: Entry logic based on ChoCh signal type and VWAP band position
+        if choch_signal.signal_type == BreakType.BULLISH_CHOCH:
+            # Was in downtrend, price broke up -> LONG signal
+            # Check if we're within the upper band entry threshold (above VWAP but not too far)
+            if vwap_value <= current_price <= upper_entry_level:
+                self.log.info(f"BULLISH ChoCh LONG: price={current_price:.2f} in range [{vwap_value:.2f} - {upper_entry_level:.2f}] (upper_band_threshold: {self.config.upper_band_entry_threshold})")
                 self._execute_long_entry(bar, current_instrument, vwap_indicator)
-
-        elif (current_instrument["pdl_broken"] and 
-              not current_instrument["traded_today"] and
-              vwap_status['short_trend_validated']):  # NEW: Use VWAP indicator's validation
-              
-            # Short entry after PDL break - wait for retrace to entry band  
-            _, upper_band, lower_band = vwap_indicator.get_bands(1.0)
-            if upper_band is not None:
-                # Calculate entry level: VWAP + (multiplier * distance_to_upper_band)
-                band_distance = upper_band - vwap_indicator.value
-                entry_level = vwap_indicator.value + (self.config.entry_band_short * band_distance)
-            else:
-                entry_level = vwap_indicator.value  # Fallback to VWAP
-            
-            if entry_level and bar.close >= entry_level:
-                self.log.info(f"SHORT entry on retrace to band: close={float(bar.close):.2f} >= entry_level={float(entry_level):.2f} (trend validated: {vwap_status['bars_below_short_band']} bars)")
+                
+        elif choch_signal.signal_type == BreakType.BEARISH_CHOCH:
+            # Was in uptrend, price broke down -> SHORT signal  
+            # Check if we're within the lower band entry threshold (below VWAP but not too far)
+            if lower_entry_level <= current_price <= vwap_value:
+                self.log.info(f"BEARISH ChoCh SHORT: price={current_price:.2f} in range [{lower_entry_level:.2f} - {vwap_value:.2f}] (lower_band_threshold: {self.config.lower_band_entry_threshold})")
                 self._execute_short_entry(bar, current_instrument, vwap_indicator)
 
     def _execute_long_entry(self, bar: Bar, current_instrument: Dict[str, Any], vwap_indicator):

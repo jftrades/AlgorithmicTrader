@@ -37,15 +37,19 @@ close_positions_on_stop: true
 only_trade_rth: true 
 
 # determine trend/extremes
-min_bars_vwap_extremes: 12
-min_band_trend_long: 1.8   
-min_band_trend_short: 1.8  
+min_bars_vwap_extremes: 50
+min_band_trend_long: 2.0   
+min_band_trend_short: 2.0 
 
-# Entries
-entry_band_long: 0.0    
-entry_band_short: 0.0
+# Entries - ChoCh VWAP band ranges
+lower_band_entry_threshold: 0.4    # Trade within X standard deviations below VWAP
+upper_band_entry_threshold: 0.4    # Trade within X standard deviations above VWAP
+
+# ChoCh Parameters
+choch_lookback_period: 35
+choch_min_swing_strength: 3
 
 # ATR sh*t
-sl_atr_multiplier: 2.5     
+sl_atr_multiplier: 2.0     
 tp_atr_multiplier: 6.0      
 atr_period: 14           
