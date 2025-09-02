@@ -14,7 +14,6 @@ import json
 from pathlib import Path
 import shutil
 
-
 # Nautilus Kern Importe
 from nautilus_trader.backtest.node import BacktestNode
 from core.visualizing.dashboard1 import TradingDashboard
@@ -226,6 +225,8 @@ def show_quantstats_report_from_equity_csv(
         # Benchmark ebenfalls auf die gleichen Tage beschränken
         benchmark = benchmark[equity_daily.index.min():equity_daily.index.max()]
 
+    # Suppress noisy zero-variance KDE warning from quantstats/seaborn
+
     qs.reports.html(returns, benchmark=benchmark, output=str(output_path) if output_path else None)
 
 def _clear_directory(path: Path):
@@ -240,3 +241,37 @@ def _clear_directory(path: Path):
                 child.unlink()
             except Exception:
                 pass
+
+
+def load_qs(run_dirs, run_ids, benchmark_symbol=None, open_browser=False):
+    """
+    Generate QuantStats reports for all runs using existing total_equity.csv files:
+      results/<run_id>/general/indicators/total_equity.csv
+    Produces quantstats_report.html inside each run directory.
+    Set open_browser=True to open reports automatically (default system browser).
+    """
+    print("Generating QuantStats reports...")
+    def _open_html(path_obj):
+        if not open_browser:
+            return
+        try:
+            import webbrowser
+            webbrowser.open_new_tab(path_obj.as_uri())
+        except Exception as e:
+            print(f"[QuantStats] Auto-open failed: {e}")
+    for run_dir, run_id in zip(run_dirs, run_ids):
+        try:
+            equity_csv = run_dir / "general" / "indicators" / "total_equity.csv"
+            if not equity_csv.exists():
+                print(f"[QuantStats] total_equity.csv missing for {run_id} -> skipped")
+                continue
+            out_file = run_dir / "quantstats_report.html"
+            show_quantstats_report_from_equity_csv(
+                equity_csv,
+                benchmark_symbol=benchmark_symbol,
+                output_path=out_file
+            )
+            print(f"[QuantStats] Report written: {out_file}")
+            _open_html(out_file)
+        except Exception as e:
+            print(f"[QuantStats] Failed for {run_id}: {e}")
