@@ -1,4 +1,5 @@
 from dash import Input, Output, State, html
+from dash import no_update
 from dash.exceptions import PreventUpdate
 from dash import callback_context
 from dash import ALL  # für Pattern-Matching Outputs
@@ -296,9 +297,14 @@ def register_chart_callbacks(app, repo, state):
             Input("selected-run-store", "data"),          # CHANGED: was State
         ],
         State("price-chart-mode", "data"),
+        State("price-chart", "figure"),  # NEW: to recover current visible range on clicks
+        State("indicators-container", "children"),       # NEW: preserve indicators on click
+        State("metrics-panel", "children"),              # NEW: preserve metrics on click
         prevent_initial_call=False
     )
-    def unified(sel_values, timeframe_value, _n, clickData, relayoutData, show_trades, slider_value, selected_run_store, chart_mode):
+    def unified(sel_values, timeframe_value, _n, clickData, relayoutData, show_trades,
+                slider_value, selected_run_store, chart_mode, price_fig_state,
+                prev_indicator_children, prev_metrics_children):
         # Persist timeframe in state
         state["selected_timeframe"] = timeframe_value
         # Normalize instruments
@@ -413,45 +419,125 @@ def register_chart_callbacks(app, repo, state):
         if isinstance(relayoutData, dict) and any(k.startswith("xaxis.") for k in relayoutData.keys()):
             triggered_props = [_t.get("prop_id") for _t in _ctx.triggered] if _ctx.triggered else []
             only_relayout = (
-                len(triggered_props) > 0
-                and all(p.startswith("price-chart.relayoutData") for p in triggered_props)
+                len(triggered_props) > 0 and
+                all(p.startswith("price-chart.relayoutData") for p in triggered_props)
             )
+            xr_candidate = compute_x_range(relayoutData)
             if only_relayout:
-                xr = compute_x_range(relayoutData)
-                if xr:
-                    state["last_x_range"] = xr
+                if xr_candidate:
+                    state["last_x_range"] = xr_candidate
                 raise PreventUpdate
+            else:
+                # Mixed trigger (e.g. click + relayout): still capture new range
+                if xr_candidate:
+                    state["last_x_range"] = xr_candidate
 
         x_range = None  # wird weiter unten gesetzt (nicht mehr vorher aus relayoutData bei reinem Zoom)
-
-        # Hilfsfunktion: nachträgliche X-Range-Synchronisierung aller Indicator Charts
-        def _apply_range_sync(indicator_children, xr):
-            # Wenn dieser Code noch ausgeführt wird, handelt es sich NICHT um reines Zoom/Pan
-            if not xr:
-                return indicator_children
-            for comp in indicator_children:
-                try:
-                    fig = getattr(comp, "figure", None)
-                    if fig and hasattr(fig, "update_xaxes"):
-                        fig.update_xaxes(range=xr, autorange=False, constrain="domain", rangebreaks=[])
-                        fig.update_layout(uirevision="linked-range")
-                except Exception:
-                    continue
-            return indicator_children
+        # ...existing code...
 
         # Bestimme x_range nun ausschließlich aus:
         # 1) Slider Fenster
         # 2) Gespeicherter state["last_x_range"] (falls vorhanden)
+        # 3) (NEW) Aktuelle Figure-Layout-Range falls weder (1) noch (2) greifen (z.B. nur Klick)
         if x_window:
             x_range = [x_window[0], x_window[1]]
             state["last_x_range"] = x_range
-        elif "last_x_range" in state:
+        elif "last_x_range" in state and state["last_x_range"]:
             x_range = state["last_x_range"]
+        else:
+            # Try to recover current visible range from existing price figure (price_fig_state)
+            def _range_from_layout(fig_dict):
+                try:
+                    if not isinstance(fig_dict, dict):
+                        return None
+                    lay = fig_dict.get("layout", {})
+                    xr = lay.get("xaxis", {}).get("range")
+                    if isinstance(xr, (list, tuple)) and len(xr) == 2:
+                        d0 = pd.to_datetime(xr[0]); d1 = pd.to_datetime(xr[1])
+                        if d0 < d1:
+                            return [d0, d1]
+                except Exception:
+                    return None
+                return None
+            recovered = _range_from_layout(price_fig_state)
+            if recovered:
+                x_range = recovered
+                state["last_x_range"] = recovered
+
+        # NEW: sanitize x_range (Plotly more stable with string ISO)
+        def _sanitize_range(rg):
+            if not rg or len(rg) != 2:
+                return None
+            try:
+                import pandas as _pd
+                a = _pd.to_datetime(rg[0])
+                b = _pd.to_datetime(rg[1])
+                if a >= b:
+                    return None
+                return [a.isoformat(), b.isoformat()]
+            except Exception:
+                return None
+        sanitized_range = _sanitize_range(x_range)
+        if sanitized_range:
+            # keep original datetime list separately (optional)
+            state["last_x_range"] = [pd.to_datetime(sanitized_range[0]), pd.to_datetime(sanitized_range[1])]
+        # Helper to force-apply range on any figure
+        def _apply_range(fig):
+            if sanitized_range and fig:
+                try:
+                    fig.update_xaxes(range=sanitized_range, autorange=False)
+                except Exception:
+                    pass
 
         # Force multi-run mode if we still have >1 preserved
         multi_run_mode = len(active_runs) > 1
         run_id = active_runs[0] if active_runs else None
         color_map = get_color_map(sel_values)
+
+        # Detect pure trade-click (possibly accompanied by relayoutData) -> only update price fig & trade details
+        # Trigger set contains only price-chart.* entries AND at least one clickData.
+        from dash import callback_context as _ctx2
+        triggered_props_full = [_t.get("prop_id") for _t in (_ctx2.triggered or [])]
+        only_price_chart_triggers = bool(triggered_props_full) and all(p.startswith("price-chart.") for p in triggered_props_full)
+        has_click = any(p.startswith("price-chart.clickData") for p in triggered_props_full)
+        pure_trade_click = only_price_chart_triggers and has_click
+
+        if pure_trade_click:
+            # Rebuild ONLY price figure (to highlight selected trade) + trade details; keep indicators & metrics intact
+            # We must still pass x_range (sanitized) so zoom persists.
+            if multi_run_mode:
+                price_fig, _, _, trade_details = build_multi_run_view(
+                    state=state,
+                    repo=repo,
+                    instruments=sel_values,
+                    active_runs=active_runs,
+                    clickData=clickData,
+                    chart_mode=chart_mode,
+                    x_range=x_range,
+                    color_map=color_map,
+                    timeframe=(None if timeframe_value in (None, '__default__') else timeframe_value),
+                    show_trades=bool(show_trades),
+                    x_window=x_window
+                )
+            else:
+                price_fig, _, _, trade_details = build_single_run_view(
+                    state=state,
+                    repo=repo,
+                    instruments=sel_values,
+                    clickData=clickData,
+                    chart_mode=chart_mode,
+                    x_range=x_range,
+                    color_map=color_map,
+                    run_id=run_id,
+                    timeframe=(None if timeframe_value in (None, '__default__') else timeframe_value),
+                    show_trades=bool(show_trades),
+                    x_window=x_window
+                )
+            # Apply sanitized range again (safety)
+            if sanitized_range:
+                try: price_fig.update_xaxes(range=sanitized_range, autorange=False)
+                except Exception: pass
+            return price_fig, prev_indicator_children, prev_metrics_children, trade_details
 
         # Multi-run
         if multi_run_mode:
@@ -468,7 +554,15 @@ def register_chart_callbacks(app, repo, state):
                 show_trades=bool(show_trades),
                 x_window=x_window  # NEW
             )
-            # unify chart wrapper classes (added)
+            # NEW enforce axis range
+            _apply_range(price_fig)
+            if sanitized_range:
+                for comp in indicator_children:
+                    try:
+                        fig = getattr(comp, "figure", None)
+                        _apply_range(fig)
+                    except Exception:
+                        continue
             for c in indicator_children:
                 if hasattr(c, "props") and "className" not in getattr(c, "props", {}):
                     c.className = "indicator-chart"
@@ -488,6 +582,14 @@ def register_chart_callbacks(app, repo, state):
             show_trades=bool(show_trades),
             x_window=x_window  # NEW
         )
+        _apply_range(price_fig)
+        if sanitized_range:
+            for comp in indicator_children:
+                try:
+                    fig = getattr(comp, "figure", None)
+                    _apply_range(fig)
+                except Exception:
+                    continue
         for c in indicator_children:
             if hasattr(c, "props") and "className" not in getattr(c, "props", {}):
                 c.className = "indicator-chart"
