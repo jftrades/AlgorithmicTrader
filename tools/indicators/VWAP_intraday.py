@@ -21,7 +21,7 @@ class VWAPIntraday:
             'min_band_trend_short': 1.0
         }
         
-    def update(self, bar):
+    def update(self, bar, is_rth=True):
         """Update VWAP with new bar data."""
         # Let Nautilus VWAP handle daily reset automatically
         self.vwap.handle_bar(bar)
@@ -45,8 +45,9 @@ class VWAPIntraday:
             self.volumes.append(volume)
             self.weighted_prices.append(typical_price * volume)
         
-        # Track VWAP extremes after updating data
-        self._track_vwap_extremes(bar.close.as_double())
+        # Track VWAP extremes after updating data - ONLY during RTH
+        if is_rth:
+            self._track_vwap_extremes(bar.close.as_double())
     
     def get_bands(self, multiplier=1.0):
         """Get VWAP bands with specified multiplier."""
@@ -120,13 +121,11 @@ class VWAPIntraday:
             if not self.long_trend_validated:
                 self.long_trend_validated = True
                 self.short_trend_validated = False
-                print(f"VWAP LONG trend VALIDATED: {self.bars_above_long_band} bars above {self.extremes_config['min_band_trend_long']:.1f}-sigma band")
         
         if self.bars_below_short_band >= self.extremes_config['min_bars_vwap_extremes']:
             if not self.short_trend_validated:
                 self.short_trend_validated = True
                 self.long_trend_validated = False
-                print(f"VWAP SHORT trend VALIDATED: {self.bars_below_short_band} bars below {self.extremes_config['min_band_trend_short']:.1f}-sigma band")
     
     def get_trend_validation_status(self):
         """Get current trend validation status."""

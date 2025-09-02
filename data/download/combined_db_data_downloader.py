@@ -13,7 +13,7 @@ load_dotenv()
 # U = September (September)
 # Z = December (Dezember)
 
-symbol = "ESH4"
+symbol = "ESZ4"
 start_date = "2024-01-01"
 end_date = "2024-12-30"
 dataset = "GLBX.MDP3"
