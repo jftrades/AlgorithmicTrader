@@ -17,7 +17,7 @@ from core.visualizing.dashboard.main import launch_dashbaord
 
 
 #STRAT PARAMETER
-yaml_name = "VWAP_trend.yaml"
+yaml_name = "alpha_meme.yaml"
 # ------------------------------------------------------------
 # YAML laden & vorbereiten
 # ------------------------------------------------------------
