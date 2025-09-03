@@ -275,3 +275,192 @@ def load_qs(run_dirs, run_ids, benchmark_symbol=None, open_browser=False):
             _open_html(out_file)
         except Exception as e:
             print(f"[QuantStats] Failed for {run_id}: {e}")
+
+def add_trade_metrics(run_ids, results_dir: Path, summary_csv_path: Path, instrument_ids):
+    """
+    Aggregates per-instrument trade_metrics.csv files into global per-run metrics
+    and appends them as new columns to all_backtest_results.csv.
+
+    For each run:
+      Expects files at: results_dir / run_id / <instrument_id_str> / trade_metrics.csv
+    New columns (prefixed with global_):
+      final_realized_pnl, winrate, winrate_long, winrate_short,
+      pnl_long, pnl_short, long_short_ratio, n_trades, n_long_trades, n_short_trades,
+      avg_win, avg_loss, max_win, max_loss, max_consecutive_wins, max_consecutive_losses,
+      commissions
+    """
+    import pandas as _pd
+
+    if not summary_csv_path.exists():
+        print("[add_trade_metrics] summary CSV not found -> skipped")
+        return
+
+    df_all = _pd.read_csv(summary_csv_path)
+
+    # Ensure run_id column exists
+    if "run_id" not in df_all.columns:
+        print("[add_trade_metrics] run_id column missing in summary CSV -> skipped")
+        return
+
+    # Pre-create column names
+    cols = [
+        "global_final_realized_pnl",
+        "global_winrate",
+        "global_winrate_long",
+        "global_winrate_short",
+        "global_pnl_long",
+        "global_pnl_short",
+        "global_long_short_ratio",
+        "global_n_trades",
+        "global_n_long_trades",
+        "global_n_short_trades",
+        "global_avg_win",
+        "global_avg_loss",
+        "global_max_win",
+        "global_max_loss",
+        "global_max_consecutive_wins",
+        "global_max_consecutive_losses",
+        "global_commissions",
+    ]
+    for c in cols:
+        if c not in df_all.columns:
+            df_all[c] = None
+
+    for run_id in run_ids:
+        run_path = results_dir / run_id
+        if not run_path.exists():
+            continue
+
+        # Aggregators
+        total_final_realized = 0.0
+        total_pnl_long = 0.0
+        total_pnl_short = 0.0
+        total_trades = 0
+        total_long_trades = 0
+        total_short_trades = 0
+        total_commissions = 0.0
+
+        # For weighted averages
+        total_wins = 0.0      # count wins
+        total_long_wins = 0.0
+        total_short_wins = 0.0
+
+        sum_wins_amount = 0.0    # sum of winning trade PnL for avg_win computation
+        sum_losses_amount = 0.0  # sum of losing trade PnL for avg_loss computation (negative)
+        est_total_losses = 0.0   # count of losing trades (estimated, see note)
+
+        global_max_win = None
+        global_max_loss = None
+        global_max_consec_wins = 0
+        global_max_consec_losses = 0
+
+        any_file = False
+
+        for inst in instrument_ids:
+            inst_str = str(inst)
+            metrics_csv = run_path / inst_str / "trade_metrics.csv"
+            if not metrics_csv.exists():
+                continue
+            try:
+                dfm = _pd.read_csv(metrics_csv)
+                if dfm.empty:
+                    continue
+                row = dfm.iloc[0]
+                any_file = True
+
+                frp = float(row.get("final_realized_pnl", 0) or 0)
+                wl = float(row.get("winrate_long", 0) or 0)
+                ws = float(row.get("winrate_short", 0) or 0)
+                wr = float(row.get("winrate", 0) or 0)
+                pnl_l = float(row.get("pnl_long", 0) or 0)
+                pnl_s = float(row.get("pnl_short", 0) or 0)
+                n_tr = int(row.get("n_trades", 0) or 0)
+                n_long = int(row.get("n_long_trades", 0) or 0)
+                n_short = int(row.get("n_short_trades", 0) or 0)
+                avg_win_inst = float(row.get("avg_win", 0) or 0)
+                avg_loss_inst = float(row.get("avg_loss", 0) or 0)
+                max_win_inst = float(row.get("max_win", 0) or 0)
+                max_loss_inst = float(row.get("max_loss", 0) or 0)
+                cons_w = int(row.get("max_consecutive_wins", 0) or 0)
+                cons_l = int(row.get("max_consecutive_losses", 0) or 0)
+                commissions_inst = float(row.get("commissions", 0) or 0)
+
+                # Derived counts
+                wins_inst = wr * n_tr  # includes assumption: winrate = wins / total trades
+                # Loss count approximation (ignores breakeven trades if any)
+                losses_inst = max(n_tr - wins_inst, 0)
+
+                # Weighted sums
+                sum_wins_amount += avg_win_inst * wins_inst
+                sum_losses_amount += avg_loss_inst * losses_inst
+                total_wins += wins_inst
+                est_total_losses += losses_inst
+
+                # Long / short wins
+                long_wins_inst = wl * n_long if n_long > 0 else 0
+                short_wins_inst = ws * n_short if n_short > 0 else 0
+                total_long_wins += long_wins_inst
+                total_short_wins += short_wins_inst
+
+                # Simple sums
+                total_final_realized += frp
+                total_pnl_long += pnl_l
+                total_pnl_short += pnl_s
+                total_trades += n_tr
+                total_long_trades += n_long
+                total_short_trades += n_short
+                total_commissions += commissions_inst
+
+                # Extremes
+                if global_max_win is None or max_win_inst > global_max_win:
+                    global_max_win = max_win_inst
+                if global_max_loss is None or max_loss_inst < global_max_loss:
+                    global_max_loss = max_loss_inst
+                if cons_w > global_max_consec_wins:
+                    global_max_consec_wins = cons_w
+                if cons_l > global_max_consec_losses:
+                    global_max_consec_losses = cons_l
+
+            except Exception as e:
+                print(f"[add_trade_metrics] Failed reading {metrics_csv}: {e}")
+
+        if not any_file:
+            continue
+
+        # Aggregated winrates (avoid division by zero)
+        global_winrate = (total_wins / total_trades) if total_trades > 0 else 0.0
+        global_winrate_long = (total_long_wins / total_long_trades) if total_long_trades > 0 else 0.0
+        global_winrate_short = (total_short_wins / total_short_trades) if total_short_trades > 0 else 0.0
+
+        # Weighted averages
+        global_avg_win = (sum_wins_amount / total_wins) if total_wins > 0 else 0.0
+        global_avg_loss = (sum_losses_amount / est_total_losses) if est_total_losses > 0 else 0.0
+
+        # Ratio
+        if total_short_trades > 0:
+            global_long_short_ratio = total_long_trades / total_short_trades
+        else:
+            global_long_short_ratio = float("inf") if total_long_trades > 0 else 0.0
+
+        # Assign into df_all row
+        mask = df_all["run_id"] == run_id
+        df_all.loc[mask, "global_final_realized_pnl"] = total_final_realized
+        df_all.loc[mask, "global_winrate"] = global_winrate
+        df_all.loc[mask, "global_winrate_long"] = global_winrate_long
+        df_all.loc[mask, "global_winrate_short"] = global_winrate_short
+        df_all.loc[mask, "global_pnl_long"] = total_pnl_long
+        df_all.loc[mask, "global_pnl_short"] = total_pnl_short
+        df_all.loc[mask, "global_long_short_ratio"] = global_long_short_ratio
+        df_all.loc[mask, "global_n_trades"] = total_trades
+        df_all.loc[mask, "global_n_long_trades"] = total_long_trades
+        df_all.loc[mask, "global_n_short_trades"] = total_short_trades
+        df_all.loc[mask, "global_avg_win"] = global_avg_win
+        df_all.loc[mask, "global_avg_loss"] = global_avg_loss
+        df_all.loc[mask, "global_max_win"] = global_max_win
+        df_all.loc[mask, "global_max_loss"] = global_max_loss
+        df_all.loc[mask, "global_max_consecutive_wins"] = global_max_consec_wins
+        df_all.loc[mask, "global_max_consecutive_losses"] = global_max_consec_losses
+        df_all.loc[mask, "global_commissions"] = total_commissions
+
+    df_all.to_csv(summary_csv_path, index=False)
+    print("[add_trade_metrics] Global trade metrics appended.")
