@@ -2,7 +2,7 @@
 from decimal import Decimal
 from typing import Any, Dict, List
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone, time
 
 
 # Nautilus Core Imports
@@ -19,9 +19,9 @@ from tools.order_management.risk_manager import RiskManager
 
 # Add strategy-specific imports here
 from tools.structure.PivotArchive import PivotArchive
-from tools.structure.fib_retracement import FibRetracement
+from tools.structure.fib_retracement import FibRetracementTool
 from nautilus_trader.indicators.atr import AverageTrueRange
-from nautilus_trader.indicators.ema import ExponentialMovingAverage
+from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
 
 # -------------------------------------------------
 # Multi-Instrument Configuration
@@ -35,7 +35,15 @@ class FibTrendStrategyConfig(StrategyConfig):
 
     ema_lookback: int = 14
     min_bars_after_ema_cross: int = 5
-
+    
+    # Fibonacci Parameters
+    fib_entry_level: float = 0.618
+    fib_sl_level: float = 1.0
+    fib_only_tp_level: float = -0.62
+    
+    # Entry tolerances
+    fib_entry_tolerance: float = 0.002
+    fib_sl_buffer: float = 0.001
 
     close_positions_on_stop: bool = True
     only_trade_rth: bool = True
@@ -58,6 +66,16 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             current_instrument["collector"].initialise_logging_indicator("balance", 4)
             current_instrument["collector"].initialise_logging_indicator("ema", 0)
             
+            # Initialize Fibonacci level indicators for visualization
+            current_instrument["collector"].initialise_logging_indicator("fib_1_0", 5)
+            current_instrument["collector"].initialise_logging_indicator("fib_0_786", 6) 
+            current_instrument["collector"].initialise_logging_indicator("fib_0_618", 7)
+            current_instrument["collector"].initialise_logging_indicator("fib_0_5", 8)
+            current_instrument["collector"].initialise_logging_indicator("fib_0_0", 9)
+            current_instrument["collector"].initialise_logging_indicator("fib_ext_0_27", 10)
+            current_instrument["collector"].initialise_logging_indicator("fib_ext_0_62", 11)
+            current_instrument["collector"].initialise_logging_indicator("fib_ext_1_0", 12)
+            
             # Strategy-specific indicators
             current_instrument["bar_counter"] = 0
             current_instrument["min_bars_after_ema_cross"] = self.config.min_bars_after_ema_cross
@@ -67,8 +85,19 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             current_instrument["rth_end_hour"] = 21
             current_instrument["rth_end_minute"] = 0
             
+            # Fibonacci trading parameters
+            current_instrument["fib_entry_level"] = self.config.fib_entry_level
+            current_instrument["fib_sl_level"] = self.config.fib_sl_level
+            current_instrument["fib_only_tp_level"] = self.config.fib_only_tp_level
+            current_instrument["fib_entry_tolerance"] = self.config.fib_entry_tolerance
+            current_instrument["fib_sl_buffer"] = self.config.fib_sl_buffer
+            
             # Initialize EMA indicator
             current_instrument["ema"] = ExponentialMovingAverage(self.config.ema_lookback)
+            
+            # Initialize Pivot Archive and Fibonacci Tool
+            current_instrument["pivot_archive"] = PivotArchive(max_pivots=100, swing_strength=3)
+            current_instrument["fib_tool"] = FibRetracementTool(current_instrument["pivot_archive"])
             
             # EMA crossover tracking
             current_instrument["prev_price_above_ema"] = None
@@ -79,10 +108,9 @@ class FibTrendStrategy(BaseStrategy, Strategy):
         if not current_instrument["only_trade_rth"]:
             return True
             
-        import datetime
-        bar_time = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).time()
-        rth_start = datetime.time(current_instrument["rth_start_hour"], current_instrument["rth_start_minute"])
-        rth_end = datetime.time(current_instrument["rth_end_hour"], current_instrument["rth_end_minute"])
+        bar_time = datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=timezone.utc).time()
+        rth_start = time(current_instrument["rth_start_hour"], current_instrument["rth_start_minute"])
+        rth_end = time(current_instrument["rth_end_hour"], current_instrument["rth_end_minute"])
         
         return rth_start <= bar_time <= rth_end
 
@@ -115,8 +143,9 @@ class FibTrendStrategy(BaseStrategy, Strategy):
 
         current_instrument["bar_counter"] += 1
 
-        current_date = datetime.datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=datetime.timezone.utc).date()
-
+        # Update Pivot Archive and Fibonacci Tool
+        current_instrument["pivot_archive"].update(bar)
+        current_instrument["fib_tool"].update(bar)
         
         # Check for pending orders to avoid endless order loops
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
@@ -139,16 +168,17 @@ class FibTrendStrategy(BaseStrategy, Strategy):
         if current_instrument is None:
             return
         if not current_instrument["ema"].initialized:
-            self.log.info(f"EMA not ready yet for {instrument_id}, bars needed: {current_instrument['ema_lookback']}")
+            self.log.info(f"EMA not ready yet for {instrument_id}, bars needed: {self.config.ema_lookback}")
             return
             
         # Get current EMA value and price
         current_ema = current_instrument["ema"].value
+        current_price = float(bar.close)
         
         # Determine if price is above or below EMA
-        price_above_ema = bar.close > current_ema
+        price_above_ema = current_price > current_ema
         
-        # Check for EMA crossover
+        # Check for EMA crossover and update tracking
         if current_instrument["prev_price_above_ema"] is not None:
             if not current_instrument["prev_price_above_ema"] and price_above_ema:
                 current_instrument["last_ema_cross_direction"] = "bullish"
@@ -162,8 +192,96 @@ class FibTrendStrategy(BaseStrategy, Strategy):
         if current_instrument["last_ema_cross_direction"] is not None:
             current_instrument["bars_since_ema_cross"] += 1
         
-        # Store current state for next bar comparison
         current_instrument["prev_price_above_ema"] = price_above_ema
+        
+        if current_instrument["bars_since_ema_cross"] < current_instrument["min_bars_after_ema_cross"]:
+            return
+            
+        net_position = self.portfolio.net_position(instrument_id)
+        if net_position and net_position != 0:
+            return
+            
+        # Get current Fibonacci levels
+        fib_levels = current_instrument["fib_tool"].get_key_levels()
+        if not fib_levels or fib_levels["fib_0_618"] is None:
+            return
+            
+        # Get entry, SL, and TP levels using configurable parameters
+        entry_level = current_instrument["fib_entry_level"]     # From YAML: 0.618
+        sl_level = current_instrument["fib_sl_level"]           # From YAML: 1.0  
+        tp_level = current_instrument["fib_only_tp_level"]      # From YAML: -0.62
+        
+        # Get the actual prices for these levels
+        fib_entry_price = current_instrument["fib_tool"].current_retracement.get_level_price(entry_level) if current_instrument["fib_tool"].current_retracement else None
+        fib_sl_price = current_instrument["fib_tool"].current_retracement.get_level_price(sl_level) if current_instrument["fib_tool"].current_retracement else None
+        fib_tp_price = current_instrument["fib_tool"].current_retracement.get_level_price(tp_level) if current_instrument["fib_tool"].current_retracement else None
+        
+        if not all([fib_entry_price, fib_sl_price, fib_tp_price]):
+            return
+            
+        if not self._is_safe_entry(current_price, fib_entry_price, fib_sl_price, price_above_ema):
+            return
+            
+        entry_tolerance = current_instrument["fib_entry_tolerance"]
+        price_diff_percent = abs(current_price - fib_entry_price) / fib_entry_price
+        
+        if price_diff_percent > entry_tolerance:
+            return
+            
+        # LONG ENTRY LOGIC: Above EMA + price near 61.8% fib level
+        if price_above_ema and current_instrument["last_ema_cross_direction"] == "bullish":
+            fib_retracement = current_instrument["fib_tool"].current_retracement
+            if fib_retracement and fib_retracement.direction == "bullish":
+                if abs(current_price - fib_entry_price) <= (fib_entry_price * entry_tolerance):
+                    self._execute_long_entry(bar, current_instrument, fib_entry_price, fib_sl_price, fib_tp_price)
+        
+        # SHORT ENTRY LOGIC: Below EMA + price near 61.8% fib level  
+        elif not price_above_ema and current_instrument["last_ema_cross_direction"] == "bearish":
+            fib_retracement = current_instrument["fib_tool"].current_retracement
+            if fib_retracement and fib_retracement.direction == "bearish":
+                if abs(current_price - fib_entry_price) <= (fib_entry_price * entry_tolerance):
+                    self._execute_short_entry(bar, current_instrument, fib_entry_price, fib_sl_price, fib_tp_price)
+    
+    def _is_safe_entry(self, current_price: float, entry_price: float, sl_price: float, is_long: bool) -> bool:
+        sl_distance = abs(current_price - sl_price) / current_price
+        if sl_distance < 0.005: 
+            return False
+        
+        # Check if already past stop loss
+        if is_long and current_price <= sl_price:
+            return False
+        elif not is_long and current_price >= sl_price:
+            return False
+            
+        return True
+    
+    def _execute_long_entry(self, bar: Bar, current_instrument: Dict[str, Any], entry_price: float, sl_price: float, tp_price: float):
+        instrument_id = bar.bar_type.instrument_id
+        
+        sl_with_buffer = sl_price - (sl_price * current_instrument["fib_sl_buffer"])
+        trade_size_usdt = float(current_instrument["trade_size_usdt"])
+        qty = max(1, int(trade_size_usdt / entry_price))
+        
+        self.log.info(f"LONG FIBONACCI ENTRY - {instrument_id} | Entry: {entry_price:.2f} | SL: {sl_with_buffer:.2f} | TP: {tp_price:.2f}", color=LogColor.GREEN)
+        
+        self.order_types.submit_long_bracket_order(
+            instrument_id, qty,
+            Decimal(str(entry_price)), Decimal(str(sl_with_buffer)), Decimal(str(tp_price))
+        )
+    
+    def _execute_short_entry(self, bar: Bar, current_instrument: Dict[str, Any], entry_price: float, sl_price: float, tp_price: float):
+        instrument_id = bar.bar_type.instrument_id
+        
+        sl_with_buffer = sl_price + (sl_price * current_instrument["fib_sl_buffer"])
+        trade_size_usdt = float(current_instrument["trade_size_usdt"])
+        qty = max(1, int(trade_size_usdt / entry_price))
+        
+        self.log.info(f"SHORT FIBONACCI ENTRY - {instrument_id} | Entry: {entry_price:.2f} | SL: {sl_with_buffer:.2f} | TP: {tp_price:.2f}", color=LogColor.RED)
+        
+        self.order_types.submit_short_bracket_order(
+            instrument_id, qty,
+            Decimal(str(entry_price)), Decimal(str(sl_with_buffer)), Decimal(str(tp_price))
+        )
 
     # -------------------------------------------------
     # Order Submission Wrappers
@@ -184,6 +302,16 @@ class FibTrendStrategy(BaseStrategy, Strategy):
         # Add EMA indicator value for visualization
         ema_value = float(current_instrument["ema"].value) if current_instrument["ema"].value is not None else None
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="ema", value=ema_value)
+        
+        # Add Fibonacci levels for visualization
+        fib_levels = current_instrument["fib_tool"].get_key_levels()
+        for level_name, level_price in fib_levels.items():
+            if level_price is not None:
+                current_instrument["collector"].add_indicator(
+                    timestamp=bar.ts_event, 
+                    name=level_name, 
+                    value=float(level_price)
+                )
         
     def on_order_filled(self, order_filled) -> None:
         return self.base_on_order_filled(order_filled)
