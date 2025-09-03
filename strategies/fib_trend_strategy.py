@@ -67,15 +67,15 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             current_instrument["collector"].initialise_logging_indicator("ema", 0)
             
             # Initialize Fibonacci level indicators for visualization
-            current_instrument["collector"].initialise_logging_indicator("fib_1_0", 5)
-            current_instrument["collector"].initialise_logging_indicator("fib_0_786", 6) 
-            current_instrument["collector"].initialise_logging_indicator("fib_0_618", 7)
-            current_instrument["collector"].initialise_logging_indicator("fib_0_5", 8)
-            current_instrument["collector"].initialise_logging_indicator("fib_0_0", 9)
-            current_instrument["collector"].initialise_logging_indicator("fib_ext_0_27", 10)
-            current_instrument["collector"].initialise_logging_indicator("fib_ext_0_62", 11)
-            current_instrument["collector"].initialise_logging_indicator("fib_ext_1_0", 12)
-            
+            current_instrument["collector"].initialise_logging_indicator("fib_1_0", 0)
+            current_instrument["collector"].initialise_logging_indicator("fib_0_786", 0) 
+            current_instrument["collector"].initialise_logging_indicator("fib_0_618", 0)
+            current_instrument["collector"].initialise_logging_indicator("fib_0_5", 0)
+            current_instrument["collector"].initialise_logging_indicator("fib_0_0", 0)
+            current_instrument["collector"].initialise_logging_indicator("fib_ext_0_27", 0)
+            current_instrument["collector"].initialise_logging_indicator("fib_ext_0_62", 0)
+            current_instrument["collector"].initialise_logging_indicator("fib_ext_1_0", 0)
+
             # Strategy-specific indicators
             current_instrument["bar_counter"] = 0
             current_instrument["min_bars_after_ema_cross"] = self.config.min_bars_after_ema_cross
@@ -96,7 +96,7 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             current_instrument["ema"] = ExponentialMovingAverage(self.config.ema_lookback)
             
             # Initialize Pivot Archive and Fibonacci Tool
-            current_instrument["pivot_archive"] = PivotArchive(max_pivots=100, swing_strength=3)
+            current_instrument["pivot_archive"] = PivotArchive(max_pivots=500, swing_strength=3)
             current_instrument["fib_tool"] = FibRetracementTool(current_instrument["pivot_archive"])
             
             # EMA crossover tracking
@@ -160,6 +160,8 @@ class FibTrendStrategy(BaseStrategy, Strategy):
     # Entry Logic per Instrument
     # -------------------------------------------------
     def entry_logic(self, bar: Bar, current_instrument: Dict[str, Any]):
+        instrument_id = bar.bar_type.instrument_id
+        
         if not self.is_rth_time(bar, current_instrument):
             return
             
@@ -203,7 +205,14 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             
         # Get current Fibonacci levels
         fib_levels = current_instrument["fib_tool"].get_key_levels()
-        if not fib_levels or fib_levels["fib_0_618"] is None:
+        if not fib_levels:
+            return
+            
+        # Check if we have a valid retracement setup
+        fib_retracement = current_instrument["fib_tool"].current_retracement
+        if not fib_retracement:
+            if current_instrument["bar_counter"] % 100 == 0:
+                current_instrument["pivot_archive"].get_key_levels()
             return
             
         # Get entry, SL, and TP levels using configurable parameters
@@ -230,15 +239,13 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             
         # LONG ENTRY LOGIC: Above EMA + price near 61.8% fib level
         if price_above_ema and current_instrument["last_ema_cross_direction"] == "bullish":
-            fib_retracement = current_instrument["fib_tool"].current_retracement
-            if fib_retracement and fib_retracement.direction == "bullish":
+            if fib_retracement.direction == "bearish":  # FIXED: Should be bearish for LONG entries
                 if abs(current_price - fib_entry_price) <= (fib_entry_price * entry_tolerance):
                     self._execute_long_entry(bar, current_instrument, fib_entry_price, fib_sl_price, fib_tp_price)
         
         # SHORT ENTRY LOGIC: Below EMA + price near 61.8% fib level  
         elif not price_above_ema and current_instrument["last_ema_cross_direction"] == "bearish":
-            fib_retracement = current_instrument["fib_tool"].current_retracement
-            if fib_retracement and fib_retracement.direction == "bearish":
+            if fib_retracement.direction == "bullish":  # FIXED: Should be bullish for SHORT entries
                 if abs(current_price - fib_entry_price) <= (fib_entry_price * entry_tolerance):
                     self._execute_short_entry(bar, current_instrument, fib_entry_price, fib_sl_price, fib_tp_price)
     

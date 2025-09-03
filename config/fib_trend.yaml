@@ -18,7 +18,7 @@ instruments:
     test: 1
 
 # Backtest-Zeitraum
-start_date: "2024-01-01T00:00:00Z"
+start_date: "2020-01-01T00:00:00Z"
 end_date: "2024-12-30T00:00:00Z"
 
 # Account/Venue-Parameter
@@ -37,8 +37,8 @@ close_positions_on_stop: [true]
 # Strategie-spezifische Parameter
 # ===========================
 
-only_trade_rth: true
-min_bars_after_ema_cross: 3
+only_trade_rth: false
+min_bars_after_ema_cross: 1
 ema_lookback: 30
 
 # Fibonacci Retracement Parameters

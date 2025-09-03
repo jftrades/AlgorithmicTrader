@@ -44,6 +44,7 @@ class FibRetracementTool:
             (1.0, "1.0")         # 100% level (start point)
         ]
         
+        
         self.current_retracement: Optional[FibRetracement] = None
         self.last_calculated_swing_high: Optional[Pivot] = None
         self.last_calculated_swing_low: Optional[Pivot] = None
