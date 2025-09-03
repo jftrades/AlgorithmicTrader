@@ -1,0 +1,42 @@
+# yaml for simple trend following Fibonacci retracement strategy
+# ===========================
+# Globale Parameter
+# ===========================
+
+strategy_path: "fib_trend_strategy:FibTrendStrategy"
+config_path: "fib_trend_strategy:FibTrendStrategyConfig"
+
+visualize: true
+venue: "ARCA"
+
+# Instrumente
+instruments:
+  - instrument_id: "SPY.ARCA"
+    bar_types: 
+      - "SPY.ARCAE-1-HOUR-LAST-EXTERNAL"
+    trade_size_usdt: 1000
+    test: 1
+
+# Backtest-Zeitraum
+start_date: "2024-01-01T00:00:00Z"
+end_date: "2024-12-31T00:00:00Z"
+
+# Account/Venue-Parameter
+starting_account_balance: "100000 USD"
+base_currency: "USD"
+account_type: "MARGIN"
+oms_type: "NETTING"
+
+# Risiko-Parameter (global) #should always be set (if the risk_manager is used)
+risk_percent: 0.01
+max_leverage: 2
+min_account_balance: 1000
+close_positions_on_stop: [true]
+
+# ===========================
+# Strategie-spezifische Parameter
+# ===========================
+
+only_trade_rth: true
+min_bars_after_ema_cross: 5
+ema_lookback: 14
