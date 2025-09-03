@@ -32,7 +32,7 @@ min_account_balance: 1000.0
 close_positions_on_stop: true
 
 # ===========================
-# VWAP Trend Strategy Parametersss
+# VWAP Trend Strategy Parameters
 # ===========================
 only_trade_rth: true 
 require_PDH_PDL_broken: false   # Require previous day high/low break before trading

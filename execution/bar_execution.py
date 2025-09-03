@@ -18,7 +18,7 @@ from tools.help_funcs.help_funcs_execution import _clear_directory, run_backtest
 
 
 #STRAT PARAMETER
-yaml_name = "beta.yaml"
+yaml_name = "fib_trend.yaml"
 # ------------------------------------------------------------
 # YAML laden & vorbereiten
 # ------------------------------------------------------------
