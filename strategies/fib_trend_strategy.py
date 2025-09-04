@@ -1,14 +1,13 @@
 # strategy for simple trend following Fibonacci retracement strategy
 from decimal import Decimal
 from typing import Any, Dict, List
-import pandas as pd
 from datetime import datetime, timezone, time
 
 
 # Nautilus Core Imports
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
-from nautilus_trader.model.data import Bar, BarType
+from nautilus_trader.model.data import Bar
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.common.enums import LogColor
 
@@ -20,7 +19,6 @@ from tools.order_management.risk_manager import RiskManager
 # Add strategy-specific imports here
 from tools.structure.PivotArchive import PivotArchive
 from tools.structure.fib_retracement import FibRetracementTool
-from nautilus_trader.indicators.atr import AverageTrueRange
 from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
 
 # -------------------------------------------------
@@ -96,7 +94,7 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             current_instrument["ema"] = ExponentialMovingAverage(self.config.ema_lookback)
             
             # Initialize Pivot Archive and Fibonacci Tool
-            current_instrument["pivot_archive"] = PivotArchive(max_pivots=500, swing_strength=3)
+            current_instrument["pivot_archive"] = PivotArchive(strength=5, lookback_swings=250)
             current_instrument["fib_tool"] = FibRetracementTool(current_instrument["pivot_archive"])
             
             # EMA crossover tracking
@@ -209,7 +207,7 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             return
             
         # Check if we have a valid retracement setup
-        fib_retracement = current_instrument["fib_tool"].current_retracement
+        fib_retracement = current_instrument["fib_tool"].get_current_fibonacci()
         if not fib_retracement:
             if current_instrument["bar_counter"] % 100 == 0:
                 current_instrument["pivot_archive"].get_key_levels()
@@ -221,9 +219,9 @@ class FibTrendStrategy(BaseStrategy, Strategy):
         tp_level = current_instrument["fib_only_tp_level"]      # From YAML: -0.62
         
         # Get the actual prices for these levels
-        fib_entry_price = current_instrument["fib_tool"].current_retracement.get_level_price(entry_level) if current_instrument["fib_tool"].current_retracement else None
-        fib_sl_price = current_instrument["fib_tool"].current_retracement.get_level_price(sl_level) if current_instrument["fib_tool"].current_retracement else None
-        fib_tp_price = current_instrument["fib_tool"].current_retracement.get_level_price(tp_level) if current_instrument["fib_tool"].current_retracement else None
+        fib_entry_price = fib_retracement.get_level_price(entry_level) if fib_retracement else None
+        fib_sl_price = fib_retracement.get_level_price(sl_level) if fib_retracement else None
+        fib_tp_price = fib_retracement.get_level_price(tp_level) if fib_retracement else None
         
         if not all([fib_entry_price, fib_sl_price, fib_tp_price]):
             return
