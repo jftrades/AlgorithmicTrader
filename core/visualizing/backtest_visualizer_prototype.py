@@ -200,21 +200,30 @@ class BacktestDataCollector:
 
     def analyse_trades(self):
         """
-        Analysiert die Trades und gibt ein Dictionary mit Metriken zurück:
-        final_realized_pnl, winrate (gesamt), winrate_long, winrate_short,
-        pnl_long, pnl_short,
-        long/short ratio, anzahl trades, anzahl long/short trades,
-        avg win, avg loss, max win, max loss, max consecutive wins/losses, commissions.
+        Analysiert die Trades und gibt ein Dictionary mit Metriken zurück.
+        Auch wenn keine Trades existieren, werden alle Keys mit 0 zurückgegeben
+        (Placeholder), damit trade_metrics.csv immer erzeugt wird.
         """
         if not self.trades:
-            return {}
-
-        # Hole letzten realized_pnl-Indikatorwert
-        realized_pnl_list = self.indicators.get("realized_pnl", [])
-        if realized_pnl_list:
-            final_realized_pnl = realized_pnl_list[-1]["value"]
-        else:
-            final_realized_pnl = None
+            return {
+                "final_realized_pnl": 0.0,
+                "winrate": 0.0,
+                "winrate_long": 0.0,
+                "winrate_short": 0.0,
+                "pnl_long": 0.0,
+                "pnl_short": 0.0,
+                "long_short_ratio": 0.0,
+                "n_trades": 0,
+                "n_long_trades": 0,
+                "n_short_trades": 0,
+                "avg_win": 0.0,
+                "avg_loss": 0.0,
+                "max_win": 0.0,
+                "max_loss": 0.0,
+                "max_consecutive_wins": 0,
+                "max_consecutive_losses": 0,
+                "commissions": 0.0,
+            }
 
         def to_float(val):
             if hasattr(val, "amount"):
@@ -293,16 +302,22 @@ class BacktestDataCollector:
         return result
 
     def trades_to_csv(self):
-        if not self.trades:
-            return None
-        trades_dicts = [vars(trade).copy() for trade in self.trades]
+        # Immer erstellen, auch wenn keine Trades vorhanden sind
+        trades_dicts = [vars(trade).copy() for trade in self.trades] if self.trades else []
         file_path = self.path / "trades.csv"
-        pd.DataFrame(trades_dicts).to_csv(file_path, index=False)
-        # Analyse nach dem Speichern durchführen und als CSV speichern
+        if trades_dicts:
+            pd.DataFrame(trades_dicts).to_csv(file_path, index=False)
+        else:
+            # Leere Datei mit erwarteten Spalten (Placeholder Header)
+            pd.DataFrame(columns=[
+                "timestamp","tradesize","open_price_actual","close_price_actual",
+                "id","parent_id","type","sl","tp","realized_pnl","closed_timestamp",
+                "action","price_desired","fee","bar_index"
+            ]).to_csv(file_path, index=False)
+
         analysis = self.analyse_trades()
         metrics_path = self.path / "trade_metrics.csv"
         pd.DataFrame([analysis]).to_csv(metrics_path, index=False)
-       #return file_path.name
         return analysis
 
     def save_data(self):

@@ -53,7 +53,7 @@ def visualize_existing_run(data_path, TradingDashboard=None):
 def extract_metrics(result, run_params, run_id):
     metrics = {}
     result_obj = result[0] if isinstance(result, list) and len(result) > 0 else result
-    
+
     metrics.update(run_params)
     metrics["run_id"] = run_id
     metrics["run_started"] = getattr(result_obj, "run_started", None)
@@ -63,21 +63,34 @@ def extract_metrics(result, run_params, run_id):
     metrics["elapsed_time"] = getattr(result_obj, "elapsed_time", None)
     metrics["total_orders"] = getattr(result_obj, "total_orders", None)
     metrics["total_positions"] = getattr(result_obj, "total_positions", None)
-    
+
+    def _zero_if_null(x):
+        # Covers: None, float NaN, numpy NaN, string "nan"/"NaN"
+        if x is None:
+            return 0
+        try:
+            if pd.isna(x):
+                return 0
+        except Exception:
+            pass
+        if isinstance(x, str) and x.strip().lower() == "nan":
+            return 0
+        return x
+
     if hasattr(result_obj, "stats_pnls"):
         for currency in ["USD", "USDT"]:
             if currency in result_obj.stats_pnls:
                 for k, v in result_obj.stats_pnls[currency].items():
-                    metrics[f"USDT_{k}"] = v
+                    metrics[f"USDT_{k}"] = _zero_if_null(v)
                 break
-    
+
     if hasattr(result_obj, "stats_returns"):
         for k, v in result_obj.stats_returns.items():
-            metrics[f"{k}"] = v
-    
+            metrics[k] = _zero_if_null(v)
+
     max_dd = calculate_max_drawdown(run_id)
     metrics["Max Drawdown"] = max_dd
-    
+
     return metrics
 
 def calculate_max_drawdown(run_id):
