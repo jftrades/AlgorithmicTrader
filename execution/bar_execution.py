@@ -5,7 +5,7 @@ from pathlib import Path
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.backtest.config import BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig, BacktestRunConfig
 from nautilus_trader.trading.config import ImportableStrategyConfig
-from tools.help_funcs.help_funcs_execution import (_clear_directory, run_backtest, extract_metrics, load_qs)
+from tools.help_funcs.help_funcs_execution import (_clear_directory, run_backtest, extract_metrics, load_qs, add_trade_metrics)
 from tools.help_funcs.yaml_loader import load_and_split_params
 import shutil
 import yaml
@@ -14,11 +14,12 @@ from glob import glob
 import os
 import webbrowser
 from core.visualizing.dashboard.main import launch_dashbaord
-from tools.help_funcs.help_funcs_execution import _clear_directory, run_backtest, extract_metrics, load_qs
 
 
 #STRAT PARAMETER
+
 yaml_name = "fib_trend.yaml"
+
 # ------------------------------------------------------------
 # YAML laden & vorbereiten
 # ------------------------------------------------------------
@@ -131,7 +132,9 @@ for result, run_id, run_params, run_dir in zip(results, run_ids, run_params_list
 # Gesamtübersicht speichern
 # ------------------------------------------------------------
 df_all = pd.DataFrame(all_metrics)
-df_all.to_csv(results_dir / "all_backtest_results.csv", index=False)
+file_path = results_dir / "all_backtest_results.csv"
+df_all.to_csv(file_path, index=False)
+add_trade_metrics(run_ids, results_dir, file_path, all_instrument_ids)
 print("Finished Backtest runs. Results saved to:", results_dir)
 
 if load_qs_flag:
