@@ -29,95 +29,210 @@ class FibRetracement:
 
 
 class FibRetracementTool:
-    """
-    Ultra-simple Fibonacci tool that ALWAYS uses current critical points.
-    Only recalculates when critical points change - provides stable levels.
-    """
-    
     def __init__(self, pivot_archive: PivotArchive):
         self.pivot_archive = pivot_archive
         self.current_fib: Optional[FibRetracement] = None
+        
+        # Track last state to detect changes
         self.last_high_price = None
         self.last_low_price = None
+        self.last_pivot_state = None
         
-        # Standard Fibonacci ratios
+        # Standard Fibonacci ratios for trading
         self.fib_ratios = [-1.0, -0.62, -0.27, 0.0, 0.5, 0.618, 0.786, 1.0]
+        
+        # Track updates for debugging
+        self.update_count = 0
+        self.last_update_reason = None
     
     def update(self, bar: Bar) -> Optional[FibRetracement]:
         """
-        Update Fibonacci levels. Only recalculates if critical points changed.
-        This provides STABLE horizontal levels until 5-step validation triggers.
+        Update Fibonacci levels based on PivotArchive state.
+        
+        Returns FibRetracement if levels are valid, None if not ready.
+        Only recalculates when:
+        1. Critical points change (price or timestamp)
+        2. PivotArchive state changes
+        3. First time initialization
         """
+        # Get current critical points and state from PivotArchive
         high_point = self.pivot_archive.get_last_swing_high()
         low_point = self.pivot_archive.get_last_swing_low()
+        current_state = self.pivot_archive.get_key_levels()["state"]
         
+        # Must have both critical points to calculate Fibonacci
         if not (high_point and low_point):
+            if self.current_fib:  # Had levels before but now invalid
+                self.current_fib = None
+                self.last_update_reason = "Critical points missing"
             return None
         
-        # Check if critical points changed
+        # Check what changed to decide if recalculation needed
         high_changed = self.last_high_price != high_point.price
         low_changed = self.last_low_price != low_point.price
+        state_changed = self.last_pivot_state != current_state
+        first_time = not self.current_fib
         
-        if high_changed or low_changed or not self.current_fib:
+        if high_changed or low_changed or state_changed or first_time:
             # Recalculate Fibonacci levels
-            self.current_fib = self._calculate_fibonacci(high_point, low_point)
+            self.current_fib = self._calculate_fibonacci_levels(high_point, low_point, current_state)
+            
+            # Update tracking variables
             self.last_high_price = high_point.price
             self.last_low_price = low_point.price
+            self.last_pivot_state = current_state
+            self.update_count += 1
+            
+            # Log update reason for transparency
+            reasons = []
+            if high_changed: reasons.append("high changed")
+            if low_changed: reasons.append("low changed") 
+            if state_changed: reasons.append(f"state: {current_state}")
+            if first_time: reasons.append("initialization")
+            self.last_update_reason = " + ".join(reasons)
         
         return self.current_fib
     
-    def _calculate_fibonacci(self, high_point: SwingPoint, low_point: SwingPoint) -> FibRetracement:
-        """Calculate Fibonacci retracement levels"""
-        direction, _ = self.pivot_archive.get_direction_with_confidence()
+    def _calculate_fibonacci_levels(self, high_point: SwingPoint, low_point: SwingPoint, pivot_state: str) -> FibRetracement:
+        """Calculate Fibonacci retracement levels with state-aware direction"""
         
+        # Get direction and confidence from PivotArchive
+        direction, confidence = self.pivot_archive.get_direction_with_confidence()
+        
+        # Calculate price range for Fibonacci levels
         price_range = abs(high_point.price - low_point.price)
         
-        # Create Fibonacci levels
+        # Generate all Fibonacci levels
         levels = []
         for ratio in self.fib_ratios:
             if direction == "up":
-                # Bullish: measuring from low to high
-                price = low_point.price + (price_range * ratio)
-                levels.append(FibLevel(ratio, price, f"Fib {ratio:.1%}"))
-            else:
-                # Bearish: measuring from high to low
+                # UPTREND: Fibonacci 0 at LOW (start of move), 100% at HIGH (end of move)
+                # This means retracement measured from high back down toward low
                 price = high_point.price - (price_range * ratio)
                 levels.append(FibLevel(ratio, price, f"Fib {ratio:.1%}"))
+            else:
+                # DOWNTREND: Fibonacci 0 at HIGH (start of move), 100% at LOW (end of move)  
+                # This means retracement measured from low back up toward high
+                price = low_point.price + (price_range * ratio)
+                levels.append(FibLevel(ratio, price, f"Fib {ratio:.1%}"))
+        
+        # Determine final direction string for FibRetracement
+        fib_direction = "bullish" if direction == "up" else "bearish"
         
         return FibRetracement(
             swing_high=high_point,
             swing_low=low_point,
             levels=levels,
-            direction="bullish" if direction == "up" else "bearish",
+            direction=fib_direction,
             price_range=price_range
         )
     
     def get_current_fibonacci(self) -> Optional[FibRetracement]:
-        """Get current Fibonacci retracement (always stable until critical points change)"""
+        """Get current Fibonacci retracement (stable until PivotArchive changes)"""
         return self.current_fib
     
     def get_key_levels_for_strategy(self) -> dict:
-        """Get key levels for strategy entry logic"""
+        """Get key retracement levels for strategy entry logic"""
         if not self.current_fib:
             return {}
         
-        # Return the key retracement levels for entries
-        levels = {}
+        # Return only the most important retracement levels
+        key_levels = {}
         for level in self.current_fib.levels:
-            if level.ratio in [0.5, 0.618, 0.786]:  # Key retracement levels
-                levels[f"fib_{level.ratio}"] = level.price
+            if level.ratio in [0.5, 0.618, 0.786]:  # Golden ratios for entries
+                key_levels[f"fib_{level.ratio}"] = level.price
         
-        return levels
+        return key_levels
     
     def get_key_levels(self) -> dict:
         """Compatibility method for strategy - returns all Fibonacci levels"""
         if not self.current_fib:
             return {}
         
-        levels = {}
+        # Convert all levels to strategy-compatible format
+        all_levels = {}
         for level in self.current_fib.levels:
-            # Convert ratio to string format expected by strategy
+            # Convert ratio to string format expected by strategy visualization
             ratio_str = f"{level.ratio:.3f}".replace("-", "neg_").replace(".", "_")
-            levels[f"fib_{ratio_str}"] = level.price
+            all_levels[f"fib_{ratio_str}"] = level.price
         
-        return levels
+        return all_levels
+    
+    def get_entry_levels_by_direction(self, current_price: float) -> dict:
+        if not self.current_fib:
+            return {"long_entries": {}, "short_entries": {}, "direction": "unknown"}
+        
+        direction, confidence = self.pivot_archive.get_direction_with_confidence()
+        
+        long_entries = {}
+        short_entries = {}
+        
+        # Get key retracement levels for entries
+        for level in self.current_fib.levels:
+            if level.ratio in [0.5, 0.618, 0.786]:  # Key retracement ratios
+                if level.price < current_price:
+                    long_entries[f"fib_{level.ratio}"] = level.price
+                elif level.price > current_price:
+                    short_entries[f"fib_{level.ratio}"] = level.price
+        
+        return {
+            "long_entries": long_entries,
+            "short_entries": short_entries, 
+            "direction": direction,
+            "confidence": confidence
+        }
+    
+    def is_price_near_fibonacci_level(self, current_price: float, target_ratio: float, tolerance_pct: float = 0.5) -> bool:
+        """
+        Check if current price is near a specific Fibonacci level.
+        
+        Args:
+            current_price: Current market price
+            target_ratio: Target Fibonacci ratio (e.g., 0.618)
+            tolerance_pct: Tolerance percentage (default 0.5%)
+            
+        Returns:
+            True if price is within tolerance of the Fibonacci level
+        """
+        if not self.current_fib:
+            return False
+        
+        # Find the target Fibonacci level
+        target_level = None
+        for level in self.current_fib.levels:
+            if abs(level.ratio - target_ratio) < 0.001:  # Small tolerance for float comparison
+                target_level = level
+                break
+        
+        if not target_level:
+            return False
+        
+        # Check if current price is within tolerance
+        tolerance_amount = abs(target_level.price * tolerance_pct / 100)
+        return abs(current_price - target_level.price) <= tolerance_amount
+    
+    def get_fibonacci_status(self) -> dict:
+        """
+        Get comprehensive status of Fibonacci tool for debugging and strategy use.
+        
+        Returns dict with current state, update info, and level summary.
+        """
+        if not self.current_fib:
+            return {
+                "status": "not_ready",
+                "reason": "No Fibonacci levels calculated",
+                "pivot_state": self.pivot_archive.get_key_levels()["state"]
+            }
+        
+        return {
+            "status": "ready",
+            "direction": self.current_fib.direction,
+            "high_price": self.current_fib.swing_high.price,
+            "low_price": self.current_fib.swing_low.price,
+            "price_range": self.current_fib.price_range,
+            "level_count": len(self.current_fib.levels),
+            "update_count": self.update_count,
+            "last_update_reason": self.last_update_reason,
+            "pivot_state": self.pivot_archive.get_key_levels()["state"],
+            "pivot_confidence": self.pivot_archive.get_direction_with_confidence()[1]
+        }

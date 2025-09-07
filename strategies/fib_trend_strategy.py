@@ -94,7 +94,7 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             current_instrument["ema"] = ExponentialMovingAverage(self.config.ema_lookback)
             
             # Initialize Pivot Archive and Fibonacci Tool
-            current_instrument["pivot_archive"] = PivotArchive(strength=5, lookback_swings=250)
+            current_instrument["pivot_archive"] = PivotArchive(strength=3)
             current_instrument["fib_tool"] = FibRetracementTool(current_instrument["pivot_archive"])
             
             # EMA crossover tracking

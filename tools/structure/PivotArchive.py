@@ -1,8 +1,6 @@
-# PivotArchive.py - Ultra-Simple Fibonacci Archive with 5-Step Validation
-# ALWAYS maintains ONE critical high and ONE critical low for stable Fibonacci levels
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
 from nautilus_trader.model.data import Bar
 from nautilus_trader.indicators.swings import Swings
 
@@ -17,198 +15,432 @@ class SwingPoint:
 
 class PivotArchive:
     """
-    Ultra-simplified archive maintaining EXACTLY 2 critical points:
-    - ONE critical high
-    - ONE critical low
+    Clean Fibonacci Archive using 30% retracement logic:
     
-    5-step validation ONLY updates these when strict conditions are met.
-    Fibonacci tool ALWAYS has stable anchor points.
+    1. Wait for first swing high + low from Nautilus (baseline)
+    2. Wait for price break to determine trend direction  
+    3. In uptrend: expand high, protect low (only 30%+ retracements qualify)
+    4. In downtrend: expand low, protect high (only 30%+ retracements qualify)
+    5. Reset when price breaks critical levels
+    
+    This provides stable but adaptive Fibonacci levels.
     """
     
-    def __init__(self, lookback_swings: int = 250, strength: int = 5):
+    def __init__(self, strength: int = 5):
         # Nautilus swings - our only swing source
         self.swings = Swings(period=strength)
         
-        # THE TWO CRITICAL POINTS - always available for Fibonacci
-        self.critical_high: Optional[SwingPoint] = None
-        self.critical_low: Optional[SwingPoint] = None
+        # State machine for clean logic flow
+        self.state = "WAITING_FOR_BASELINE"  # WAITING_FOR_BASELINE -> WAITING_FOR_BREAK -> UPTREND_MODE/DOWNTREND_MODE
         
-        # Simple state tracking
+        # Baseline anchors (first swing high + low from Nautilus)
+        self.baseline_high: Optional[SwingPoint] = None
+        self.baseline_low: Optional[SwingPoint] = None
+        
+        # Current critical points for Fibonacci calculation
+        self.critical_high: Optional[SwingPoint] = None  # Always available for Fibonacci
+        self.critical_low: Optional[SwingPoint] = None   # Always available for Fibonacci
+        
+        # Store all swing points for retrospective analysis
+        self.all_swing_points: List[SwingPoint] = []
+        
+        # Waiting list for significant retracements (30%+ deeper/shallower)
+        self.retracement_candidates: List[SwingPoint] = []
+        
+        # Swing tracking from Nautilus
         self.last_high_value = None
         self.last_low_value = None
-        self.swing_sequence = []  # Recent swings for validation
-        self.max_sequence_length = 20  # Keep validation simple
+        
+        # 30% retracement threshold for qualification
+        self.retracement_threshold = 0.3
+        
+        # Range expansion limits to prevent infinite expansion
+        self.max_range_multiplier = 3.0  # Max 3x baseline range
+        self.baseline_range = None  # Store original range for comparison0
+        
+        # For debugging and transparency
+        self.state_changes = []
     
     def update(self, bar: Bar) -> bool:
         """
-        Update with new bar. 
-        Returns True if critical points changed (Fibonacci needs recalculation)
+        Main update method - processes new bar through state machine.
+        Returns True if critical points changed (Fibonacci needs recalculation).
         """
-        # Update Nautilus swings
+        # Update Nautilus swings first
         self.swings.handle_bar(bar)
         
         if not self.swings.initialized:
             return False
         
         # Check for new swings from Nautilus
-        new_swing_detected = False
+        new_swing = self._detect_new_swing_from_nautilus(bar)
         
-        # New high detected
+        if new_swing:
+            # Process new swing through our state machine
+            return self._process_swing_through_state_machine(new_swing, bar)
+        
+        # Even without new swings, check for price breaks that trigger state changes
+        return self._check_price_breaks(bar)
+    
+    def _detect_new_swing_from_nautilus(self, bar: Bar) -> Optional[SwingPoint]:
+        """Get new swing points directly from Nautilus indicator"""
+        
+        # Check for new swing high
         if (self.swings.changed and self.swings.direction == 1 and 
             self.last_high_value != self.swings.high_price):
             
-            new_high = SwingPoint(
+            self.last_high_value = self.swings.high_price
+            swing_point = SwingPoint(
                 price=float(self.swings.high_price),
                 timestamp=int(bar.ts_event),
                 is_high=True
             )
-            self._process_new_swing(new_high)
-            self.last_high_value = self.swings.high_price
-            new_swing_detected = True
+            # Store all swing points for retrospective analysis
+            self.all_swing_points.append(swing_point)
+            return swing_point
             
-        # New low detected  
+        # Check for new swing low  
         elif (self.swings.changed and self.swings.direction == -1 and 
               self.last_low_value != self.swings.low_price):
             
-            new_low = SwingPoint(
+            self.last_low_value = self.swings.low_price
+            swing_point = SwingPoint(
                 price=float(self.swings.low_price),
                 timestamp=int(bar.ts_event),
                 is_high=False
             )
-            self._process_new_swing(new_low)
-            self.last_low_value = self.swings.low_price
-            new_swing_detected = True
+            # Store all swing points for retrospective analysis
+            self.all_swing_points.append(swing_point)
+            return swing_point
         
-        return new_swing_detected
+        return None
     
-    def _process_new_swing(self, swing: SwingPoint) -> None:
-        """Process new swing and apply 5-step validation"""
+    def _process_swing_through_state_machine(self, swing: SwingPoint, bar: Bar) -> bool:
+        """Process new swing through our clean state machine"""
         
-        # Add to sequence for validation
-        self.swing_sequence.append(swing)
-        if len(self.swing_sequence) > self.max_sequence_length:
-            self.swing_sequence.pop(0)
-        
-        # Initialize critical points if not set
-        if swing.is_high and not self.critical_high:
-            self.critical_high = swing
-            return
-        if not swing.is_high and not self.critical_low:
-            self.critical_low = swing
-            return
+        if self.state == "WAITING_FOR_BASELINE":
+            return self._handle_baseline_collection(swing)
             
-        # Both critical points must exist for validation
-        if not (self.critical_high and self.critical_low):
-            return
+        elif self.state == "WAITING_FOR_BREAK":
+            return self._handle_break_detection(swing, bar)
+            
+        elif self.state == "UPTREND_MODE":
+            return self._handle_uptrend_swing(swing)
+            
+        elif self.state == "DOWNTREND_MODE":
+            return self._handle_downtrend_swing(swing)
         
-        # Apply 5-step validation
+        return False
+    
+    def _handle_baseline_collection(self, swing: SwingPoint) -> bool:
+        """State 1: Collect first swing high and low as baseline anchors"""
+        
+        if swing.is_high and not self.baseline_high:
+            self.baseline_high = swing
+            self.critical_high = swing  # Also set as critical for immediate Fibonacci use
+            self._log_state_change(f"Baseline high set: {swing.price:.5f}")
+            
+        elif not swing.is_high and not self.baseline_low:
+            self.baseline_low = swing
+            self.critical_low = swing  # Also set as critical for immediate Fibonacci use
+            self._log_state_change(f"Baseline low set: {swing.price:.5f}")
+        
+        # Once we have both baseline points, move to next state
+        if self.baseline_high and self.baseline_low:
+            # Store baseline range for expansion limit calculations
+            self.baseline_range = abs(self.baseline_high.price - self.baseline_low.price)
+            self.state = "WAITING_FOR_BREAK"
+            self._log_state_change("Baseline complete - waiting for trend break")
+            return True  # Critical points changed
+        
+        return bool(self.critical_high and self.critical_low)  # Return True if we have both for Fibonacci
+    
+    def _handle_break_detection(self, swing: SwingPoint, bar: Bar) -> bool:
+        """State 2: Wait for price break above baseline high OR below baseline low"""
+        
+        current_price = float(bar.close)
+        
+        # Check for break above baseline high (start uptrend)
+        if current_price > self.baseline_high.price:
+            self.state = "UPTREND_MODE"
+            
+            # CRITICAL FIX: Update critical points to reflect the actual trend start
+            # Create break point at the exact bar.close that broke the baseline
+            break_point = SwingPoint(
+                price=current_price,
+                timestamp=int(bar.ts_event),
+                is_high=True  # This break point represents the new trend high
+            )
+            
+            # Update critical points: new high at break, keep baseline low protected
+            self.critical_high = break_point  # Fibonacci 0 will anchor here in uptrend
+            # critical_low stays at baseline_low for protection
+            
+            self._log_state_change(f"UPTREND started - price {current_price:.5f} > baseline high {self.baseline_high.price:.5f} | Critical high updated to break point")
+            return True  # Critical points changed
+            
+        # Check for break below baseline low (start downtrend)  
+        elif current_price < self.baseline_low.price:
+            self.state = "DOWNTREND_MODE"
+            
+            # CRITICAL FIX: Update critical points to reflect the actual trend start
+            # Create break point at the exact bar.close that broke the baseline  
+            break_point = SwingPoint(
+                price=current_price,
+                timestamp=int(bar.ts_event),
+                is_high=False  # This break point represents the new trend low
+            )
+            
+            # Update critical points: new low at break, keep baseline high protected
+            self.critical_low = break_point  # Fibonacci 0 will anchor here in downtrend  
+            # critical_high stays at baseline_high for protection
+            
+            self._log_state_change(f"DOWNTREND started - price {current_price:.5f} < baseline low {self.baseline_low.price:.5f} | Critical low updated to break point")
+            return True  # Critical points changed
+        
+        return False  # No state change
+    
+    def _handle_uptrend_swing(self, swing: SwingPoint) -> bool:
+        """State 3: Uptrend mode - expand high, handle retracements with 30% threshold"""
+        
+        critical_points_changed = False
+        
         if swing.is_high:
-            self._check_bullish_update(swing)
+            # Scenario 1: New swing high - expand critical high (lengthen Fibonacci range)
+            if swing.price > self.critical_high.price:
+                # Check if this expansion would exceed our range limit
+                potential_range = abs(swing.price - self.critical_low.price)
+                max_allowed_range = self.baseline_range * self.max_range_multiplier
+                
+                if potential_range <= max_allowed_range:
+                    self.critical_high = swing
+                    critical_points_changed = True
+                    self._log_state_change(f"Critical high expanded: {swing.price:.5f}")
+                else:
+                    # Range too large - reset to more recent baseline
+                    self._reset_to_recent_range(swing, is_uptrend=True)
+                    critical_points_changed = True
+                    self._log_state_change(f"Range limit exceeded - reset to recent range with new high: {swing.price:.5f}")
+                    
         else:
-            self._check_bearish_update(swing)
+            # New swing low - check if it qualifies for 30% retracement to become new critical_low
+            if self._qualifies_for_retracement_uptrend(swing):
+                self.retracement_candidates.append(swing)
+                self._log_state_change(f"Retracement candidate added: {swing.price:.5f}")
+                
+                # Update critical low to deepest qualifying retracement (most extreme swing low > 30%)
+                deepest_candidate = min(self.retracement_candidates, key=lambda x: x.price)
+                if deepest_candidate.price < self.critical_low.price:
+                    self.critical_low = deepest_candidate
+                    critical_points_changed = True
+                    self._log_state_change(f"Critical low updated to deepest retracement: {deepest_candidate.price:.5f}")
+        
+        return critical_points_changed
     
-    def _check_bullish_update(self, new_high: SwingPoint) -> None:
-        """
-        5-step bullish validation:
-        1. New high breaks above critical high
-        2. Sequence of lows after critical high were progressively lower
-        3. No intermediate breaks of critical low
-        4. If all met -> update critical_low to most extreme low in sequence
-        """
-        if new_high.price <= self.critical_high.price:
-            return  # No break above critical high
+    def _handle_downtrend_swing(self, swing: SwingPoint) -> bool:
+        """State 4: Downtrend mode - expand low, handle retracements with 30% threshold"""
         
-        # Get lows after current critical high
-        critical_high_time = self.critical_high.timestamp
-        lows_after_high = [s for s in self.swing_sequence 
-                          if not s.is_high and s.timestamp > critical_high_time]
+        critical_points_changed = False
         
-        if len(lows_after_high) < 1:
-            return  # Need at least 1 low after high
+        if not swing.is_high:
+            # Scenario 3: New swing low - expand critical low (lengthen Fibonacci range)
+            if swing.price < self.critical_low.price:
+                # Check if this expansion would exceed our range limit
+                potential_range = abs(self.critical_high.price - swing.price)
+                max_allowed_range = self.baseline_range * self.max_range_multiplier
+                
+                if potential_range <= max_allowed_range:
+                    self.critical_low = swing
+                    critical_points_changed = True
+                    self._log_state_change(f"Critical low expanded: {swing.price:.5f}")
+                else:
+                    # Range too large - reset to more recent baseline
+                    self._reset_to_recent_range(swing, is_uptrend=False)
+                    critical_points_changed = True
+                    self._log_state_change(f"Range limit exceeded - reset to recent range with new low: {swing.price:.5f}")
+                    
+        else:
+            # New swing high - check if it qualifies for 30% retracement to become new critical_high
+            if self._qualifies_for_retracement_downtrend(swing):
+                self.retracement_candidates.append(swing)
+                self._log_state_change(f"Retracement candidate added: {swing.price:.5f}")
+                
+                # Update critical high to shallowest qualifying retracement (most extreme swing high > 30%)
+                shallowest_candidate = max(self.retracement_candidates, key=lambda x: x.price)
+                if shallowest_candidate.price > self.critical_high.price:
+                    self.critical_high = shallowest_candidate
+                    critical_points_changed = True
+                    self._log_state_change(f"Critical high updated to shallowest retracement: {shallowest_candidate.price:.5f}")
         
-        # Check progressively lower + no critical low breaks
-        if self._are_lows_progressively_lower(lows_after_high):
-            # SUCCESS! Update critical points
-            extreme_low = min(lows_after_high, key=lambda x: x.price)
-            self.critical_high = new_high
-            self.critical_low = extreme_low
+        return critical_points_changed
     
-    def _check_bearish_update(self, new_low: SwingPoint) -> None:
-        """
-        5-step bearish validation:
-        1. New low breaks below critical low  
-        2. Sequence of highs after critical low were progressively higher
-        3. No intermediate breaks of critical high
-        4. If all met -> update critical_high to most extreme high in sequence
-        """
-        if new_low.price >= self.critical_low.price:
-            return  # No break below critical low
+    def _qualifies_for_retracement_uptrend(self, swing_low: SwingPoint) -> bool:
+        """Check if swing low qualifies as significant retracement (30%+ deeper) in uptrend"""
         
-        # Get highs after current critical low
-        critical_low_time = self.critical_low.timestamp
-        highs_after_low = [s for s in self.swing_sequence 
-                          if s.is_high and s.timestamp > critical_low_time]
+        if not self.critical_high or not self.critical_low:
+            return False
         
-        if len(highs_after_low) < 1:
-            return  # Need at least 1 high after low
+        # Calculate 30% retracement from current Fibonacci range
+        fib_range = self.critical_high.price - self.critical_low.price
+        retracement_threshold_price = self.critical_low.price - (fib_range * self.retracement_threshold)
         
-        # Check progressively higher + no critical high breaks  
-        if self._are_highs_progressively_higher(highs_after_low):
-            # SUCCESS! Update critical points
-            extreme_high = max(highs_after_low, key=lambda x: x.price)
-            self.critical_high = extreme_high
-            self.critical_low = new_low
+        # Qualify if swing low is 30%+ deeper than current critical low
+        return swing_low.price < retracement_threshold_price
     
-    def _are_lows_progressively_lower(self, lows) -> bool:
-        """Check if lows are progressively lower (with small tolerance)"""
-        if len(lows) < 2:
-            return True
+    def _qualifies_for_retracement_downtrend(self, swing_high: SwingPoint) -> bool:
+        """Check if swing high qualifies as significant retracement (30%+ shallower) in downtrend"""
+        
+        if not self.critical_high or not self.critical_low:
+            return False
+        
+        # Calculate 30% retracement from current Fibonacci range  
+        fib_range = self.critical_high.price - self.critical_low.price
+        retracement_threshold_price = self.critical_high.price + (fib_range * self.retracement_threshold)
+        
+        # Qualify if swing high is 30%+ shallower than current critical high
+        return swing_high.price > retracement_threshold_price
+    
+    def _reset_to_recent_range(self, new_extreme_swing: SwingPoint, is_uptrend: bool) -> None:
+        """Reset to a more recent, manageable range when expansion gets too large"""
+        
+        if is_uptrend:
+            # For uptrend: keep new high, take last swing low before current critical high
+            self.critical_high = new_extreme_swing
             
-        # Also check no critical low breaks
-        for low in lows:
-            if low.price < self.critical_low.price * 0.999:  # Small tolerance
-                return False  # Critical low broken
-        
-        # Check progressive lowering
-        sorted_lows = sorted(lows, key=lambda x: x.timestamp)
-        for i in range(1, len(sorted_lows)):
-            if sorted_lows[i].price > sorted_lows[i-1].price * 1.001:  # Small tolerance
-                return False
-        return True
-    
-    def _are_highs_progressively_higher(self, highs) -> bool:
-        """Check if highs are progressively higher (with small tolerance)"""
-        if len(highs) < 2:
-            return True
+            # Find last swing low that occurred before the current critical high
+            if self.retracement_candidates:
+                # Filter candidates that occurred before current critical high
+                valid_candidates = [
+                    candidate for candidate in self.retracement_candidates 
+                    if candidate.timestamp < self.critical_high.timestamp and not candidate.is_high
+                ]
+                if valid_candidates:
+                    # Take the most recent valid swing low
+                    self.critical_low = max(valid_candidates, key=lambda x: x.timestamp)
+                else:
+                    # If no valid candidates, keep current critical_low (don't create artificial)
+                    pass
             
-        # Also check no critical high breaks
-        for high in highs:
-            if high.price > self.critical_high.price * 1.001:  # Small tolerance  
-                return False  # Critical high broken
+        else:
+            # For downtrend: keep new low, take last swing high before current critical low  
+            self.critical_low = new_extreme_swing
+            
+            # Find last swing high that occurred before the current critical low
+            if self.retracement_candidates:
+                # Filter candidates that occurred before current critical low
+                valid_candidates = [
+                    candidate for candidate in self.retracement_candidates 
+                    if candidate.timestamp < self.critical_low.timestamp and candidate.is_high
+                ]
+                if valid_candidates:
+                    # Take the most recent valid swing high
+                    self.critical_high = max(valid_candidates, key=lambda x: x.timestamp)
+                else:
+                    # If no valid candidates, keep current critical_high (don't create artificial)
+                    pass
         
-        # Check progressive elevation
-        sorted_highs = sorted(highs, key=lambda x: x.timestamp)
-        for i in range(1, len(sorted_highs)):
-            if sorted_highs[i].price < sorted_highs[i-1].price * 0.999:  # Small tolerance
-                return False
-        return True
+        # Clear retracement candidates for fresh start
+        self.retracement_candidates.clear()
+        
+        # Update baseline range to new, smaller range
+        self.baseline_range = abs(self.critical_high.price - self.critical_low.price)
+    
+    def _check_price_breaks(self, bar: Bar) -> bool:
+        """Check for critical level breaks and implement 4-scenario logic"""
+        
+        if self.state in ["UPTREND_MODE", "DOWNTREND_MODE"]:
+            current_price = float(bar.close)
+            
+            # UPTREND: Check for break below critical low
+            if self.state == "UPTREND_MODE" and current_price < self.critical_low.price:
+                # Find most extreme swing HIGH in window: last critical_high timestamp → current bar
+                most_extreme_high = self._find_most_extreme_swing_in_window(
+                    start_timestamp=self.critical_high.timestamp,
+                    end_timestamp=int(bar.ts_event),
+                    find_high=True
+                )
+                
+                if most_extreme_high:
+                    self.critical_high = most_extreme_high
+                    self._log_state_change(f"Critical low broken in uptrend - updated critical high to most extreme: {most_extreme_high.price:.5f}")
+                    return True
+            
+            # DOWNTREND: Check for break above critical high  
+            elif self.state == "DOWNTREND_MODE" and current_price > self.critical_high.price:
+                # Find most extreme swing LOW in window: last critical_low timestamp → current bar
+                most_extreme_low = self._find_most_extreme_swing_in_window(
+                    start_timestamp=self.critical_low.timestamp,
+                    end_timestamp=int(bar.ts_event),
+                    find_high=False
+                )
+                
+                if most_extreme_low:
+                    self.critical_low = most_extreme_low
+                    self._log_state_change(f"Critical high broken in downtrend - updated critical low to most extreme: {most_extreme_low.price:.5f}")
+                    return True
+        
+        return False
+    
+    def _find_most_extreme_swing_in_window(self, start_timestamp: int, end_timestamp: int, find_high: bool) -> Optional[SwingPoint]:
+        """Find most extreme swing point (high or low) in specified time window"""
+        
+        # Filter swing points in the time window with correct type
+        candidates = [
+            swing for swing in self.all_swing_points
+            if start_timestamp <= swing.timestamp <= end_timestamp and swing.is_high == find_high
+        ]
+        
+        if not candidates:
+            return None
+        
+        if find_high:
+            # Return swing with highest price
+            return max(candidates, key=lambda x: x.price)
+        else:
+            # Return swing with lowest price  
+            return min(candidates, key=lambda x: x.price)
+    
+    def _reset_to_baseline(self) -> None:
+        """Reset to baseline anchors and wait for new trend break"""
+        
+        # Reset critical points to baseline
+        self.critical_high = self.baseline_high
+        self.critical_low = self.baseline_low
+        
+        # Clear retracement candidates
+        self.retracement_candidates.clear()
+        
+        # Return to waiting for break state
+        self.state = "WAITING_FOR_BREAK"
+    
+    def _log_state_change(self, message: str) -> None:
+        """Log state changes for debugging and transparency"""
+        self.state_changes.append(f"[{self.state}] {message}")
+        # Keep only last 20 state changes to avoid memory bloat
+        if len(self.state_changes) > 20:
+            self.state_changes.pop(0)
     
     # Simple interface methods for Fibonacci tool and strategy
     def get_last_swing_high(self) -> Optional[SwingPoint]:
-        """Get critical high for Fibonacci calculation (always available)"""
+        """Get critical high for Fibonacci calculation (always available after baseline)"""
         return self.critical_high
     
     def get_last_swing_low(self) -> Optional[SwingPoint]:
-        """Get critical low for Fibonacci calculation (always available)"""
+        """Get critical low for Fibonacci calculation (always available after baseline)"""
         return self.critical_low
     
     def get_direction_with_confidence(self):
-        """Get direction for Fibonacci calculation"""
-        if self.critical_high and self.critical_low:
+        """Get direction for Fibonacci calculation based on current state"""
+        if self.state == "UPTREND_MODE":
+            return "up", 1.0
+        elif self.state == "DOWNTREND_MODE":
+            return "down", 1.0
+        elif self.critical_high and self.critical_low:
+            # In baseline/waiting state, use most recent critical point
             if self.critical_high.timestamp > self.critical_low.timestamp:
-                return "up", 1.0  # High is more recent = bullish
+                return "up", 0.5  # Lower confidence
             else:
-                return "down", 1.0  # Low is more recent = bearish
+                return "down", 0.5  # Lower confidence
         return "unknown", 0.0
     
     def get_key_levels(self) -> dict:
@@ -216,15 +448,24 @@ class PivotArchive:
         return {
             "last_swing_high": self.critical_high.price if self.critical_high else None,
             "last_swing_low": self.critical_low.price if self.critical_low else None,
-            "total_swings": len(self.swing_sequence),
+            "state": self.state,
+            "retracement_candidates": len(self.retracement_candidates),
             "initialized": self.swings.initialized and self.critical_high is not None and self.critical_low is not None
         }
+    
+    def get_state_history(self) -> List[str]:
+        """Get recent state changes for debugging"""
+        return self.state_changes.copy()
     
     def reset(self) -> None:
         """Reset the archive"""
         self.swings = Swings(period=5)
-        self.swing_sequence.clear()
+        self.state = "WAITING_FOR_BASELINE"
+        self.baseline_high = None
+        self.baseline_low = None
         self.critical_high = None
         self.critical_low = None
+        self.retracement_candidates.clear()
         self.last_high_value = None
         self.last_low_value = None
+        self.state_changes.clear()
