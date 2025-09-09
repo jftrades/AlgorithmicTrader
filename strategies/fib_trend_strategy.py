@@ -90,8 +90,9 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             current_instrument["fib_entry_tolerance"] = self.config.fib_entry_tolerance
             current_instrument["fib_sl_buffer"] = self.config.fib_sl_buffer
             
-            # Initialize EMA indicator
+            # Initialize EMA indicators
             current_instrument["ema"] = ExponentialMovingAverage(self.config.ema_lookback)
+            current_instrument["ema_reset"] = ExponentialMovingAverage(30)  # For trending readjustment
             
             # Initialize Pivot Archive and Fibonacci Tool
             current_instrument["pivot_archive"] = PivotArchive(strength=2)
@@ -118,6 +119,7 @@ class FibTrendStrategy(BaseStrategy, Strategy):
                 self.log.info(f"Subscribing to bars: {str(bar_type)}", color=LogColor.GREEN)
                 self.subscribe_bars(bar_type)
                 self.register_indicator_for_bars(bar_type, ctx["ema"])
+                self.register_indicator_for_bars(bar_type, ctx["ema_reset"])
         
         self.log.info(f"Strategy started. Instruments: {', '.join(str(i) for i in self.instrument_ids())}")
         
@@ -140,6 +142,10 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             return
 
         current_instrument["bar_counter"] += 1
+
+        # Provide EMA Reset to PivotArchive for trending readjustment
+        if current_instrument["ema_reset"].initialized:
+            current_instrument["pivot_archive"].set_ema_reset(current_instrument["ema_reset"].value)
 
         # Update Pivot Archive and Fibonacci Tool
         pivot_changed = current_instrument["pivot_archive"].update(bar)

@@ -7,27 +7,14 @@ from nautilus_trader.indicators.swings import Swings
 
 @dataclass
 class SwingPoint:
-    """Simple price point with timestamp"""
     price: float
     timestamp: int
     is_high: bool
 
 
 class PivotArchive:
-    """
-    Pure High/Low Fibonacci Archive:
-    1. Use Nautilus Swings for INITIAL critical high and low only
-    2. After initialization: Compare EVERY bar's high to critical_high, low to critical_low
-    3. If bar.high > critical_high: Update critical_high immediately
-    4. If bar.low < critical_low: Update critical_low immediately  
-    5. No bar.close logic, no patterns - just pure high/low extremes
-    """
-    
     def __init__(self, strength: int = 5):
-        # Use Nautilus ONLY for initial swing detection
         self.swings = Swings(period=strength)
-        
-        # Track last swing values to detect new ones
         self.last_high_value = None
         self.last_low_value = None
         
@@ -35,7 +22,7 @@ class PivotArchive:
         self.critical_highs: List[SwingPoint] = []
         self.critical_lows: List[SwingPoint] = []
         
-        # Store ALL highs and lows for finding most extreme points
+        # Store last 300 highs and lows for finding most extreme points
         self.all_highs: List[SwingPoint] = []
         self.all_lows: List[SwingPoint] = []
         
@@ -43,15 +30,19 @@ class PivotArchive:
         self.highest_high = None
         self.lowest_low = None
         
-        # Initialization flags
+        self.ema_reset = None
+        
+        # Trending readjustment tracking
+        self.below_ema_lows: List[SwingPoint] = []  # Lows made below EMA in uptrend
+        self.above_ema_highs: List[SwingPoint] = []  # Highs made above EMA in downtrend
+        
         self.initialized = False
-        self.nautilus_initialized = False  # Track if we got initial swings from Nautilus
+        self.nautilus_initialized = False 
+    
+    def set_ema_reset(self, ema_value: float):
+        self.ema_reset = ema_value 
     
     def update(self, bar: Bar) -> bool:
-        """
-        Hybrid update: Use Nautilus for initial points, then our own logic.
-        Returns True if critical points changed.
-        """
         # Always feed Nautilus for initial swing detection
         self.swings.handle_bar(bar)
         
@@ -60,33 +51,64 @@ class PivotArchive:
         bar_low = float(bar.low)
         timestamp = int(bar.ts_event)
         
-        # Add to our complete records
+        # Add to our complete records (keep last 300)
         high_point = SwingPoint(bar_high, timestamp, True)
         low_point = SwingPoint(bar_low, timestamp, False)
         self.all_highs.append(high_point)
         self.all_lows.append(low_point)
+        if len(self.all_highs) > 300:
+            self.all_highs.pop(0)
+        if len(self.all_lows) > 300:
+            self.all_lows.pop(0)
         
         # Phase 1: Try to get initial critical points from Nautilus swings
         if not self.nautilus_initialized:
             if self._initialize_from_nautilus_swings(bar):
-                return True  # We got initial points from Nautilus
-            # Wait for Nautilus to provide swings - no fallback
+                return True 
             return False
         
-        # Phase 2: Ultra-simple extreme tracking - only bar.high/bar.low comparison
+        # Phase 2: Extreme tracking with trending readjustment
         changed = False
+        current_direction, _ = self.get_direction_with_confidence()
+        
+        # Track EMA-based lows/highs for trending readjustment
+        if self.ema_reset is not None:
+            if current_direction == "up" and bar_low < self.ema_reset:
+                # In uptrend: Track lows below EMA
+                self.below_ema_lows.append(low_point)
+            elif current_direction == "down" and bar_high > self.ema_reset:
+                # In downtrend: Track highs above EMA
+                self.above_ema_highs.append(high_point)
         
         # Simple rule: If this bar's high is higher than critical high, update it
         if bar_high > self.critical_highs[-1].price:
+            old_critical_high = self.critical_highs[-1]
             self._add_critical_high(high_point)
             self.highest_high = bar_high
             changed = True
             
+            # Trending readjustment for uptrend: Find lowest point in timespan
+            if current_direction == "up" and self.below_ema_lows:
+                lowest_in_timespan = self._find_lowest_in_timespan(
+                    old_critical_high.timestamp, timestamp)
+                if lowest_in_timespan:
+                    self._add_critical_low(lowest_in_timespan)
+                    self.below_ema_lows.clear()  # Clear after using
+            
         # Simple rule: If this bar's low is lower than critical low, update it
         if bar_low < self.critical_lows[-1].price:
+            old_critical_low = self.critical_lows[-1]
             self._add_critical_low(low_point)
             self.lowest_low = bar_low
             changed = True
+            
+            # Trending readjustment for downtrend: Find highest point in timespan
+            if current_direction == "down" and self.above_ema_highs:
+                highest_in_timespan = self._find_highest_in_timespan(
+                    old_critical_low.timestamp, timestamp)
+                if highest_in_timespan:
+                    self._add_critical_high(highest_in_timespan)
+                    self.above_ema_highs.clear()  # Clear after using
         
         # Update running extremes
         if self.highest_high is None or bar_high > self.highest_high:
@@ -97,7 +119,6 @@ class PivotArchive:
         return changed
     
     def _initialize_from_nautilus_swings(self, bar: Bar) -> bool:
-        """Initialize critical points from first Nautilus swings"""
         new_swing = self._get_new_swing(bar)
         if new_swing:
             if new_swing.is_high and len(self.critical_highs) == 0:
@@ -119,8 +140,6 @@ class PivotArchive:
         return False
 
     def _get_new_swing(self, bar: Bar) -> Optional[SwingPoint]:
-        """Check for new swing from Nautilus"""
-        # Check for new swing high
         if (self.swings.changed and self.swings.direction == 1 and 
             self.last_high_value != self.swings.high_price):
             self.last_high_value = self.swings.high_price
@@ -134,29 +153,35 @@ class PivotArchive:
         
         return None
 
-    def _add_critical_high(self, swing: SwingPoint) -> None:
-        """Add critical high (max 3)"""
+    def _find_lowest_in_timespan(self, start_time: int, end_time: int) -> Optional[SwingPoint]:
+        candidates = [low for low in self.all_lows if start_time <= low.timestamp <= end_time]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda x: x.price)
+
+    def _find_highest_in_timespan(self, start_time: int, end_time: int) -> Optional[SwingPoint]:
+        candidates = [high for high in self.all_highs if start_time <= high.timestamp <= end_time]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda x: x.price)
+
+    def _add_critical_high(self, swing: SwingPoint) -> None: # max 3
         self.critical_highs.append(swing)
         if len(self.critical_highs) > 3:
             self.critical_highs.pop(0)
 
     def _add_critical_low(self, swing: SwingPoint) -> None:
-        """Add critical low (max 3)"""
         self.critical_lows.append(swing)
         if len(self.critical_lows) > 3:
             self.critical_lows.pop(0)
     
-    # Simple interface methods for Fibonacci tool and strategy
     def get_last_swing_high(self) -> Optional[SwingPoint]:
-        """Get current critical high"""
         return self.critical_highs[-1] if self.critical_highs else None
     
     def get_last_swing_low(self) -> Optional[SwingPoint]:
-        """Get current critical low"""
         return self.critical_lows[-1] if self.critical_lows else None
     
     def get_direction_with_confidence(self):
-        """Get direction based on most recent critical point"""
         if not self.critical_highs or not self.critical_lows:
             return "unknown", 0.0
         
@@ -169,7 +194,6 @@ class PivotArchive:
             return "down", 1.0
     
     def get_key_levels(self) -> dict:
-        """Get key levels for strategy use"""
         return {
             "last_swing_high": self.critical_highs[-1].price if self.critical_highs else None,
             "last_swing_low": self.critical_lows[-1].price if self.critical_lows else None,
@@ -184,7 +208,6 @@ class PivotArchive:
         }
     
     def reset(self) -> None:
-        """Reset the archive"""
         self.swings = Swings(period=5)  # Reset Nautilus for new initialization
         self.last_high_value = None
         self.last_low_value = None
@@ -192,6 +215,9 @@ class PivotArchive:
         self.critical_lows.clear()
         self.all_highs.clear()
         self.all_lows.clear()
+        self.below_ema_lows.clear()
+        self.above_ema_highs.clear()
+        self.ema_reset = None
         self.highest_high = None
         self.lowest_low = None
         self.initialized = False

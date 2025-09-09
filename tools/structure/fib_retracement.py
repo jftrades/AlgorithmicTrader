@@ -231,7 +231,6 @@ class FibRetracementTool:
         return abs(current_price - target_level.price) <= tolerance_amount
     
     def get_debug_info(self) -> dict:
-        """Get debug information about the current state"""
         key_levels = self.pivot_archive.get_key_levels()
         
         debug_info = {
