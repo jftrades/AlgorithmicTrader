@@ -94,7 +94,7 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             current_instrument["ema"] = ExponentialMovingAverage(self.config.ema_lookback)
             
             # Initialize Pivot Archive and Fibonacci Tool
-            current_instrument["pivot_archive"] = PivotArchive(strength=3)
+            current_instrument["pivot_archive"] = PivotArchive(strength=2)
             current_instrument["fib_tool"] = FibRetracementTool(current_instrument["pivot_archive"])
             
             # EMA crossover tracking
@@ -142,8 +142,9 @@ class FibTrendStrategy(BaseStrategy, Strategy):
         current_instrument["bar_counter"] += 1
 
         # Update Pivot Archive and Fibonacci Tool
-        current_instrument["pivot_archive"].update(bar)
-        current_instrument["fib_tool"].update(bar)
+        pivot_changed = current_instrument["pivot_archive"].update(bar)
+        fib_changed = current_instrument["fib_tool"].update(bar)
+
         
         # Check for pending orders to avoid endless order loops
         open_orders = self.cache.orders_open(instrument_id=instrument_id)

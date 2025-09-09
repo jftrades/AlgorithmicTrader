@@ -55,10 +55,19 @@ class FibRetracementTool:
         2. PivotArchive state changes
         3. First time initialization
         """
-        # Get current critical points and state from PivotArchive
+        # Get current critical points from PivotArchive
+        key_levels = self.pivot_archive.get_key_levels()
+        
+        # Must be initialized to calculate Fibonacci
+        if not key_levels["initialized"]:
+            if self.current_fib:  # Had levels before but now invalid
+                self.current_fib = None
+                self.last_update_reason = "Waiting for Nautilus swing initialization"
+            return None
+            
         high_point = self.pivot_archive.get_last_swing_high()
         low_point = self.pivot_archive.get_last_swing_low()
-        current_state = self.pivot_archive.get_key_levels()["state"]
+        current_direction, confidence = self.pivot_archive.get_direction_with_confidence()
         
         # Must have both critical points to calculate Fibonacci
         if not (high_point and low_point):
@@ -68,32 +77,42 @@ class FibRetracementTool:
             return None
         
         # Check what changed to decide if recalculation needed
-        high_changed = self.last_high_price != high_point.price
-        low_changed = self.last_low_price != low_point.price
-        state_changed = self.last_pivot_state != current_state
+        # For immediate expansion, remove tolerance - every change should trigger update
+        price_tolerance = 0.0  # No tolerance - immediate response to any change
+        
+        high_changed = (self.last_high_price is None or 
+                       abs(self.last_high_price - high_point.price) > price_tolerance)
+        low_changed = (self.last_low_price is None or 
+                      abs(self.last_low_price - low_point.price) > price_tolerance)
+        direction_changed = self.last_pivot_state != current_direction
         first_time = not self.current_fib
         
-        if high_changed or low_changed or state_changed or first_time:
+        # Only recalculate if there's a meaningful change
+        if high_changed or low_changed or direction_changed or first_time:
             # Recalculate Fibonacci levels
-            self.current_fib = self._calculate_fibonacci_levels(high_point, low_point, current_state)
+            self.current_fib = self._calculate_fibonacci_levels(high_point, low_point, current_direction)
             
             # Update tracking variables
             self.last_high_price = high_point.price
             self.last_low_price = low_point.price
-            self.last_pivot_state = current_state
+            self.last_pivot_state = current_direction
             self.update_count += 1
             
             # Log update reason for transparency
             reasons = []
-            if high_changed: reasons.append("high changed")
-            if low_changed: reasons.append("low changed") 
-            if state_changed: reasons.append(f"state: {current_state}")
-            if first_time: reasons.append("initialization")
+            if high_changed:
+                reasons.append("high changed")
+            if low_changed:
+                reasons.append("low changed") 
+            if direction_changed:
+                reasons.append(f"direction: {current_direction}")
+            if first_time:
+                reasons.append("initialization")
             self.last_update_reason = " + ".join(reasons)
         
         return self.current_fib
     
-    def _calculate_fibonacci_levels(self, high_point: SwingPoint, low_point: SwingPoint, pivot_state: str) -> FibRetracement:
+    def _calculate_fibonacci_levels(self, high_point: SwingPoint, low_point: SwingPoint, pivot_direction: str) -> FibRetracement:
         """Calculate Fibonacci retracement levels with state-aware direction"""
         
         # Get direction and confidence from PivotArchive
@@ -211,6 +230,35 @@ class FibRetracementTool:
         tolerance_amount = abs(target_level.price * tolerance_pct / 100)
         return abs(current_price - target_level.price) <= tolerance_amount
     
+    def get_debug_info(self) -> dict:
+        """Get debug information about the current state"""
+        key_levels = self.pivot_archive.get_key_levels()
+        
+        debug_info = {
+            "pivot_archive_initialized": key_levels["initialized"],
+            "nautilus_initialized": key_levels.get("nautilus_initialized", False),
+            "critical_highs_count": key_levels["critical_highs_count"],
+            "critical_lows_count": key_levels["critical_lows_count"],
+            "highest_high": key_levels.get("highest_high"),
+            "lowest_low": key_levels.get("lowest_low"),
+            "last_swing_high": key_levels.get("last_swing_high"),
+            "last_swing_low": key_levels.get("last_swing_low"),
+            "total_highs_tracked": key_levels.get("total_highs_tracked", 0),
+            "total_lows_tracked": key_levels.get("total_lows_tracked", 0),
+            "fib_tool_ready": self.current_fib is not None,
+            "update_count": self.update_count,
+            "last_update_reason": self.last_update_reason
+        }
+        
+        if self.current_fib:
+            debug_info.update({
+                "fib_direction": self.current_fib.direction,
+                "fib_range": self.current_fib.price_range,
+                "fib_levels_count": len(self.current_fib.levels)
+            })
+        
+        return debug_info
+    
     def get_fibonacci_status(self) -> dict:
         """
         Get comprehensive status of Fibonacci tool for debugging and strategy use.
@@ -221,7 +269,7 @@ class FibRetracementTool:
             return {
                 "status": "not_ready",
                 "reason": "No Fibonacci levels calculated",
-                "pivot_state": self.pivot_archive.get_key_levels()["state"]
+                "pivot_direction": self.pivot_archive.get_direction_with_confidence()[0]
             }
         
         return {
@@ -233,6 +281,6 @@ class FibRetracementTool:
             "level_count": len(self.current_fib.levels),
             "update_count": self.update_count,
             "last_update_reason": self.last_update_reason,
-            "pivot_state": self.pivot_archive.get_key_levels()["state"],
+            "pivot_direction": self.pivot_archive.get_direction_with_confidence()[0],
             "pivot_confidence": self.pivot_archive.get_direction_with_confidence()[1]
         }
