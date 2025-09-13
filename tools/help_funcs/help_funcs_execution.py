@@ -13,9 +13,12 @@ import glob
 import json
 from pathlib import Path
 import shutil
+import importlib
+from typing import Any, Dict, List
 
 # Nautilus Kern Importe
 from nautilus_trader.backtest.node import BacktestNode
+from nautilus_trader.backtest.config import BacktestDataConfig
 from core.visualizing.dashboard1 import TradingDashboard
 
 def run_backtest(run_config):
@@ -477,3 +480,87 @@ def add_trade_metrics(run_ids, results_dir: Path, summary_csv_path: Path, instru
 
     df_all.to_csv(summary_csv_path, index=False)
     print("[add_trade_metrics] Global trade metrics appended.")
+
+def _resolve_data_cls(value):
+    """
+    Accepts:
+      - already-imported class
+      - "module:Class"
+      - "module.Class"
+    Returns class if importable, else returns original value (string).
+    """
+    try:
+        if isinstance(value, type):
+            return value
+        if not isinstance(value, str):
+            return value
+
+        if ":" in value:
+            mod_path, cls_name = value.split(":", 1)
+            try:
+                mod = importlib.import_module(mod_path)
+                return getattr(mod, cls_name)
+            except Exception:
+                return value
+        if "." in value:
+            mod_path, cls_name = value.rsplit(".", 1)
+            try:
+                mod = importlib.import_module(mod_path)
+                return getattr(mod, cls_name)
+            except Exception:
+                return value
+        return value
+    except Exception:
+        return value
+
+def _is_standard_nautilus_data_cls(value) -> bool:
+    """
+    True for classes in nautilus_trader.model.data (e.g. Bar, TradeTick, QuoteTick, etc.).
+    Accepts either an imported class or a string ("module:Class" or "module.Class").
+    """
+    try:
+        if isinstance(value, type):
+            return getattr(value, "__module__", "").startswith("nautilus_trader.model.data")
+        if isinstance(value, str):
+            return value.startswith("nautilus_trader.model.data")
+        return False
+    except Exception:
+        return False
+
+def build_data_configs(
+    data_sources_normalized: List[Dict[str, Any]],
+    all_instrument_ids: List[str],
+    all_bar_types: List[str],
+    catalog_path: str,
+) -> List[BacktestDataConfig]:
+    """
+    Builds BacktestDataConfig list from normalized 'data_sources'.
+    Falls back to standard Bar config if none provided.
+    Sets client_id = "my client id" for custom (non-nautilus) data classes when missing.
+    """
+    data_configs: List[BacktestDataConfig] = []
+
+    if data_sources_normalized:
+        for ds in data_sources_normalized:
+            data_cls = _resolve_data_cls(ds["data_cls"])
+            kwargs = dict(ds.get("kwargs", {}))
+            if "catalog_path" not in kwargs:
+                kwargs["catalog_path"] = catalog_path
+            kwargs["instrument_ids"] = ds["instrument_ids"]
+            if ds.get("bar_types"):
+                kwargs["bar_types"] = ds["bar_types"]
+            if "client_id" not in kwargs and not _is_standard_nautilus_data_cls(data_cls):
+                kwargs["client_id"] = "my client id"
+            data_configs.append(BacktestDataConfig(data_cls=data_cls, **kwargs))
+        return data_configs
+
+    # Fallback: Standard Bars from instrument definitions
+    data_configs.append(
+        BacktestDataConfig(
+            data_cls="nautilus_trader.model.data:Bar",
+            catalog_path=catalog_path,
+            bar_types=all_bar_types,
+            instrument_ids=all_instrument_ids,
+        )
+    )
+    return data_configs
