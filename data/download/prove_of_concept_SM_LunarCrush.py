@@ -3,9 +3,14 @@ import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
 import os
+from pathlib import Path
 
 load_dotenv()
 API_KEY = os.getenv("LUNARCRUSH_API_KEY")
+
+# Create storage directory
+STORAGE_PATH = Path(r"C:\Users\Ferdi\Desktop\projectx\AlgorithmicTrader\data\DATA_STORAGE\lunar_crush")
+STORAGE_PATH.mkdir(parents=True, exist_ok=True)
 
 def get_current_alpaca():
     url = "https://lunarcrush.com/api4/public/topic/alpaca/v1"
@@ -31,7 +36,11 @@ def get_current_alpaca():
         }
         
         df = pd.DataFrame([current])
-        df.to_csv('alpaca_current.csv', index=False)
+        
+        # Save to specified storage path
+        output_file = STORAGE_PATH / 'alpaca_current.csv'
+        df.to_csv(output_file, index=False)
+        print(f"✓ Saved to: {output_file}")
         return df
     else:
         print(f"Error: {response.status_code}")
