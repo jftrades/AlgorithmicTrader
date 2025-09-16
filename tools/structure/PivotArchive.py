@@ -1,300 +1,224 @@
-# PivotArchive.py - Simple pivot point storage using Nautilus Swings as basis
-# Stores and sorts significant swing highs and lows for trend/range analysis
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
-from enum import Enum
-
+from typing import Optional, List
 from nautilus_trader.model.data import Bar
 from nautilus_trader.indicators.swings import Swings
 
 
-class PivotType(Enum):
-    HIGH = "high"
-    LOW = "low"
-
-
-class StructuralState(Enum):
-    HIGHER_HIGH = "higher_high"
-    LOWER_LOW = "lower_low" 
-    HIGHER_LOW = "higher_low"
-    LOWER_HIGH = "lower_high"
-    INITIAL = "initial"
-
-
 @dataclass
-class Pivot:
+class SwingPoint:
     price: float
     timestamp: int
-    bar_index: int
-    pivot_type: PivotType
-    
-    @property
-    def is_high(self) -> bool:
-        return self.pivot_type == PivotType.HIGH
-    
-    @property
-    def is_low(self) -> bool:
-        return self.pivot_type == PivotType.LOW
-
-
-@dataclass
-class KeySwing:
-    pivot: Pivot
-    structural_state: StructuralState
-    confirmation_bar: int
+    is_high: bool
 
 
 class PivotArchive:
-    def __init__(self, max_pivots: int = 500, swing_strength: int = 3):
-        self.max_pivots = max_pivots
-        self.swing_strength = swing_strength
-        self.tolerance = 0.001  # 0.1% tolerance for equal levels
+    def __init__(self, strength: int = 5):
+        self.swings = Swings(period=strength)
+        self.last_high_value = None
+        self.last_low_value = None
         
-        # Nautilus Swings indicator for pivot detection
-        self.swings = Swings(period=swing_strength)
+        # Critical points (max 3 each) - our main anchoring points
+        self.critical_highs: List[SwingPoint] = []
+        self.critical_lows: List[SwingPoint] = []
         
-        # ALL pivot storage - chronological order (oldest to newest)
-        self.all_pivots: List[Pivot] = []
+        # Store last 300 highs and lows for finding most extreme points
+        self.all_highs: List[SwingPoint] = []
+        self.all_lows: List[SwingPoint] = []
         
-        # KEY swing storage - the basis swings that only update according to your rules
-        self.key_swing_high: Optional[Pivot] = None
-        self.key_swing_low: Optional[Pivot] = None
+        # Track current running extremes
+        self.highest_high = None
+        self.lowest_low = None
         
-        # State tracking
-        self.last_state: str = "INITIAL"  # "HIGHER_HIGH", "LOWER_LOW", "INITIAL"
-        self.price_broke_above_key_high: bool = False
-        self.price_broke_below_key_low: bool = False
+        self.ema_reset = None
         
-        # Tracking for duplicate prevention
-        self.last_swing_high_price: Optional[float] = None
-        self.last_swing_low_price: Optional[float] = None
+        # Trending readjustment tracking
+        self.below_ema_lows: List[SwingPoint] = []  # Lows made below EMA in uptrend
+        self.above_ema_highs: List[SwingPoint] = []  # Highs made above EMA in downtrend
         
-        # Bar counter for indexing
-        self.bar_count: int = 0
-        
-    def update(self, bar: Bar) -> Optional[Pivot]:
-        self.bar_count += 1
-        current_price = float(bar.close)
-        
-        # Update Nautilus Swings
+        self.initialized = False
+        self.nautilus_initialized = False 
+    
+    def set_ema_reset(self, ema_value: float):
+        self.ema_reset = ema_value 
+    
+    def update(self, bar: Bar) -> bool:
+        # Always feed Nautilus for initial swing detection
         self.swings.handle_bar(bar)
         
-        if not self.swings.initialized:
-            return None
-            
-        # Track price breaks for confirmation
-        if self.key_swing_high and current_price > self.key_swing_high.price:
-            self.price_broke_above_key_high = True
-        if self.key_swing_low and current_price < self.key_swing_low.price:
-            self.price_broke_below_key_low = True
-            
-        # Check for new swings and add to ALL pivots
-        new_pivot = self._detect_new_pivot(bar)
-        if new_pivot:
-            self._add_to_all_pivots(new_pivot)
-            self._update_key_swings_based_on_rules(new_pivot, current_price)
-            
-        return new_pivot
+        # Store EVERY high and low from this candle for our own tracking
+        bar_high = float(bar.high)
+        bar_low = float(bar.low)
+        timestamp = int(bar.ts_event)
         
-    def _detect_new_pivot(self, bar: Bar) -> Optional[Pivot]:
-        new_pivot = None
+        # Add to our complete records (keep last 300)
+        high_point = SwingPoint(bar_high, timestamp, True)
+        low_point = SwingPoint(bar_low, timestamp, False)
+        self.all_highs.append(high_point)
+        self.all_lows.append(low_point)
+        if len(self.all_highs) > 300:
+            self.all_highs.pop(0)
+        if len(self.all_lows) > 300:
+            self.all_lows.pop(0)
         
-        # Check for new swing high
+        # Phase 1: Try to get initial critical points from Nautilus swings
+        if not self.nautilus_initialized:
+            if self._initialize_from_nautilus_swings(bar):
+                return True 
+            return False
+        
+        # Phase 2: Extreme tracking with trending readjustment
+        changed = False
+        current_direction, _ = self.get_direction_with_confidence()
+        
+        # Track EMA-based lows/highs for trending readjustment
+        if self.ema_reset is not None:
+            if current_direction == "up" and bar_low < self.ema_reset:
+                # In uptrend: Track lows below EMA
+                self.below_ema_lows.append(low_point)
+            elif current_direction == "down" and bar_high > self.ema_reset:
+                # In downtrend: Track highs above EMA
+                self.above_ema_highs.append(high_point)
+        
+        # Simple rule: If this bar's high is higher than critical high, update it
+        if bar_high > self.critical_highs[-1].price:
+            old_critical_high = self.critical_highs[-1]
+            self._add_critical_high(high_point)
+            self.highest_high = bar_high
+            changed = True
+            
+            # Trending readjustment for uptrend: Find lowest point in timespan
+            if current_direction == "up" and self.below_ema_lows:
+                lowest_in_timespan = self._find_lowest_in_timespan(
+                    old_critical_high.timestamp, timestamp)
+                if lowest_in_timespan:
+                    self._add_critical_low(lowest_in_timespan)
+                    self.below_ema_lows.clear()  # Clear after using
+            
+        # Simple rule: If this bar's low is lower than critical low, update it
+        if bar_low < self.critical_lows[-1].price:
+            old_critical_low = self.critical_lows[-1]
+            self._add_critical_low(low_point)
+            self.lowest_low = bar_low
+            changed = True
+            
+            # Trending readjustment for downtrend: Find highest point in timespan
+            if current_direction == "down" and self.above_ema_highs:
+                highest_in_timespan = self._find_highest_in_timespan(
+                    old_critical_low.timestamp, timestamp)
+                if highest_in_timespan:
+                    self._add_critical_high(highest_in_timespan)
+                    self.above_ema_highs.clear()  # Clear after using
+        
+        # Update running extremes
+        if self.highest_high is None or bar_high > self.highest_high:
+            self.highest_high = bar_high
+        if self.lowest_low is None or bar_low < self.lowest_low:
+            self.lowest_low = bar_low
+        
+        return changed
+    
+    def _initialize_from_nautilus_swings(self, bar: Bar) -> bool:
+        new_swing = self._get_new_swing(bar)
+        if new_swing:
+            if new_swing.is_high and len(self.critical_highs) == 0:
+                self.critical_highs.append(new_swing)
+                self.highest_high = new_swing.price
+                # Check if we have both high and low now
+                if len(self.critical_lows) > 0:
+                    self.nautilus_initialized = True
+                    self.initialized = True
+                return True
+            elif not new_swing.is_high and len(self.critical_lows) == 0:
+                self.critical_lows.append(new_swing)
+                self.lowest_low = new_swing.price
+                # Check if we have both high and low now
+                if len(self.critical_highs) > 0:
+                    self.nautilus_initialized = True
+                    self.initialized = True
+                return True
+        return False
+
+    def _get_new_swing(self, bar: Bar) -> Optional[SwingPoint]:
         if (self.swings.changed and self.swings.direction == 1 and 
-            (not self.last_swing_high_price or 
-             not self._is_equal(self.swings.high_price, self.last_swing_high_price))):
+            self.last_high_value != self.swings.high_price):
+            self.last_high_value = self.swings.high_price
+            return SwingPoint(float(self.swings.high_price), int(bar.ts_event), True)
             
-            new_pivot = Pivot(
-                price=float(self.swings.high_price),
-                timestamp=int(bar.ts_event),
-                bar_index=self.bar_count,
-                pivot_type=PivotType.HIGH
-            )
-            self.last_swing_high_price = self.swings.high_price
-            
-        # Check for new swing low
+        # Check for new swing low  
         elif (self.swings.changed and self.swings.direction == -1 and 
-              (not self.last_swing_low_price or 
-               not self._is_equal(self.swings.low_price, self.last_swing_low_price))):
-            
-            new_pivot = Pivot(
-                price=float(self.swings.low_price),
-                timestamp=int(bar.ts_event),
-                bar_index=self.bar_count,
-                pivot_type=PivotType.LOW
-            )
-            self.last_swing_low_price = self.swings.low_price
-            
-        return new_pivot
-    
-    def _add_to_all_pivots(self, pivot: Pivot) -> None:
-        self.all_pivots.append(pivot)
-        if len(self.all_pivots) > self.max_pivots:
-            self.all_pivots.pop(0)
-    
-    def _is_equal(self, price1: float, price2: float) -> bool:
-        return abs(price1 - price2) / max(price1, price2) < self.tolerance
-    
-    def _update_key_swings_based_on_rules(self, new_pivot: Pivot, current_price: float) -> None:
-        """
-        Update key swings based on your exact rules:
-        1. Take first swing high and low as basis
-        2. After higher high: only create swing low if we break above that last high OR 
-           we made a lower high (but before that, we first had to close below our last lower low)
-        3. After lower low: only create swing high if we break below that last low OR 
-           we made a higher low (but before that, we first had to close above our last higher high)
-        """
+              self.last_low_value != self.swings.low_price):
+            self.last_low_value = self.swings.low_price
+            return SwingPoint(float(self.swings.low_price), int(bar.ts_event), False)
         
-        # Initialize first key swings
-        if not self.key_swing_high and new_pivot.is_high:
-            self.key_swing_high = new_pivot
-            return
-        if not self.key_swing_low and new_pivot.is_low:
-            self.key_swing_low = new_pivot
-            return
-            
-        # If we don't have both key swings yet, return
-        if not self.key_swing_high or not self.key_swing_low:
-            return
-        
-        # Determine current state based on last key swing
-        if self.key_swing_high.bar_index > self.key_swing_low.bar_index:
-            current_state = "AFTER_HIGHER_HIGH"
-        else:
-            current_state = "AFTER_LOWER_LOW"
-        
-        if new_pivot.is_high:
-            self._handle_new_high(new_pivot, current_state)
-        else:
-            self._handle_new_low(new_pivot, current_state)
+        return None
+
+    def _find_lowest_in_timespan(self, start_time: int, end_time: int) -> Optional[SwingPoint]:
+        candidates = [low for low in self.all_lows if start_time <= low.timestamp <= end_time]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda x: x.price)
+
+    def _find_highest_in_timespan(self, start_time: int, end_time: int) -> Optional[SwingPoint]:
+        candidates = [high for high in self.all_highs if start_time <= high.timestamp <= end_time]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda x: x.price)
+
+    def _add_critical_high(self, swing: SwingPoint) -> None: # max 3
+        self.critical_highs.append(swing)
+        if len(self.critical_highs) > 3:
+            self.critical_highs.pop(0)
+
+    def _add_critical_low(self, swing: SwingPoint) -> None:
+        self.critical_lows.append(swing)
+        if len(self.critical_lows) > 3:
+            self.critical_lows.pop(0)
     
-    def _handle_new_high(self, new_high: Pivot, current_state: str) -> None:
-        """Handle a new swing high according to rules"""
-        
-        if current_state == "AFTER_HIGHER_HIGH":
-            # Rule: After higher high, only update swing low if we break above that last high 
-            # OR we made a lower high (but before that, we first had to close below our last lower low)
-            
-            if self.price_broke_above_key_high:
-                # We broke above the key high, so this confirms the trend
-                # Update the key high to this new higher high
-                self.key_swing_high = new_high
-                self.last_state = "HIGHER_HIGH"
-                self.price_broke_above_key_high = False
-                self.price_broke_below_key_low = False
-                
-            elif (self.price_broke_below_key_low and 
-                  new_high.price < self.key_swing_high.price):
-                # Lower high after breaking below key low
-                self.key_swing_high = new_high
-                self.last_state = "LOWER_HIGH"
-                self.price_broke_below_key_low = False
-                
-        elif current_state == "AFTER_LOWER_LOW":
-            # After lower low, any higher high is significant
-            if new_high.price > self.key_swing_high.price:
-                self.key_swing_high = new_high
-                self.last_state = "HIGHER_HIGH"
-                self.price_broke_above_key_high = False
-                self.price_broke_below_key_low = False
+    def get_last_swing_high(self) -> Optional[SwingPoint]:
+        return self.critical_highs[-1] if self.critical_highs else None
     
-    def _handle_new_low(self, new_low: Pivot, current_state: str) -> None:
-        """Handle a new swing low according to rules"""
-        
-        if current_state == "AFTER_LOWER_LOW":
-            # Rule: After lower low, only update swing high if we break below that last low
-            # OR we made a higher low (but before that, we first had to close above our last higher high)
-            
-            if self.price_broke_below_key_low:
-                # We broke below the key low, so this confirms the trend
-                # Update the key low to this new lower low
-                self.key_swing_low = new_low
-                self.last_state = "LOWER_LOW"
-                self.price_broke_below_key_low = False
-                self.price_broke_above_key_high = False
-                
-            elif (self.price_broke_above_key_high and 
-                  new_low.price > self.key_swing_low.price):
-                # Higher low after breaking above key high
-                self.key_swing_low = new_low
-                self.last_state = "HIGHER_LOW"
-                self.price_broke_above_key_high = False
-                
-        elif current_state == "AFTER_HIGHER_HIGH":
-            # After higher high, any lower low is significant
-            if new_low.price < self.key_swing_low.price:
-                self.key_swing_low = new_low
-                self.last_state = "LOWER_LOW"
-                self.price_broke_above_key_high = False
-                self.price_broke_below_key_low = False
+    def get_last_swing_low(self) -> Optional[SwingPoint]:
+        return self.critical_lows[-1] if self.critical_lows else None
     
-    def get_recent_pivots(self, count: int = 10) -> List[Pivot]:
-        return self.all_pivots[-count:] if self.all_pivots else []
-    
-    def get_swing_highs(self, count: int = 10) -> List[Pivot]:
-        highs = [p for p in self.all_pivots if p.is_high]
-        highs.sort(key=lambda x: x.price, reverse=True)
-        return highs[:count]
-    
-    def get_swing_lows(self, count: int = 10) -> List[Pivot]:
-        lows = [p for p in self.all_pivots if p.is_low]
-        lows.sort(key=lambda x: x.price)
-        return lows[:count]
-    
-    def get_chronological_highs(self, count: int = 5) -> List[Pivot]:
-        highs = [p for p in self.all_pivots if p.is_high]
-        return highs[-count:] if highs else []
-    
-    def get_chronological_lows(self, count: int = 5) -> List[Pivot]:
-        lows = [p for p in self.all_pivots if p.is_low]
-        return lows[-count:] if lows else []
-    
-    def get_last_swing_high(self) -> Optional[Pivot]:
-        return self.key_swing_high
-    
-    def get_last_swing_low(self) -> Optional[Pivot]:
-        return self.key_swing_low
-    
-    def analyze_trend_from_pivots(self, lookback_pivots: int = 6) -> Tuple[str, float]:
-        if not self.key_swing_high or not self.key_swing_low:
+    def get_direction_with_confidence(self):
+        if not self.critical_highs or not self.critical_lows:
             return "unknown", 0.0
-            
-        # Use last state for trend analysis
-        if self.last_state == "HIGHER_HIGH":
-            return "uptrend", 1.0
-        elif self.last_state == "LOWER_LOW":
-            return "downtrend", 1.0
-        elif self.last_state in ["HIGHER_LOW", "LOWER_HIGH"]:
-            return "sideways", 0.5
+        
+        last_high = self.critical_highs[-1]
+        last_low = self.critical_lows[-1]
+        
+        if last_high.timestamp > last_low.timestamp:
+            return "up", 1.0
         else:
-            return "unknown", 0.0
+            return "down", 1.0
     
     def get_key_levels(self) -> dict:
-        last_high = self.get_last_swing_high()
-        last_low = self.get_last_swing_low()
-        
-        # Get previous key levels from chronological all_pivots
-        highs = self.get_chronological_highs(2)
-        lows = self.get_chronological_lows(2)
-        
         return {
-            "last_swing_high": last_high.price if last_high else None,
-            "last_swing_low": last_low.price if last_low else None,
-            "previous_swing_high": highs[-2].price if len(highs) >= 2 else None,
-            "previous_swing_low": lows[-2].price if len(lows) >= 2 else None,
-            "total_pivots": len(self.all_pivots),
-            "initialized": self.swings.initialized and self.key_swing_high is not None and self.key_swing_low is not None
+            "last_swing_high": self.critical_highs[-1].price if self.critical_highs else None,
+            "last_swing_low": self.critical_lows[-1].price if self.critical_lows else None,
+            "highest_high": self.highest_high,
+            "lowest_low": self.lowest_low,
+            "initialized": self.initialized,
+            "nautilus_initialized": self.nautilus_initialized,
+            "critical_highs_count": len(self.critical_highs),
+            "critical_lows_count": len(self.critical_lows),
+            "total_highs_tracked": len(self.all_highs),
+            "total_lows_tracked": len(self.all_lows)
         }
     
     def reset(self) -> None:
-        self.swings = Swings(period=self.swing_strength)
-        self.all_pivots.clear()
-        self.key_swing_high = None
-        self.key_swing_low = None
-        self.last_state = "INITIAL"
-        self.price_broke_above_key_high = False
-        self.price_broke_below_key_low = False
-        self.last_swing_high_price = None
-        self.last_swing_low_price = None
-        self.bar_count = 0
+        self.swings = Swings(period=5)  # Reset Nautilus for new initialization
+        self.last_high_value = None
+        self.last_low_value = None
+        self.critical_highs.clear()
+        self.critical_lows.clear()
+        self.all_highs.clear()
+        self.all_lows.clear()
+        self.below_ema_lows.clear()
+        self.above_ema_highs.clear()
+        self.ema_reset = None
+        self.highest_high = None
+        self.lowest_low = None
+        self.initialized = False
+        self.nautilus_initialized = False

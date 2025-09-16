@@ -1,14 +1,13 @@
 # strategy for simple trend following Fibonacci retracement strategy
 from decimal import Decimal
 from typing import Any, Dict, List
-import pandas as pd
 from datetime import datetime, timezone, time
 
 
 # Nautilus Core Imports
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
-from nautilus_trader.model.data import Bar, BarType
+from nautilus_trader.model.data import Bar
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.common.enums import LogColor
 
@@ -20,7 +19,6 @@ from tools.order_management.risk_manager import RiskManager
 # Add strategy-specific imports here
 from tools.structure.PivotArchive import PivotArchive
 from tools.structure.fib_retracement import FibRetracementTool
-from nautilus_trader.indicators.atr import AverageTrueRange
 from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
 
 # -------------------------------------------------
@@ -92,11 +90,12 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             current_instrument["fib_entry_tolerance"] = self.config.fib_entry_tolerance
             current_instrument["fib_sl_buffer"] = self.config.fib_sl_buffer
             
-            # Initialize EMA indicator
+            # Initialize EMA indicators
             current_instrument["ema"] = ExponentialMovingAverage(self.config.ema_lookback)
+            current_instrument["ema_reset"] = ExponentialMovingAverage(30)  # For trending readjustment
             
             # Initialize Pivot Archive and Fibonacci Tool
-            current_instrument["pivot_archive"] = PivotArchive(max_pivots=500, swing_strength=3)
+            current_instrument["pivot_archive"] = PivotArchive(strength=2)
             current_instrument["fib_tool"] = FibRetracementTool(current_instrument["pivot_archive"])
             
             # EMA crossover tracking
@@ -120,6 +119,7 @@ class FibTrendStrategy(BaseStrategy, Strategy):
                 self.log.info(f"Subscribing to bars: {str(bar_type)}", color=LogColor.GREEN)
                 self.subscribe_bars(bar_type)
                 self.register_indicator_for_bars(bar_type, ctx["ema"])
+                self.register_indicator_for_bars(bar_type, ctx["ema_reset"])
         
         self.log.info(f"Strategy started. Instruments: {', '.join(str(i) for i in self.instrument_ids())}")
         
@@ -143,9 +143,14 @@ class FibTrendStrategy(BaseStrategy, Strategy):
 
         current_instrument["bar_counter"] += 1
 
+        # Provide EMA Reset to PivotArchive for trending readjustment
+        if current_instrument["ema_reset"].initialized:
+            current_instrument["pivot_archive"].set_ema_reset(current_instrument["ema_reset"].value)
+
         # Update Pivot Archive and Fibonacci Tool
-        current_instrument["pivot_archive"].update(bar)
-        current_instrument["fib_tool"].update(bar)
+        pivot_changed = current_instrument["pivot_archive"].update(bar)
+        fib_changed = current_instrument["fib_tool"].update(bar)
+
         
         # Check for pending orders to avoid endless order loops
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
@@ -209,7 +214,7 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             return
             
         # Check if we have a valid retracement setup
-        fib_retracement = current_instrument["fib_tool"].current_retracement
+        fib_retracement = current_instrument["fib_tool"].get_current_fibonacci()
         if not fib_retracement:
             if current_instrument["bar_counter"] % 100 == 0:
                 current_instrument["pivot_archive"].get_key_levels()
@@ -221,9 +226,9 @@ class FibTrendStrategy(BaseStrategy, Strategy):
         tp_level = current_instrument["fib_only_tp_level"]      # From YAML: -0.62
         
         # Get the actual prices for these levels
-        fib_entry_price = current_instrument["fib_tool"].current_retracement.get_level_price(entry_level) if current_instrument["fib_tool"].current_retracement else None
-        fib_sl_price = current_instrument["fib_tool"].current_retracement.get_level_price(sl_level) if current_instrument["fib_tool"].current_retracement else None
-        fib_tp_price = current_instrument["fib_tool"].current_retracement.get_level_price(tp_level) if current_instrument["fib_tool"].current_retracement else None
+        fib_entry_price = fib_retracement.get_level_price(entry_level) if fib_retracement else None
+        fib_sl_price = fib_retracement.get_level_price(sl_level) if fib_retracement else None
+        fib_tp_price = fib_retracement.get_level_price(tp_level) if fib_retracement else None
         
         if not all([fib_entry_price, fib_sl_price, fib_tp_price]):
             return
