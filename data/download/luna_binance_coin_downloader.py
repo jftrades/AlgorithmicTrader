@@ -1,157 +1,155 @@
-"""
-Integrated Binance Futures Discovery + LunarCrush Data Download
-Automatically discovers new Binance perpetual futures and downloads social data from LunarCrush
-"""
-import requests
-import pandas as pd
-import csv
-from datetime import datetime, timezone, timedelta
+# Step 1: Read the data from the C:\Users\Ferdi\Desktop\projectx\AlgorithmicTrader\data\DATA_STORAGE\project_future_scraper perpet futures 
+# Step 2: use the ts and coin data and fill them up to then also download the lunar crush data for the coins
+# Step 3 : Save the lunar crush data in the DATA_STORAGE/lunar_crush folder
+
+from data.download.download_logic_crypto import find_csv_file
 from pathlib import Path
-from lunar_crush_downloader_v2 import LunarCrushDownloader
+from datetime import datetime, timedelta
+import csv
+import pandas as pd
+import requests
+from dotenv import load_dotenv
+import os
+import time
+
+load_dotenv()
+
+FILTER_START_DATE = "2024-09-20"  
+FILTER_END_DATE = "2024-09-30" 
 
 
-def discover_binance_futures(months_back: int = 12) -> list:
-    """
-    Discover newly listed Binance Perpetual Futures.
-    
-    Args:
-        months_back: How many months back to look for new listings
+class LunaDataCoinDownloader:
+    def __init__(self, symbol, listing_date, base_data_dir, interval):
+        self.symbol = symbol
+        self.start_date = listing_date
+        self.end_date = listing_date + timedelta(days=14)
+        self.base_data_dir = Path(base_data_dir)
+        self.interval = interval
+        self.api_key = os.getenv("LUNARCRUSH_API_KEY")
         
-    Returns:
-        List of dicts with 'symbol' and 'onboardDate' keys
-    """
-    print("Discovering Binance Perpetual Futures...")
-    
-    url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
-    resp = requests.get(url)
-    resp.raise_for_status()
-    data = resp.json()
-    
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(days=months_back*30)
-    new_futures = []
-    
-    for symbol_info in data["symbols"]:
-        if symbol_info["contractType"] == "PERPETUAL":
-            listing_date = datetime.fromtimestamp(symbol_info["onboardDate"]/1000, tz=timezone.utc)
-            if listing_date > cutoff:
-                new_futures.append({
-                    "symbol": symbol_info["symbol"],
-                    "onboardDate": listing_date.strftime("%Y-%m-%d %H:%M:%S")
-                })
-    
-    # Filter to USDT pairs only
-    new_futures = [f for f in new_futures if f["symbol"].endswith("USDT")]
-    
-    print(f"Found {len(new_futures)} new USDT perpetual futures in the last {months_back} months")
-    
-    # Show last 10 for reference
-    print("Last 10 discovered futures:")
-    for fut in new_futures[-10:]:
-        print(f"  {fut['symbol']} - Listed: {fut['onboardDate']}")
-    
-    return new_futures
+        self.storage_path = self.base_data_dir / "data_catalog_wrangled" / "data" / "SM_metrics"
+        self.storage_path.mkdir(parents=True, exist_ok=True)
 
-
-def save_futures_data(futures_data: list, output_path: str) -> None:
-    """Save futures data to CSV."""
-    output_file = Path(output_path)
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    
-    with open(output_file, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["symbol", "onboardDate"])
-        writer.writeheader()
-        writer.writerows(futures_data)
-    
-    print(f"Saved {len(futures_data)} futures to {output_path}")
-
-
-def main():
-    """
-    Main execution:
-    1. Discover Binance futures
-    2. Download LunarCrush social data
-    3. Save results
-    """
-    print("=== Binance Futures + LunarCrush Integration ===")
-    
-    # Configuration
-    API_KEY = "your_lunarcrush_api_key_here"  # Replace with your actual API key
-    MONTHS_BACK = 12  # Look back 12 months for new listings
-    
-    # Setup paths
-    base_dir = Path(__file__).parent.parent / "DATA_STORAGE"
-    futures_dir = base_dir / "project_future_scraper"
-    lunarcrush_dir = base_dir / "lunarcrush_data"
-    
-    # Create directories
-    futures_dir.mkdir(parents=True, exist_ok=True)
-    lunarcrush_dir.mkdir(parents=True, exist_ok=True)
-    
-    futures_csv_path = futures_dir / "new_binance_perpetual_futures.csv"
-    
-    # Step 1: Discover Binance Futures
-    try:
-        futures_data = discover_binance_futures(months_back=MONTHS_BACK)
         
-        if not futures_data:
-            print("No new futures found.")
+    def run(self):
+        if not self.api_key:
+            return
+        if self.end_date <= self.start_date:
             return
         
-        # Save futures data
-        save_futures_data(futures_data, str(futures_csv_path))
-        
-    except Exception as e:
-        print(f"Error discovering futures: {e}")
-        return
-    
-    # Step 2: Download LunarCrush Data
-    if API_KEY == "your_lunarcrush_api_key_here":
-        print("\nWARNING: Please set your actual LunarCrush API key!")
-        print("Skipping LunarCrush download.")
-        return
-    
-    try:
-        print(f"\n=== Starting LunarCrush Download ===")
-        
-        # Initialize downloader
-        downloader = LunarCrushDownloader(API_KEY)
-        
-        # Download data (14 days of hourly data from each listing date)
-        df = downloader.download_binance_futures_data(futures_data, days_from_listing=14)
-        
-        if not df.empty:
-            # Save LunarCrush data
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_path = lunarcrush_dir / f"lunarcrush_binance_futures_{timestamp}.csv"
-            downloader.save_data(df, str(output_path))
-            
-            # Additional analysis
-            print(f"\n=== Analysis ===")
-            print(f"Symbols with data: {df['symbol'].nunique()}")
-            print(f"Total hourly data points: {len(df)}")
-            print(f"Average hours of data per symbol: {len(df) / df['symbol'].nunique():.1f}")
-            
-            # Show metrics summary
-            numeric_cols = ['galaxy_score', 'engagements', 'mentions', 'creators', 'market_dominance', 'trading_volume']
-            print(f"\n=== Metrics Summary ===")
-            for col in numeric_cols:
-                if col in df.columns:
-                    mean_val = df[col].mean()
-                    max_val = df[col].max()
-                    print(f"{col}: avg={mean_val:.2f}, max={max_val:.2f}")
+        print(f"[INFO] {self.symbol}: Downloading LunarCrush data from {self.start_date} to {self.end_date}...")
+
+        coin_symbol = self.symbol[:-4].lower() if self.symbol.endswith('USDT') else self.symbol.lower()
+
+        df = self.download_lunarcrush_data(coin_symbol)
+        if df is not None and not df.empty:
+            self.save_data_files(df, coin_symbol)
+            print(f"[INFO] {self.symbol}: Successfully saved {len(df)} data points")
         else:
-            print("No LunarCrush data downloaded.")
+            print(f"[SKIP] {self.symbol}: No data available on LunarCrush")
     
-    except Exception as e:
-        print(f"Error downloading LunarCrush data: {e}")
-        return
-    
-    print(f"\n=== Completed Successfully ===")
-    print(f"Futures data: {futures_csv_path}")
-    if not df.empty:
-        print(f"LunarCrush data: {output_path}")
+    def download_lunarcrush_data(self, coin_symbol):
+        start_timestamp = int(self.start_date.timestamp())
+        end_timestamp = int(self.end_date.timestamp())
+        
+        url = f"https://lunarcrush.com/api4/public/coins/{coin_symbol}/time-series/v2"
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        params = {
+            "bucket": "hour",
+            "start": start_timestamp,
+            "end": end_timestamp
+        }
+        
+        try:
+            response = requests.get(url, headers=headers, params=params)
+            
+            if response.status_code == 200:
+                data = response.json()
+                records = []
+                
+                for point in data.get('data', []):
+                    records.append({
+                        'timestamp': point.get('time'),
+                        'datetime': datetime.fromtimestamp(point.get('time', 0)).strftime('%Y-%m-%d %H:%M:%S'),
+                        'contributors_active': point.get('contributors_active', 0),
+                        'contributors_created': point.get('contributors_created', 0),
+                        'interactions': point.get('interactions', 0),
+                        'posts_active': point.get('posts_active', 0),
+                        'posts_created': point.get('posts_created', 0),
+                        'sentiment': point.get('sentiment', 0),
+                    })
+                
+                return pd.DataFrame(records) if records else None
+            else:
+                print(f"[ERROR] {self.symbol}: API returned {response.status_code}")
+                return None
+                
+        except Exception as e:
+            print(f"[ERROR] {self.symbol}: Download failed - {e}")
+            return None
+        
+    def save_data_files(self, df, coin_symbol):
+        start_str = self.start_date.strftime("%Y-%m-%d")
+        end_str = self.end_date.strftime("%Y-%m-%d")
+        
+        filename_base = f"{coin_symbol}_{start_str}_to_{end_str}"
+        
+        csv_file = self.storage_path / f"{filename_base}.csv"
+        df.to_csv(csv_file, index=False)
+        
+        parquet_file = self.storage_path / f"{filename_base}.parquet"
+        df.to_parquet(parquet_file, index=False)
+        csv_file.unlink()
 
+        
+        print(f"[INFO] {self.symbol}: Saved to {csv_file} and {parquet_file}")
 
+            
 if __name__ == "__main__":
-    main()
+    base_data_dir = str(Path(__file__).resolve().parents[1] / "DATA_STORAGE")
+    csv_path = Path(__file__).parent.parent / "DATA_STORAGE" / "project_future_scraper" / "new_binance_perpetual_futures.csv"
+    
+    RATE_LIMIT_DELAY = 5
+    with open(csv_path, "r") as f:
+        reader = csv.DictReader(f)
+        futures_list = list(reader)
+
+    # Filter by date range if configured
+    if FILTER_START_DATE or FILTER_END_DATE:
+        filtered_list = []
+        for row in futures_list:
+            listing_date = datetime.strptime(row["onboardDate"], "%Y-%m-%d %H:%M:%S")
+            
+            # Check if within date range
+            if FILTER_START_DATE:
+                filter_start = datetime.strptime(FILTER_START_DATE, "%Y-%m-%d")
+                if listing_date < filter_start:
+                    continue
+                    
+            if FILTER_END_DATE:
+                filter_end = datetime.strptime(FILTER_END_DATE, "%Y-%m-%d")
+                if listing_date > filter_end:
+                    continue
+                    
+            filtered_list.append(row)
+        
+        futures_list = filtered_list
+    
+    for i, row in enumerate(futures_list, 1):
+        symbol = row["symbol"]
+        listing_date = datetime.strptime(row["onboardDate"], "%Y-%m-%d %H:%M:%S")
+        
+        print(f"\n[{i}/{len(futures_list)}] Processing {symbol}...")
+        
+        downloader = LunaDataCoinDownloader(
+            symbol=symbol,
+            listing_date=listing_date,
+            base_data_dir=base_data_dir,
+            interval="1h"  # LunarCrush uses hourly data
+        )
+        downloader.run()
+        
+        if i < len(futures_list):
+                print(f"⏱️  Waiting {RATE_LIMIT_DELAY}s for rate limit...")
+                time.sleep(RATE_LIMIT_DELAY)
+            
