@@ -29,6 +29,7 @@ from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 
 from data.download.custom_data_nautilius.metrics_data import MetricsData
 from data.download.custom_data_nautilius.aggTrades_data import AggTradeData
+from data.download.custom_data_nautilius.lunar_data import LunarData
 from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model import DataType
 
@@ -84,6 +85,9 @@ class TestCustomData(BaseStrategy, Strategy):
                     data_type=DataType(MetricsData),
                     #client_id=ClientId("MY_ADAPTER"),
                 )  
+                self.subscribe_data(
+                    data_type=DataType(LunarData),
+                )
 
 
         self.log.info(f"Strategy started. Instruments: {', '.join(str(i) for i in self.instrument_ids())}")
@@ -187,6 +191,14 @@ class TestCustomData(BaseStrategy, Strategy):
                 f"clr={data.count_long_short_ratio}, "
                 f"tvr={data.sum_taker_long_short_vol_ratio}"
             )
+
+        if isinstance(data, LunarData):
+            sentiment = data.sentiment
+            galaxy = data.galaxy_score
+            close_price = data.close
+            volume_24h = data.volume_24h
+
+            self.log.info(f"LunarData - Sentiment: {sentiment}, Galaxy Score: {galaxy}, Close Price: {close_price}, 24h Volume: {volume_24h}")
        #if isinstance(data, AggTradeData):
           #  self.log.info(f"Received AggTradeData: {data}", color=LogColor.CYAN)
     

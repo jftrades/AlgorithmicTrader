@@ -55,6 +55,6 @@ if __name__ == "__main__":
 
     # Hier deine Pfade anpassen
     catalog_path = str(base_dir / "data_catalog_wrangled")
-    csv_path = str(base_dir / "processed_lunarcrush_2025-08-18_to_2025-08-30" / "csv"/ "BTC_LUNARCRUSH_2025-08-18_to_2025-08-30.csv")
+    csv_path = str(base_dir / "processed_lunarcrush_2024-10-01_to_2024-10-31" / "csv"/ "BTC_LUNARCRUSH_2024-10-01_to_2024-10-31.csv")
 
     load_lunar_csv_to_catalog(csv_path, catalog_path, "BTCUSDT-PERP")

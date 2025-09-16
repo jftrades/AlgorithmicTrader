@@ -121,9 +121,9 @@ class LunarCrushDownloader:
 
 
 if __name__ == "__main__":
-    symbol = "BTC"  # Beispiel
-    start_date = "2025-08-18"
-    end_date = "2025-08-30"
+    symbol = "SOL"  # Beispiel
+    start_date = "2025-09-01"
+    end_date = "2025-09-02"
 
     base_data_dir = str(Path(__file__).resolve().parents[2] / "DATA_STORAGE")
 
