@@ -2,18 +2,18 @@
 Zentrale Steuerung für crypto-Daten-Download und -Transformation via Binance
 Kompatibel zu NautilusTrader 1.219
 """
-from data.download.download_logic_crypto import TickDownloader, BarDownloader, TickTransformer, BarTransformer, find_csv_file
+from download_logic_crypto import TickDownloader, BarDownloader, TickTransformer, BarTransformer, find_csv_file
 from pathlib import Path
 from datetime import datetime
 import shutil
 
 # Parameter hier anpassen
-symbol = "BTCUSDT-PERP"
-start_date = "2023-01-01"
+symbol = "SOLUSDT-PERP"
+start_date = "2025-01-01"
 end_date = "2025-08-15"
-base_data_dir = str(Path(__file__).resolve().parents[1] / "DATA_STORAGE")
+base_data_dir = str(Path(__file__).resolve().parents[3] / "DATA_STORAGE")
 datatype = "bar"  # oder "tick"
-interval = "5m"    # nur für Bars relevant
+interval = "1h"    # nur für Bars relevant
 price_precision = 1
 size_precision = 1
 
