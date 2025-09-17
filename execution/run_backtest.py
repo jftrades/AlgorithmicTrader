@@ -3,9 +3,9 @@ import pandas as pd
 import uuid
 from pathlib import Path
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
-from nautilus_trader.backtest.config import (BacktestDataConfig,BacktestVenueConfig,BacktestEngineConfig,BacktestRunConfig,)
+from nautilus_trader.backtest.config import BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig, BacktestRunConfig
 from nautilus_trader.trading.config import ImportableStrategyConfig
-from tools.help_funcs.help_funcs_execution import (_clear_directory,run_backtest,extract_metrics)
+from tools.help_funcs.help_funcs_execution import (_clear_directory, run_backtest, extract_metrics, load_qs, add_trade_metrics, build_data_configs)
 from tools.help_funcs.yaml_loader import load_and_split_params
 import shutil
 import yaml
@@ -16,38 +16,35 @@ import webbrowser
 from core.visualizing.dashboard.main import launch_dashbaord
 
 #STRAT PARAMETER
-yaml_name = "RSI_tick_simple.yaml"
+
+yaml_name = "test_custom_data.yaml"
 
 # ------------------------------------------------------------
 # YAML laden & vorbereiten
 # ------------------------------------------------------------
 yaml_path = str(Path(__file__).resolve().parents[1] / "config" / yaml_name)
-params, param_grid, keys, values, static_params, all_instrument_ids, all_bar_types = load_and_split_params(yaml_path)
+params, param_grid, keys, values, static_params, all_instrument_ids, all_bar_types, data_sources_normalized = load_and_split_params(yaml_path)
 
 strategy_path = params["strategy_path"]
 config_path = params["config_path"]
 start_date = params["start_date"]
 end_date = params["end_date"]
 venue = params["venue"]
-visualize = params.get("visualise", True)
+visualize = params.get("visualize", True)
+load_qs_flag = params.get("load_qs", False)  # renamed to avoid clash with function
+bench_qs = params.get("qs_bench")  # accept both YAML key variants
 
 # ------------------------------------------------------------
 # Daten-/Venue-Konfiguration
 # ------------------------------------------------------------
 catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 
-# For tick strategies that also need bar data (like RSI), we need both tick and bar data
-tick_data_config = BacktestDataConfig(
-    data_cls="nautilus_trader.model.data:TradeTick", 
+# Datenquellen aus YAML bauen (fallback auf Standard-Bar wenn nicht angegeben)
+data_configs = build_data_configs(
+    data_sources_normalized=data_sources_normalized,
+    all_instrument_ids=all_instrument_ids,
+    all_bar_types=all_bar_types,
     catalog_path=catalog_path,
-    instrument_ids=all_instrument_ids,
-)
-
-bar_data_config = BacktestDataConfig(
-    data_cls="nautilus_trader.model.data:Bar", 
-    catalog_path=catalog_path,
-    bar_types=all_bar_types,
-    instrument_ids=all_instrument_ids,
 )
 
 venue_config = BacktestVenueConfig(
@@ -94,7 +91,7 @@ for i, combination in enumerate(itertools.product(*values)):
     )
     engine_config = BacktestEngineConfig(strategies=[strategy_config])
     run_config = BacktestRunConfig(
-        data=[tick_data_config, bar_data_config],  # Both tick and bar data
+        data=data_configs,
         venues=[venue_config],
         engine=engine_config,
         start=start_date,
@@ -135,8 +132,13 @@ for result, run_id, run_params, run_dir in zip(results, run_ids, run_params_list
 # Gesamtübersicht speichern
 # ------------------------------------------------------------
 df_all = pd.DataFrame(all_metrics)
-df_all.to_csv(results_dir / "all_backtest_results.csv", index=False)
+file_path = results_dir / "all_backtest_results.csv"
+df_all.to_csv(file_path, index=False)
+add_trade_metrics(run_ids, results_dir, file_path, all_instrument_ids)
 print("Finished Backtest runs. Results saved to:", results_dir)
+
+if load_qs_flag:
+    load_qs(run_dirs, run_ids, benchmark_symbol=bench_qs, open_browser=True)
 
 if visualize:
     dash = launch_dashbaord()

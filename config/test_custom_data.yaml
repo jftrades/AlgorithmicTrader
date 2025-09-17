@@ -1,51 +1,41 @@
 # ===========================
 # Globale Parameter
 # ===========================
-
-strategy_path: "strategies.beta_strat:RSISimpleStrategy" #pathToClass
-config_path: "strategies.beta_strat:RSISimpleStrategyConfig" #pathToConfigClass
+strategy_path: "strategies.test_custom_data:TestCustomData"
+config_path: "strategies.test_custom_data:TestCustomDataConfig"
 
 visualize: true
-
+load_qs: false
+qs_bench: "BTC-USD"
 venue: "BINANCE"
 
 # Instrumente
 instruments:
-  #first instrument -> bar types and instrument_id HAS TO be set... all other params (btc_param_XY, test.. etc) can be freely defined and used in the strategy
   - instrument_id: "BTCUSDT-PERP.BINANCE"
     bar_types: 
       - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
       - "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
-    btc_param_XY: "100"
+    trade_size_usdt: "100"
     test: 1
 
-  #first instrument
-  - instrument_id: "ETHUSDT-PERP.BINANCE"
-    bar_types: 
-      - "ETHUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
-    eth_param_XY: "100"
-    eth_param_ZZ: "200"
-
-  # Datenquellen (Standard + Custom)
+# Datenquellen (Standard + Custom)
 data_sources:
   # Standard Bar-Daten: nutzt automatisch alle bar_types aus den Instrumenten
   - data_cls: "nautilus_trader.model.data:Bar"
     instrument_ids: all
     bar_types: from_instruments
 
-  - data_cls: "nautilus_trader.model.data:TradeTick"
-    instrument_ids: all
-
-  # Custom MetricsData für alle Instrumente
+  # Custom MetricsData für alle Instrumente (client_id wird automatisch gesetzt)
   - data_cls: "data.download.custom_data_nautilius.metrics_data:MetricsData"
     instrument_ids: all
-    client_id: "my client id"
 
- # Custom AggTradeData nur für BTCUSDT-PERP.BINANCE
+  - data_cls: "data.download.custom_data_nautilius.lunar_data:LunarData"
+    instrument_ids: all
+
+  # Custom AggTradeData nur für BTCUSDT-PERP.BINANCE (client_id wird automatisch gesetzt)
   - data_cls: "data.download.custom_data_nautilius.aggTrades_data:AggTradeData"
     instrument_ids:
       - "BTCUSDT-PERP.BINANCE"
-    client_id: "my client id"
 
 # Backtest-Zeitraum
 start_date: "2024-10-01T00:00:00Z"
@@ -57,7 +47,7 @@ base_currency: "USDT"
 account_type: "MARGIN"
 oms_type: "NETTING"
 
-# Risiko-Parameter (global) #should always be set (if the risk_manager is used)
+# Risiko-Parameter (global)
 trade_size_usdt: 1000
 risk_percent: 0.01
 max_leverage: 2
@@ -68,7 +58,7 @@ close_positions_on_stop: [true]
 # Strategie-spezifische Parameter
 # ===========================
 
-# Strategie XY
-param_aus_yaml1: [0.5]
-param_aus_yaml2: [1, 2] #multiple entries for grid search (parameter testing)
-#many more param can be defined here
+# RSI-Strategie
+rsi_period: [10]
+rsi_overbought: [0.75]
+rsi_oversold: [0.25, 0.3]

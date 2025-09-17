@@ -196,7 +196,6 @@ def _normalize_instruments(params: Dict[str, Any]) -> List[Dict[str, Any]]:
         # --- trade_size_usdt mit Fallback auf globalen Wert (falls vorhanden) ---
         trade_size = item.get("trade_size_usdt", global_size)
 
-        # --- Alle benutzerdefinierten Felder übernehmen ---
         out: Dict[str, Any] = dict(item)              # flache Kopie
         out["instrument_id"] = instr_id
         out["bar_types"] = bar_types_dedup
@@ -209,6 +208,65 @@ def _normalize_instruments(params: Dict[str, Any]) -> List[Dict[str, Any]]:
     return normalized
 
 
+def _normalize_data_sources(params: Dict[str, Any], instruments_normalized: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Normalisiert optionale 'data_sources'-Sektion aus der YAML.
+    Rückgabe: Liste von Dicts mit Keys: data_cls, instrument_ids, bar_types (oder None), kwargs.
+    """
+    ds = params.get("data_sources")
+    if not ds:
+        return []
+    if isinstance(ds, dict):
+        ds = [ds]
+    if not isinstance(ds, list):
+        raise TypeError("'data_sources' muss eine Liste oder ein Mapping sein.")
+
+    # Sammle alle IDs und bar_types aus Instrumenten
+    all_ids, seen = [], set()
+    for instr in instruments_normalized:
+        iid = instr.get("instrument_id")
+        if isinstance(iid, str) and iid not in seen:
+            seen.add(iid); all_ids.append(iid)
+    all_bt, seen = [], set()
+    for instr in instruments_normalized:
+        for bt in instr.get("bar_types", []) or []:
+            if isinstance(bt, str) and bt not in seen:
+                seen.add(bt); all_bt.append(bt)
+
+    out: List[Dict[str, Any]] = []
+    for i, entry in enumerate(ds):
+        if not isinstance(entry, dict):
+            raise TypeError(f"data_sources[{i}] muss ein Mapping sein.")
+        data_cls = entry.get("data_cls")
+        if not data_cls or not isinstance(data_cls, str):
+            raise ValueError(f"data_sources[{i}]: 'data_cls' fehlt oder ist ungültig.")
+
+        # instrument_ids
+        sel = entry.get("instrument_ids", "all")
+        if sel in ("all", None, True):
+            instr_ids = list(all_ids)
+        elif isinstance(sel, list):
+            instr_ids = [x for x in sel if isinstance(x, str)]
+            if not instr_ids:
+                raise ValueError(f"data_sources[{i}].instrument_ids ist leer.")
+        else:
+            raise TypeError(f"data_sources[{i}].instrument_ids muss 'all' oder Liste sein.")
+
+        # bar_types
+        bts = entry.get("bar_types", None)
+        if bts in ("from_instruments", "auto", True, None):
+            bts = list(all_bt) if "Bar" in data_cls else None
+        elif not isinstance(bts, list):
+            raise TypeError(f"data_sources[{i}].bar_types muss Liste oder 'from_instruments'/'auto' sein.")
+
+        # passthrough kwargs
+        exclude = {"data_cls", "instrument_ids", "bar_types"}
+        kwargs = {k: v for k, v in entry.items() if k not in exclude}
+
+        out.append({"data_cls": data_cls, "instrument_ids": instr_ids, "bar_types": bts, "kwargs": kwargs})
+    return out
+
+
 def load_and_split_params(yaml_path: str) -> Tuple[
     Dict[str, Any],                # params (inkl. normalisiertem 'instruments')
     Dict[str, List[Any]],          # param_grid
@@ -217,6 +275,7 @@ def load_and_split_params(yaml_path: str) -> Tuple[
     Dict[str, Any],                # static_params
     List[str],                     # all_instrument_ids
     List[str],                     # all_bar_types
+    List[Dict[str, Any]],          # data_sources_normalized
 ]:
     """
     Lädt YAML, expandiert instruments_from_path, normalisiert instruments
@@ -231,26 +290,25 @@ def load_and_split_params(yaml_path: str) -> Tuple[
     instruments_normalized = _normalize_instruments(params)
     params["instruments"] = instruments_normalized
 
-    # param_grid bestimmen (nur Keys mit Liste Länge >1, exkl. instruments)
+    # param_grid bestimmen (nur Keys mit Liste Länge >1, exkl. instruments und data_sources)
     param_grid: Dict[str, List[Any]] = {}
     for k, v in params.items():
-        if k == "instruments":
+        if k in ("instruments", "data_sources"):
             continue
         if isinstance(v, list) and len(v) > 1:
             param_grid[k] = v
 
-    # static_params (inkl. Reduktion von Single-Listen)
-    static_params: Dict[str, Any] = {}
+    # static_params: immer instruments einschließen, dann restliche Keys (exkl. data_sources)
+    static_params: Dict[str, Any] = {
+        "instruments": instruments_normalized
+    }
     for k, v in params.items():
-        if k in param_grid:
+        if k in param_grid or k in ("instruments", "data_sources"):
             continue
-        if k == "instruments":
-            static_params[k] = instruments_normalized
+        if isinstance(v, list) and len(v) == 1:
+            static_params[k] = v[0]
         else:
-            if isinstance(v, list) and len(v) == 1:
-                static_params[k] = v[0]
-            else:
-                static_params[k] = v
+            static_params[k] = v
 
     # keys / values für Grid
     if param_grid:
@@ -273,6 +331,9 @@ def load_and_split_params(yaml_path: str) -> Tuple[
                 seen_bt.add(bt)
                 all_bar_types.append(bt)
 
+    # data_sources normalisieren
+    data_sources_normalized = _normalize_data_sources(params, instruments_normalized)
+
     return (
         params,
         param_grid,
@@ -281,4 +342,5 @@ def load_and_split_params(yaml_path: str) -> Tuple[
         static_params,
         all_instrument_ids,
         all_bar_types,
+        data_sources_normalized,
     )
