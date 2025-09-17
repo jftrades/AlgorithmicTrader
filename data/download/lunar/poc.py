@@ -15,7 +15,7 @@ STORAGE_PATH = Path(__file__).resolve().parents[2] / "DATA_STORAGE"
 STORAGE_PATH.mkdir(parents=True, exist_ok=True)
 
 def get_cream_custom_range():
-    symbol = "ALPACA"
+    symbol = "CREAM"
     start_timestamp = int(datetime.strptime(START_DATE, '%Y-%m-%d').timestamp())
     end_timestamp = int(datetime.strptime(END_DATE, '%Y-%m-%d').timestamp())
     # Using coins time-series endpoint (full Individual plan access)

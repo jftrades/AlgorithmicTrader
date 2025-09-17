@@ -47,7 +47,7 @@ def load_lunar_csv_to_catalog(csv_path: str, catalog_path: str, instrument_str: 
 
     catalog = ParquetDataCatalog(catalog_path)
     catalog.write_data(records)
-    print(f"✅ {len(records)} LunarData Einträge in {catalog_path} gespeichert.")
+    print(f"{len(records)} LunarData Einträge in {catalog_path} gespeichert.")
 
 
 if __name__ == "__main__":

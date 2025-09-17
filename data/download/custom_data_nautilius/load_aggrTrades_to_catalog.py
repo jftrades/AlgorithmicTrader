@@ -41,8 +41,8 @@ def load_agg_csv_to_catalog(csv_path: str, catalog_path: str, instrument_str: st
     catalog = ParquetDataCatalog(catalog_path)
     catalog.write_data(records)
 
-    print(f"✅ {len(records)} AggTradeData Einträge in {catalog_path} gespeichert.")
-    print("🔎 Beispiel:", records[0])
+    print(f"{len(records)} AggTradeData Einträge in {catalog_path} gespeichert.")
+    print("Beispiel:", records[0])
 
 if __name__ == "__main__":
     base_dir = Path(__file__).resolve().parents[2] / "DATA_STORAGE"
