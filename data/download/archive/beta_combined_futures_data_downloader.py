@@ -3,7 +3,7 @@ Zentrale Steuerung für Futures-Daten-Download und -Transformation via Binance
 Für neu gelistete Perpetual Futures (Listing-Datum bis 1 Monat danach)
 Kompatibel zu NautilusTrader 1.219
 """
-from data.download.download_logic_crypto import BarTransformer, BarDownloader, find_csv_file
+from AlgorithmicTrader.data.download.crypto_downloads.downloads.download_logic_crypto import BarTransformer, BarDownloader, find_csv_file
 from pathlib import Path
 from datetime import datetime, timedelta
 import shutil

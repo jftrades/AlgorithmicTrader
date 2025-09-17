@@ -9,9 +9,9 @@ import shutil
 load_dotenv()
 
 # Configuration
-FILTER_START_DATE = "2024-09-20"  
-FILTER_END_DATE = "2024-09-30"
-SYMBOL = "SOL" 
+FILTER_START_DATE = "2024-01-07"  
+FILTER_END_DATE = "2024-01-10"
+SYMBOL = "ALCH" 
 
 class LunarCrushDownloader:
     BASE_URL = "https://lunarcrush.com/api4/public/coins"
@@ -70,6 +70,7 @@ class LunarCrushDownloader:
 
             data = response.json()
             records = []
+            print("entire response:", data)  # Debugging line to print the entire response
             
             for point in data.get("data", []):
                 records.append({
@@ -124,8 +125,8 @@ class LunarCrushDownloader:
 
 
 if __name__ == "__main__":
-    start_date = FILTER_START_DATE or "2025-09-01"
-    end_date = FILTER_END_DATE or "2025-09-02"
+    start_date = FILTER_START_DATE 
+    end_date = FILTER_END_DATE 
     symbol = SYMBOL
 
     base_data_dir = str(Path(__file__).resolve().parents[2] / "DATA_STORAGE")

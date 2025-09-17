@@ -6,7 +6,7 @@ from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.core.datetime import dt_to_unix_nanos
 
 # Unsere Custom-Klasse importieren
-from data.download.custom_data_nautilius.lunar_data import LunarData
+from AlgorithmicTrader.data.download.crypto_downloads.custom_class.lunar_data import LunarData
 
 
 def load_lunar_csv_to_catalog(csv_path: str, catalog_path: str, instrument_str: str):

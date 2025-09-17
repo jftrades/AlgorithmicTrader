@@ -3,7 +3,7 @@ from pathlib import Path
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.core.datetime import dt_to_unix_nanos
-from data.download.custom_data_nautilius.metrics_data import MetricsData
+from AlgorithmicTrader.data.download.crypto_downloads.custom_class.metrics_data import MetricsData
 
 # Wichtig: Registrierung vor dem Schreiben!
 from nautilus_trader.serialization.base import register_serializable_type
