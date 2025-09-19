@@ -12,23 +12,22 @@ from fear_and_greed_download import FearAndGreedDownloader  # NEU
 # ========================
 # Konfiguration (anpassen)
 # ========================
-SYMBOL = "DOGEUSDT-PERP"
-START_DATE = "2025-01-06"
-END_DATE = "2025-01-20"
+SYMBOL = "BTCUSDT-PERP"
+START_DATE = "2024-01-01"
+END_DATE = "2025-09-01"
 BASE_DATA_DIR = str(Path(__file__).resolve().parents[3] / "DATA_STORAGE")
 
-RUN_LUNAR = True
-RUN_VENUE = True
+RUN_LUNAR = False
+RUN_VENUE = False
 RUN_BINANCE = True
-RUN_FNG = True  # NEU: Fear & Greed Index laden
-# Entfernt: RUN_NEW_FUTURES und Fenster-Konfiguration
+RUN_FNG = False  
 
 LUNAR_BUCKET = "hour"
 BINANCE_DATATYPE = "bar"
-BINANCE_INTERVAL = "1h"
+BINANCE_INTERVAL = "5m"
 FNG_INSTRUMENT_ID = "FNG-INDEX.BINANCE"  # NEU
 
-SAVE_AS_CSV = True
+SAVE_AS_CSV = False
 SAVE_IN_CATALOG = True
 DOWNLOAD_IF_MISSING = True
 # ========================

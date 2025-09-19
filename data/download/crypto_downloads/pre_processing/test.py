@@ -3,15 +3,17 @@ from pathlib import Path
 import pandas as pd
 
 # Default: Beispiel-Datei (anpassen oder per Argument übergeben)
-DEFAULT_INPUT = Path(r"C:\Users\Karmalker\Desktop\projectX\AlgorithmicTrader\data\DATA_STORAGE\csv_data_processed\AI16ZUSDT-PERP\matched_data.csv")
+DEFAULT_INPUT = Path(r"C:\Users\Karmalker\Desktop\projectX\AlgorithmicTrader\data\DATA_STORAGE\csv_data_processed\DOGEUSDT-PERP\matched_data.csv")
 
 KEEP_COLS = [
+    "timestamp_iso",
     "open",
     "high",
     "low",
     "close",
-    "lunar_galaxy_score",
-    "fng_fng"
+    "volume",
+    "fng_fng",
+    "lunar_market_dominance"
 ]
 
 def trim_csv(input_path: Path):
@@ -23,8 +25,17 @@ def trim_csv(input_path: Path):
     if missing:
         print(f"[ERROR] Fehlende Spalten: {missing}")
         return
+
+    # Neu: timestamp_iso in Format "YYYY-MM-DD HH:MM:SS" umwandeln
+    try:
+        df["timestamp_iso"] = pd.to_datetime(df["timestamp_iso"], utc=True, errors="coerce") \
+                                .dt.tz_convert(None) \
+                                .dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception as e:
+        print(f"[WARN] Konnte timestamp_iso nicht konvertieren: {e}")
+
     trimmed = df[KEEP_COLS].copy()
-    out_path = input_path.with_name(input_path.stem + "_trimmed.csv")
+    out_path = input_path.with_name(input_path.stem + "_trimmed2.csv")
     trimmed.to_csv(out_path, index=False)
     print(f"[OK] Gespeichert: {out_path}  (Rows={len(trimmed)})")
 
