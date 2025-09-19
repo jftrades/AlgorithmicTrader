@@ -14,7 +14,7 @@ instruments:
   - instrument_id: "SPY.ARCA"
     bar_types: 
       - "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
-    trade_size_usdt: 1000
+    trade_size_usd: 1000
     test: 1
 
 # Backtest-Zeitraum
@@ -46,5 +46,5 @@ fib_entry_level: 0.5
 fib_sl_level: 1.0
 fib_only_tp_level: -0.62
 
-fib_entry_tolerance: 0.002      # 0.2% tolerance around Fibonacci level
-fib_sl_buffer: 0.001           # 0.1% buffer beyond SL level
+fib_entry_tolerance: 0.01       # 1% tolerance around Fibonacci level (increased from 0.2%)
+fib_sl_buffer: 0.001            # 0.1% buffer beyond SL level
