@@ -10,6 +10,7 @@ from nautilus_trader.model.objects import Money, Price, Quantity, Currency
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.common.enums import LogColor
 
+from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.structure.TTTbreakout import TTTBreakout_Analyser
 from tools.order_management.order_types import OrderTypes
@@ -27,30 +28,34 @@ class CoinShortConfig(StrategyConfig):
     fast_ema_period: int = 12
     slow_ema_period: int = 26
 
+    only_trade_rth: bool = True
     close_positions_on_stop: bool = True
+
 
 class CoinShortStrategy(BaseStrategy,Strategy):
     def __init__(self, config: CoinShortConfig):
         self.instrument_dict: Dict[InstrumentId, Dict[str, Any]] = {}
         super().__init__(config)
-        self.risk_manager = None
-        self.order_types = None
+        self.risk_manager = RiskManager(config)
+        self.order_types = OrderTypes(self) 
         self.add_instrument_context()
     
     def add_instrument_context(self):
         for current_instrument in self.instrument_dict.values():
             current_instrument["collector"].initialise_logging_indicator("slow_ema", 0)
             current_instrument["collector"].initialise_logging_indicator("fast_ema", 0)
-            current_instrument["slow_ema"] = None
-            current_instrument["fast_ema"] = None
+            current_instrument["slow_ema"] = ExponentialMovingAverage(self.config.slow_ema_period)
+            current_instrument["fast_ema"] = ExponentialMovingAverage(self.config.fast_ema_period)
             current_instrument ["slow_ema_period"] = 26
             current_instrument ["fast_ema_period"] = 12
+            current_instrument["prev_fast_ema"] = None
+            current_instrument["prev_slow_ema"] = None
             
             current_instrument["only_trade_rth"] = self.config.only_trade_rth
             current_instrument["rth_start_hour"] = 14
             current_instrument["rth_start_minute"] = 30
             current_instrument["rth_end_hour"] = 21
-            current_instrument["rth_end_minute"] = 0
+            current_instrument["rth_end_minute"] = 0        
 
     def is_rth_time(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
         if not current_instrument["only_trade_rth"]:
@@ -62,19 +67,25 @@ class CoinShortStrategy(BaseStrategy,Strategy):
         
         return rth_start <= bar_time <= rth_end
     
-    def on_bar (self, bar:BarType) -> None:
+    def on_bar (self, bar:Bar) -> None:
         instrument_id = bar.bar_type.instrument_id
         current_instrument = self.instrument_dict.get(instrument_id)
         if current_instrument is None:
+            self.log.warning(f"No instrument found for {instrument_id}", LogColor.RED)
             return
         slow_ema = current_instrument["slow_ema"]
         fast_ema = current_instrument["fast_ema"]
         fast_ema.handle_bar(bar)
         slow_ema.handle_bar(bar)
+
         if not fast_ema.initialized or not slow_ema.initialized:
             return
+
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
         if open_orders:
+            return
+        
+        if not self.is_rth_time(bar, current_instrument):
             return
 
         self.entry_logic(bar, current_instrument)
@@ -82,7 +93,32 @@ class CoinShortStrategy(BaseStrategy,Strategy):
         self.update_visualizer_data(bar, current_instrument)
 
     def entry_logic(self, bar: Bar, current_instrument: Dict[str, Any]):
-        pass
+        instrument_id = bar.bar_type.instrument_id
+        trade_size_usdt = float(current_instrument["trade_size_usdt"])
+        qty = max(1, trade_size_usdt / float(bar.close))
+
+        slow_ema_value = current_instrument["slow_ema"].value
+        fast_ema_value = current_instrument["fast_ema"].value
+        prev_slow_ema = current_instrument.get("prev_slow_ema")
+        prev_fast_ema = current_instrument.get("prev_fast_ema")
+
+        if slow_ema_value is None or fast_ema_value is None:
+            return
+
+        if slow_ema_value is None:
+            return
+        if fast_ema_value is None:
+            return
+        
+        if (prev_fast_ema is not None and prev_slow_ema is not None and
+            prev_fast_ema > prev_slow_ema and
+            fast_ema_value < slow_ema_value):
+            
+            self.log.info(f"Bearish EMA Crossover detected for {instrument_id}. Going SHORT.", LogColor.MAGENTA)
+            self.submit_short_market_order(instrument_id, int(qty))
+
+        current_instrument["prev_fast_ema"] = fast_ema_value
+        current_instrument["prev_slow_ema"] = slow_ema_value 
 
     def submit_long_market_order(self, instrument_id: InstrumentId, qty: int):
         self.order_types.submit_long_market_order(instrument_id, qty)

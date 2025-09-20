@@ -17,7 +17,7 @@ from core.visualizing.dashboard.main import launch_dashbaord
 
 #STRAT PARAMETER
 
-yaml_name = "fib_trend.yaml"
+yaml_name = "coin_short.yaml"
 
 # ------------------------------------------------------------
 # YAML laden & vorbereiten

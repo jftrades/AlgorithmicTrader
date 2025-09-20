@@ -98,6 +98,13 @@ class BaseStrategy(Strategy):
     def get_instrument_context(self, instrument_id):
         return self.instrument_dict[instrument_id]
     
+
+    def on_start(self) -> None:
+        for inst_id, ctx in self.instrument_dict.items():
+            for bar_type in ctx["bar_types"]:
+                self.log.info(f"BaseStrategy: Subscribing to {bar_type}", color=LogColor.CYAN)
+                self.subscribe_bars(bar_type)
+                
     def base_get_position(self, instrument_id):
         if hasattr(self, "cache") and self.cache is not None:
             positions = self.cache.positions_open(instrument_id=instrument_id)

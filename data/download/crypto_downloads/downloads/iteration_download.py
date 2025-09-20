@@ -13,12 +13,12 @@ from new_future_list_download import BinancePerpetualFuturesDiscovery  # NEU
 BASE_DATA_DIR = Path(__file__).resolve().parents[3] / "DATA_STORAGE"
 FUTURES_CSV = BASE_DATA_DIR / "project_future_scraper" / "new_binance_perpetual_futures.csv"
 
-RUN_DISCOVERY = True                 # NEU: führe Discovery vor Iteration aus
+RUN_DISCOVERY = True                
 DISCOVERY_WINDOW_START = "2025-01-01"
 DISCOVERY_WINDOW_END = "2025-01-10"
 DISCOVERY_ONLY_USDT = True
 
-RANGE_DAYS = 1
+RANGE_DAYS = 14
 MAX_SYMBOLS = None
 SLEEP_SECONDS = 2
 
@@ -28,7 +28,7 @@ RUN_BINANCE = True
 
 LUNAR_BUCKET = "hour"
 BINANCE_DATATYPE = "bar"
-BINANCE_INTERVAL = "1h"
+BINANCE_INTERVAL = "5m"
 SAVE_AS_CSV = True
 SAVE_IN_CATALOG = True
 DOWNLOAD_IF_MISSING = True
