@@ -37,7 +37,7 @@ data_sources:
     instrument_ids: all
 
   # Custom MetricsData für alle Instrumente
-  - data_cls: "data.download.custom_data_nautilius.metrics_data:MetricsData"
+  - data_cls: "data.download.crypto_downloads.custom_class.metrics_data:MetricsData"
     instrument_ids: all
     client_id: "my client id"
 

@@ -117,6 +117,11 @@ class CoinShortStrategy(BaseStrategy,Strategy):
             self.log.info(f"Bearish EMA Crossover detected for {instrument_id}. Going SHORT.", LogColor.MAGENTA)
             self.submit_short_market_order(instrument_id, int(qty))
 
+        if (prev_fast_ema is not None and prev_slow_ema is not None and
+            prev_fast_ema < prev_slow_ema and
+            fast_ema_value > slow_ema_value):
+            self.close_short_position(instrument_id, int(qty))
+
         current_instrument["prev_fast_ema"] = fast_ema_value
         current_instrument["prev_slow_ema"] = slow_ema_value 
 
@@ -125,6 +130,15 @@ class CoinShortStrategy(BaseStrategy,Strategy):
 
     def submit_short_market_order(self, instrument_id: InstrumentId, qty: int):
         self.order_types.submit_short_market_order(instrument_id, qty)
+
+    def close_short_position(self, instrument_id: InstrumentId, qty: int):
+        position = self.base_get_position(instrument_id)
+        if position is None or position.quantity  < 0:
+            return
+        close_qty = min(qty, abs(position.quantity))
+        if close_qty <= 0:
+            return
+        self.order_types.submit_long_market_order(instrument_id, int(close_qty))
 
     def update_visualizer_data(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         inst_id = bar.bar_type.instrument_id
