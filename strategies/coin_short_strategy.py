@@ -7,7 +7,7 @@ from nautilus_trader.trading.config import StrategyConfig
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.identifiers import InstrumentId, Venue
 from nautilus_trader.model.objects import Money, Price, Quantity, Currency
-from nautilus_trader.model.enums import OrderSide, TimeInForce
+from nautilus_trader.model.enums import OrderSide, TimeInForce, PositionSide
 from nautilus_trader.common.enums import LogColor
 
 from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
@@ -25,10 +25,10 @@ class CoinShortConfig(StrategyConfig):
     min_account_balance: float
     run_id: str
 
-    fast_ema_period: int = 12
-    slow_ema_period: int = 26
+    entry_trend_ema_period: int = 20
+    min_bars_over_ema: int = 5
 
-    only_trade_rth: bool = True
+    only_trade_rth: bool = False
     close_positions_on_stop: bool = True
 
 
@@ -42,14 +42,17 @@ class CoinShortStrategy(BaseStrategy,Strategy):
     
     def add_instrument_context(self):
         for current_instrument in self.instrument_dict.values():
-            current_instrument["collector"].initialise_logging_indicator("slow_ema", 0)
-            current_instrument["collector"].initialise_logging_indicator("fast_ema", 0)
-            current_instrument["slow_ema"] = ExponentialMovingAverage(self.config.slow_ema_period)
-            current_instrument["fast_ema"] = ExponentialMovingAverage(self.config.fast_ema_period)
-            current_instrument ["slow_ema_period"] = 26
-            current_instrument ["fast_ema_period"] = 12
-            current_instrument["prev_fast_ema"] = None
-            current_instrument["prev_slow_ema"] = None
+            current_instrument["collector"].initialise_logging_indicator("entry_trend_ema", 0)
+            current_instrument["entry_trend_ema"] = ExponentialMovingAverage(self.config.entry_trend_ema_period)
+            current_instrument ["entry_trend_ema_period"] = self.config.entry_trend_ema_period
+            current_instrument["prev_entry_trend_ema"] = None
+
+            current_instrument["bars_over_ema_count"] = 0
+            current_instrument["prev_bar_close"] = None
+            current_instrument["min_bars_over_ema"] = self.config.min_bars_over_ema
+            current_instrument["short_entry_price"] = None  # Add this to track entry price
+            current_instrument["bars_since_entry"] = 0  # Add this to track bars since entry
+            current_instrument["min_bars_before_exit"] = 10
             
             current_instrument["only_trade_rth"] = self.config.only_trade_rth
             current_instrument["rth_start_hour"] = 14
@@ -73,12 +76,10 @@ class CoinShortStrategy(BaseStrategy,Strategy):
         if current_instrument is None:
             self.log.warning(f"No instrument found for {instrument_id}", LogColor.RED)
             return
-        slow_ema = current_instrument["slow_ema"]
-        fast_ema = current_instrument["fast_ema"]
-        fast_ema.handle_bar(bar)
-        slow_ema.handle_bar(bar)
+        entry_trend_ema = current_instrument["entry_trend_ema"]
+        entry_trend_ema.handle_bar(bar)
 
-        if not fast_ema.initialized or not slow_ema.initialized:
+        if not entry_trend_ema.initialized:
             return
 
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
@@ -97,33 +98,64 @@ class CoinShortStrategy(BaseStrategy,Strategy):
         trade_size_usdt = float(current_instrument["trade_size_usdt"])
         qty = max(1, trade_size_usdt / float(bar.close))
 
-        slow_ema_value = current_instrument["slow_ema"].value
-        fast_ema_value = current_instrument["fast_ema"].value
-        prev_slow_ema = current_instrument.get("prev_slow_ema")
-        prev_fast_ema = current_instrument.get("prev_fast_ema")
-
-        if slow_ema_value is None or fast_ema_value is None:
-            return
-
-        if slow_ema_value is None:
-            return
-        if fast_ema_value is None:
-            return
+        entry_trend_ema_value = current_instrument["entry_trend_ema"].value
+        prev_bar_close = current_instrument.get("prev_bar_close")
         
-        if (prev_fast_ema is not None and prev_slow_ema is not None and
-            prev_fast_ema > prev_slow_ema and
-            fast_ema_value < slow_ema_value):
+        if entry_trend_ema_value is None:
+            return
+
+        position = self.base_get_position(instrument_id)
+        if position is not None and position.side == PositionSide.SHORT: 
+            current_instrument["bars_since_entry"] += 1
+
+            entry_price = current_instrument.get("short_entry_price")
+            if entry_price is None:
+                entry_price = float(position.avg_px_open) if hasattr(position, 'avg_px_open') else None
             
-            self.log.info(f"Bearish EMA Crossover detected for {instrument_id}. Going SHORT.", LogColor.MAGENTA)
+            bars_since_entry = current_instrument["bars_since_entry"]
+            min_bars_required = current_instrument["min_bars_before_exit"]
+
+            if (float(bar.close) > entry_trend_ema_value and
+                entry_price is not None and 
+                float(bar.close) < entry_price and  # In profit
+                bars_since_entry >= min_bars_required):  # Minimum bars passed
+                
+                profit_pct = ((entry_price - float(bar.close)) / entry_price) * 100
+                self.log.info(f"Closing profitable short position for {instrument_id}: close={bar.close} < entry={entry_price:.4f} (profit: {profit_pct:.2f}%), above EMA={entry_trend_ema_value:.4f}, bars since entry: {bars_since_entry}", LogColor.YELLOW)
+                self.close_short_in_profit(instrument_id, int(position.quantity))
+                current_instrument["short_entry_price"] = None  # Reset entry price
+                current_instrument["bars_since_entry"] = 0  # Reset bar counter
+                current_instrument["prev_bar_close"] = float(bar.close)
+                return
+
+            current_instrument["prev_bar_close"] = float(bar.close)
+            return
+
+        if position is not None and position.quantity != 0:
+            current_instrument["prev_bar_close"] = float(bar.close)
+            return 
+        
+        if float(bar.close) > entry_trend_ema_value:
+            current_instrument["bars_over_ema_count"] += 1
+
+        if prev_bar_close is None:
+            current_instrument["prev_bar_close"] = float(bar.close)
+            return
+
+        min_bars_required = current_instrument["min_bars_over_ema"]
+        if (prev_bar_close > entry_trend_ema_value and 
+            float(bar.close) < entry_trend_ema_value and
+            current_instrument["bars_over_ema_count"] >= min_bars_required):
+            
+            self.log.info(f"Short signal for {instrument_id}: prev_close={prev_bar_close:.4f} > EMA={entry_trend_ema_value:.4f}, current_close={bar.close} < EMA. Bars over EMA: {current_instrument['bars_over_ema_count']}", LogColor.MAGENTA)
             self.submit_short_market_order(instrument_id, int(qty))
+            current_instrument["short_entry_price"] = float(bar.close)
+            current_instrument["bars_since_entry"] = 0  # Reset counter on new entry
+        
+        if float(bar.close) <= entry_trend_ema_value:
+            current_instrument["bars_over_ema_count"] = 0
 
-        if (prev_fast_ema is not None and prev_slow_ema is not None and
-            prev_fast_ema < prev_slow_ema and
-            fast_ema_value > slow_ema_value):
-            self.close_short_position(instrument_id, int(qty))
-
-        current_instrument["prev_fast_ema"] = fast_ema_value
-        current_instrument["prev_slow_ema"] = slow_ema_value 
+        current_instrument["prev_bar_close"] = float(bar.close)
 
     def submit_long_market_order(self, instrument_id: InstrumentId, qty: int):
         self.order_types.submit_long_market_order(instrument_id, qty)
@@ -131,9 +163,9 @@ class CoinShortStrategy(BaseStrategy,Strategy):
     def submit_short_market_order(self, instrument_id: InstrumentId, qty: int):
         self.order_types.submit_short_market_order(instrument_id, qty)
 
-    def close_short_position(self, instrument_id: InstrumentId, qty: int):
+    def close_short_in_profit(self, instrument_id: InstrumentId, qty: int):
         position = self.base_get_position(instrument_id)
-        if position is None or position.quantity  < 0:
+        if position is None or position.quantity < 0:
             return
         close_qty = min(qty, abs(position.quantity))
         if close_qty <= 0:
@@ -143,17 +175,20 @@ class CoinShortStrategy(BaseStrategy,Strategy):
     def update_visualizer_data(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         inst_id = bar.bar_type.instrument_id
         self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)
-        #custom indicators
 
-        slow_ema_value = float(current_instrument["slow_ema"].value) if current_instrument["slow_ema"].value is not None else None
-        fast_ema_value = float(current_instrument["fast_ema"].value) if current_instrument["fast_ema"].value is not None else None
-        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="Slow EMA", value=slow_ema_value)
-        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="Fast EMA", value=fast_ema_value)
+        entry_trend_ema_value = float(current_instrument["entry_trend_ema"].value) if current_instrument["entry_trend_ema"].value is not None else None
+
+        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="entry_trend_ema", value=entry_trend_ema_value)
 
     def on_order_filled(self, order_filled) -> None:
         return self.base_on_order_filled(order_filled)
 
     def on_position_closed(self, position_closed) -> None:
+        instrument_id = position_closed.instrument_id
+        current_instrument = self.instrument_dict.get(instrument_id)
+        if current_instrument is not None:
+            current_instrument["short_entry_price"] = None
+            current_instrument["bars_since_entry"] = 0
         return self.base_on_position_closed(position_closed)
 
     def on_error(self, error: Exception) -> None:

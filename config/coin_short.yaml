@@ -27,7 +27,7 @@ data_sources:
 
 # Backtest-Zeitraum
 start_date: "2025-01-01T00:00:00Z"
-end_date: "2025-01-31T00:00:00Z"
+end_date: "2025-03-28T00:00:00Z"
 
 # Account/Venue-Parameter
 starting_account_balance: "10000 USDT"
@@ -47,6 +47,10 @@ close_positions_on_stop: [true]
 # ===========================
 
 only_trade_rth: false
+# use_trend_following_setup: true
 
-fast_ema_period: 20
-slow_ema_period: 70
+entry_trend_ema_period: 80
+min_bars_over_ema: 30
+
+# use_top_detection_setup: false
+
