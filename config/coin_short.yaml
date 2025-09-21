@@ -47,10 +47,13 @@ close_positions_on_stop: [true]
 # ===========================
 
 only_trade_rth: false
-# use_trend_following_setup: true
-
-entry_trend_ema_period: 80
-min_bars_over_ema: 30
+use_trend_following_setup:
+  enabled: true
+  entry_trend_ema_period: 80
+  min_bars_over_ema: 30
+  sl_atr_multiple: 2
+  atr_period: 14
+  
 
 # use_top_detection_setup: false
 
