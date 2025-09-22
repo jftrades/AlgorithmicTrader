@@ -20,6 +20,7 @@ from tools.order_management.risk_manager import RiskManager
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 from tools.help_funcs.help_funcs_strategy import create_tags   
 from nautilus_trader.common.enums import LogColor
+from data.download.crypto_downloads.custom_class.metrics_data import MetricsData
 
 class CoinShortConfig(StrategyConfig):
     instruments: List[dict]  
@@ -40,7 +41,8 @@ class CoinShortConfig(StrategyConfig):
         default_factory=lambda: {
             "enabled": True,
             "min_price": 0.1,
-                
+            "min_24h_volume": 5000000,
+            "min_sum_open_interest_value": 500000,
         }
     )
 
@@ -83,11 +85,25 @@ class CoinShortStrategy(BaseStrategy,Strategy):
             current_instrument["use_min_coin_filters"] = coin_filters.get("enabled", True)
             current_instrument["min_price"] = coin_filters.get("min_price", 0.1)
             current_instrument["min_24h_volume"] = coin_filters.get("min_24h_volume", 5000000)
+            current_instrument["min_sum_open_interest_value"] = coin_filters.get("min_sum_open_interest_value", 500000)
             # Rolling 24h volume calculation (96 bars for 15-minute data = 24 hours)
             current_instrument["volume_history"] = []  # Store token volumes
             current_instrument["price_history"] = []   # Store prices for dollar volume calculation
             current_instrument["rolling_24h_volume"] = 0.0      # Token volume
             current_instrument["rolling_24h_dollar_volume"] = 0.0  # Dollar volume
+            current_instrument["latest_open_interest_value"] = 0.0
+
+    def on_start(self):
+        super().on_start() if hasattr(super(), 'on_start') else None
+        self._subscribe_to_metrics_data()
+        
+    def _subscribe_to_metrics_data(self):
+        try:
+            from nautilus_trader.model.data import DataType
+            metrics_data_type = DataType(MetricsData)
+            self.subscribe_data(data_type=metrics_data_type)
+        except Exception as e:
+            self.log.error(f"Failed to subscribe to MetricsData: {e}", LogColor.RED)
 
     def is_rth_time(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
         if not current_instrument["only_trade_rth"]:
@@ -119,18 +135,38 @@ class CoinShortStrategy(BaseStrategy,Strategy):
         dollar_volumes = [vol * price for vol, price in zip(volume_history, price_history)]
         current_instrument["rolling_24h_dollar_volume"] = sum(dollar_volumes)
 
+    def on_data(self, data) -> None:
+        if isinstance(data, MetricsData):
+            self.on_metrics_data(data)
+
+    def on_metrics_data(self, metrics_data: MetricsData) -> None:
+        instrument_id = metrics_data.instrument_id
+        current_instrument = self.instrument_dict.get(instrument_id)
+        
+        if current_instrument is not None:
+            current_instrument["latest_open_interest_value"] = metrics_data.sum_open_interest_value
+
     def passes_coin_filters(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
         if not current_instrument.get("use_min_coin_filters", True):
             return True
-            
+        
+        # Price filter
         min_price = current_instrument["min_price"]
         if min_price > 0 and float(bar.close) < min_price:
             return False
         
+        # 24h volume filter  
         min_24h_volume = current_instrument["min_24h_volume"]
         if min_24h_volume > 0:
             rolling_24h_dollar_volume = current_instrument.get("rolling_24h_dollar_volume", 0.0)
             if rolling_24h_dollar_volume < min_24h_volume:
+                return False
+        
+        # Open interest value filter
+        min_open_interest_value = current_instrument["min_sum_open_interest_value"]
+        if min_open_interest_value > 0:
+            latest_open_interest_value = current_instrument.get("latest_open_interest_value", 0.0)
+            if latest_open_interest_value < min_open_interest_value:
                 return False
         
         return True
