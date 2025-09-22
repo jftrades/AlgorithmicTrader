@@ -60,7 +60,11 @@ use_trend_following_setup:
   min_bars_over_ema: 15
   sl_atr_multiple: 2
   atr_period: 14
-  
+
+use_metrics_trend_following:
+  enabled: true
+  min_difference_topt_longshortratio: 0.2 # comparing sum_toptrader_long_short_ratio to count_long_short_ratio (1.2 to 0.8 f.e)
+  # -> might later scale risk with min direct values on top of difference
 
 # use_top_detection_setup: false
 

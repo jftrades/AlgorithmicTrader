@@ -46,6 +46,13 @@ class CoinShortConfig(StrategyConfig):
         }
     )
 
+    use_metrics_trend_following: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": True,
+            "min_difference_topt_longshortratio": 0.2
+        }
+    )
+
     only_trade_rth: bool = False
     close_positions_on_stop: bool = True
 
@@ -61,7 +68,7 @@ class CoinShortStrategy(BaseStrategy,Strategy):
     def add_instrument_context(self):
         for current_instrument in self.instrument_dict.values():
             
-            # Trend following setup
+            # Trend following general setup
             trend_config = self.config.use_trend_following_setup
             entry_trend_ema_period = trend_config.get("entry_trend_ema_period", 20)
             current_instrument["entry_trend_ema"] = ExponentialMovingAverage(entry_trend_ema_period)
@@ -80,18 +87,26 @@ class CoinShortStrategy(BaseStrategy,Strategy):
             current_instrument["rth_end_minute"] = 0
             current_instrument["bars_above_ema"] = 0
             
+            # Trend following L3 metrics
+            l3_trend_metrics = self.config.use_metrics_trend_following
+            current_instrument["use_metrics_trend_following"] = l3_trend_metrics.get("enabled", True)
+            current_instrument["min_difference_topt_longshortratio"] = l3_trend_metrics.get("min_difference_topt_longshortratio", 0.2)
+            current_instrument["count_toptrader_long_short_ratio"] = 0.0
+            current_instrument["count_long_short_ratio"] = 0.0
+
+
             # Min coin filters
             coin_filters = self.config.use_min_coin_filters
             current_instrument["use_min_coin_filters"] = coin_filters.get("enabled", True)
             current_instrument["min_price"] = coin_filters.get("min_price", 0.1)
             current_instrument["min_24h_volume"] = coin_filters.get("min_24h_volume", 5000000)
             current_instrument["min_sum_open_interest_value"] = coin_filters.get("min_sum_open_interest_value", 500000)
-            # Rolling 24h volume calculation (96 bars for 15-minute data = 24 hours)
             current_instrument["volume_history"] = []  # Store token volumes
             current_instrument["price_history"] = []   # Store prices for dollar volume calculation
             current_instrument["rolling_24h_volume"] = 0.0      # Token volume
             current_instrument["rolling_24h_dollar_volume"] = 0.0  # Dollar volume
             current_instrument["latest_open_interest_value"] = 0.0
+
 
     def on_start(self):
         super().on_start() if hasattr(super(), 'on_start') else None
@@ -135,6 +150,19 @@ class CoinShortStrategy(BaseStrategy,Strategy):
         dollar_volumes = [vol * price for vol, price in zip(volume_history, price_history)]
         current_instrument["rolling_24h_dollar_volume"] = sum(dollar_volumes)
 
+    def difference_topt_longshortratio(self, current_instrument: Dict[str, Any]) -> Optional[float]:
+        if not current_instrument.get("use_metrics_trend_following", False):
+            return None
+            
+        count_topt = current_instrument.get("count_toptrader_long_short_ratio", 0.0)
+        count_total = current_instrument.get("count_long_short_ratio", 0.0)
+            
+        if count_total == 0:
+            return None
+            
+        difference = (count_topt - (count_total - count_topt)) / count_total
+        return difference
+
     def on_data(self, data) -> None:
         if isinstance(data, MetricsData):
             self.on_metrics_data(data)
@@ -145,6 +173,8 @@ class CoinShortStrategy(BaseStrategy,Strategy):
         
         if current_instrument is not None:
             current_instrument["latest_open_interest_value"] = metrics_data.sum_open_interest_value
+            current_instrument["count_toptrader_long_short_ratio"] = metrics_data.count_toptrader_long_short_ratio
+            current_instrument["count_long_short_ratio"] = metrics_data.count_long_short_ratio
 
     def passes_coin_filters(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
         if not current_instrument.get("use_min_coin_filters", True):
@@ -230,14 +260,10 @@ class CoinShortStrategy(BaseStrategy,Strategy):
                 current_instrument["prev_bar_close"] = float(bar.close)
                 return
             
-            if (float(bar.close) > entry_trend_ema_value and
-                entry_price is not None and 
-                float(bar.close) < entry_price and
+            if (float(bar.close) < entry_price
+                and entry_price is not None and
                 bars_since_entry >= min_bars_required):
-                self.tp_trend_following_setup(instrument_id, int(position.quantity))
-                current_instrument["short_entry_price"] = None
-                current_instrument["bars_since_entry"] = 0
-                current_instrument["sl_price"] = None
+                self.tp_trend_following_setup(instrument_id, int(abs(position.quantity)))
             current_instrument["prev_bar_close"] = float(bar.close)
             return
         
@@ -279,13 +305,24 @@ class CoinShortStrategy(BaseStrategy,Strategy):
         self.order_types.submit_short_market_order(instrument_id, qty)
 
     def tp_trend_following_setup(self, instrument_id: InstrumentId, qty: int):
-        position = self.base_get_position(instrument_id)
-        if position is None or position.quantity < 0:
+        current_instrument = self.instrument_dict.get(instrument_id)
+        if current_instrument is None:
             return
-        close_qty = min(qty, abs(position.quantity))
-        if close_qty <= 0:
-            return
-        self.order_types.submit_long_market_order(instrument_id, int(close_qty))
+            
+        difference = self.difference_topt_longshortratio(current_instrument)
+        if difference is not None:
+            self.log.info(f"{instrument_id}: TopTrader diff = {difference:.3f}", LogColor.CYAN)
+            
+            # Check if we should close position based on difference
+            min_diff = current_instrument["min_difference_topt_longshortratio"]
+            if difference > min_diff:
+                position = self.base_get_position(instrument_id)
+                if position is not None and position.side == PositionSide.SHORT:
+                    close_qty = min(qty, abs(position.quantity))
+                    if close_qty <= 0:
+                        return
+                    self.order_types.submit_long_market_order(instrument_id, int(close_qty))
+                    self.log.info(f"{instrument_id}: Closed short position - diff {difference:.3f} > {min_diff:.3f}", LogColor.GREEN)
     
     def sl_trend_following_setup(self, instrument_id: InstrumentId, qty: int):
         position = self.base_get_position(instrument_id)
