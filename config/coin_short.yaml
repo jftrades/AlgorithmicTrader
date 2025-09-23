@@ -50,22 +50,19 @@ only_trade_rth: false
 
 use_min_coin_filters:
   enabled: true
-  min_price: 0.1 
+  min_price: 0.25
   min_24h_volume: 50000
   min_sum_open_interest_value: 1000000  # $1M minimum open interest value
 
 use_trend_following_setup:
   enabled: true
-  entry_trend_ema_period: [80, 100]
-  min_bars_over_ema: 15
+  entry_trend_ema_period: 100
+  min_bars_over_ema: 25
   sl_atr_multiple: 2
   atr_period: 14
 
 use_metrics_trend_following:
-  enabled: true
-  min_absolute_diff_extreme_topt_longshortratio: 0.6
-  min_extreme_reversal_topt_longshortratio: 0.4 # comparing sum_toptrader_long_short_ratio to count_long_short_ratio (1.2 to 0.8 f.e)
-  # -> might later scale risk with min direct value on top of difference
-
+  enabled: false
+  min_extreme_reversal_topt_longshortratio: 0.2 # Do professionally after base strat runs
 # use_top_detection_setup: false
 
