@@ -63,8 +63,9 @@ use_trend_following_setup:
 
 use_metrics_trend_following:
   enabled: true
-  min_difference_topt_longshortratio: 0.2 # comparing sum_toptrader_long_short_ratio to count_long_short_ratio (1.2 to 0.8 f.e)
-  # -> might later scale risk with min direct values on top of difference
+  min_absolute_diff_extreme_topt_longshortratio: 0.6
+  min_extreme_reversal_topt_longshortratio: 0.4 # comparing sum_toptrader_long_short_ratio to count_long_short_ratio (1.2 to 0.8 f.e)
+  # -> might later scale risk with min direct value on top of difference
 
 # use_top_detection_setup: false
 

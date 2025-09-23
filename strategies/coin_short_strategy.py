@@ -29,7 +29,7 @@ class CoinShortConfig(StrategyConfig):
     run_id: str
 
     use_trend_following_setup: Dict[str, Any] = Field(
-        default_factory=lambda: {
+        default_factory=lambda: {   
             "enabled": True,
             "entry_trend_ema_period": 20,
             "min_bars_over_ema": 5,
@@ -49,7 +49,8 @@ class CoinShortConfig(StrategyConfig):
     use_metrics_trend_following: Dict[str, Any] = Field(
         default_factory=lambda: {
             "enabled": True,
-            "min_difference_topt_longshortratio": 0.2
+            "min_divergence_extreme": 0.8,  # Minimum divergence peak to consider significant
+            "min_divergence_reversal": 0.2   # Minimum reversal from peak to trigger exit
         }
     )
 
@@ -90,9 +91,13 @@ class CoinShortStrategy(BaseStrategy,Strategy):
             # Trend following L3 metrics
             l3_trend_metrics = self.config.use_metrics_trend_following
             current_instrument["use_metrics_trend_following"] = l3_trend_metrics.get("enabled", True)
-            current_instrument["min_difference_topt_longshortratio"] = l3_trend_metrics.get("min_difference_topt_longshortratio", 0.2)
-            current_instrument["count_toptrader_long_short_ratio"] = 0.0
+            current_instrument["min_divergence_extreme"] = l3_trend_metrics.get("min_divergence_extreme", 0.8)
+            current_instrument["min_divergence_reversal"] = l3_trend_metrics.get("min_divergence_reversal", 0.2)
+            current_instrument["sum_toptrader_long_short_ratio"] = 0.0
             current_instrument["count_long_short_ratio"] = 0.0
+            current_instrument["max_topt_difference_since_entry"] = None
+            current_instrument["topt_difference_history"] = []
+            current_instrument["in_short_position"] = False
 
 
             # Min coin filters
@@ -106,6 +111,10 @@ class CoinShortStrategy(BaseStrategy,Strategy):
             current_instrument["rolling_24h_volume"] = 0.0      # Token volume
             current_instrument["rolling_24h_dollar_volume"] = 0.0  # Dollar volume
             current_instrument["latest_open_interest_value"] = 0.0
+
+            # Visualizer setup
+            current_instrument["collector"].initialise_logging_indicator("entry_trend_ema", 0)
+            current_instrument["collector"].initialise_logging_indicator("toptrader_divergence", 1)
 
 
     def on_start(self):
@@ -153,14 +162,20 @@ class CoinShortStrategy(BaseStrategy,Strategy):
     def difference_topt_longshortratio(self, current_instrument: Dict[str, Any]) -> Optional[float]:
         if not current_instrument.get("use_metrics_trend_following", False):
             return None
+
+        toptrader_ratio = current_instrument.get("sum_toptrader_long_short_ratio", 0.0)
+        retail_ratio = current_instrument.get("count_long_short_ratio", 0.0)
             
-        count_topt = current_instrument.get("count_toptrader_long_short_ratio", 0.0)
-        count_total = current_instrument.get("count_long_short_ratio", 0.0)
-            
-        if count_total == 0:
+        if retail_ratio == 0 or toptrader_ratio == 0:
             return None
-            
-        difference = (count_topt - (count_total - count_topt)) / count_total
+
+        # Calculate divergence: positive = TopTraders more bullish than retail
+        # Method 1: Simple difference
+        # difference = toptrader_ratio - retail_ratio
+        
+        # Method 2: Relative difference (percentage-based)
+        difference = (toptrader_ratio - retail_ratio) / retail_ratio
+        
         return difference
 
     def on_data(self, data) -> None:
@@ -173,7 +188,7 @@ class CoinShortStrategy(BaseStrategy,Strategy):
         
         if current_instrument is not None:
             current_instrument["latest_open_interest_value"] = metrics_data.sum_open_interest_value
-            current_instrument["count_toptrader_long_short_ratio"] = metrics_data.count_toptrader_long_short_ratio
+            current_instrument["sum_toptrader_long_short_ratio"] = metrics_data.sum_toptrader_long_short_ratio
             current_instrument["count_long_short_ratio"] = metrics_data.count_long_short_ratio
 
     def passes_coin_filters(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
@@ -298,10 +313,12 @@ class CoinShortStrategy(BaseStrategy,Strategy):
         
         current_instrument["prev_bar_close"] = bar_close_f
 
-    # def submit_long_market_order(self, instrument_id: InstrumentId, qty: int):
-     #   self.order_types.submit_long_market_order(instrument_id, qty)
-
     def short_trend_following_setup_market_order(self, instrument_id: InstrumentId, qty: int):
+        current_instrument = self.instrument_dict.get(instrument_id)
+        if current_instrument is not None:
+            current_instrument["max_topt_difference_since_entry"] = None
+            current_instrument["topt_difference_history"] = []
+            current_instrument["in_short_position"] = True
         self.order_types.submit_short_market_order(instrument_id, qty)
 
     def tp_trend_following_setup(self, instrument_id: InstrumentId, qty: int):
@@ -311,18 +328,29 @@ class CoinShortStrategy(BaseStrategy,Strategy):
             
         difference = self.difference_topt_longshortratio(current_instrument)
         if difference is not None:
-            self.log.info(f"{instrument_id}: TopTrader diff = {difference:.3f}", LogColor.CYAN)
+            # Track the maximum difference since entering the short position
+            max_diff = current_instrument.get("max_topt_difference_since_entry")
+            if max_diff is None or difference > max_diff:
+                current_instrument["max_topt_difference_since_entry"] = difference
+                max_diff = difference
             
-            # Check if we should close position based on difference
-            min_diff = current_instrument["min_difference_topt_longshortratio"]
-            if difference > min_diff:
+            # Check for reversal from extreme - only if extreme was significant enough
+            min_divergence_extreme = current_instrument["min_divergence_extreme"]
+            min_reversal = current_instrument["min_divergence_reversal"]
+            
+            if (max_diff is not None and 
+                max_diff >= min_divergence_extreme and  # Divergence extreme was significant enough
+                (max_diff - difference) >= min_reversal):  # Reversal is big enough
+                
                 position = self.base_get_position(instrument_id)
                 if position is not None and position.side == PositionSide.SHORT:
                     close_qty = min(qty, abs(position.quantity))
                     if close_qty <= 0:
                         return
                     self.order_types.submit_long_market_order(instrument_id, int(close_qty))
-                    self.log.info(f"{instrument_id}: Closed short position - diff {difference:.3f} > {min_diff:.3f}", LogColor.GREEN)
+                    self.log.info(f"{instrument_id}: Closed short - divergence peak {max_diff:.3f} ≥ {min_divergence_extreme:.3f}, reversal {max_diff:.3f} → {difference:.3f} (drop={max_diff-difference:.3f} ≥ {min_reversal:.3f})", LogColor.GREEN)
+                    # Reset tracking on position close
+                    current_instrument["max_topt_difference_since_entry"] = None
     
     def sl_trend_following_setup(self, instrument_id: InstrumentId, qty: int):
         position = self.base_get_position(instrument_id)
@@ -337,10 +365,9 @@ class CoinShortStrategy(BaseStrategy,Strategy):
         inst_id = bar.bar_type.instrument_id
         self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)
 
-        entry_trend_ema_value = float(current_instrument["entry_trend_ema"].value) if current_instrument["entry_trend_ema"].value is not None else None
-
-        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="entry_trend_ema", value=entry_trend_ema_value)
-
+        divergence = self.difference_topt_longshortratio(current_instrument)
+        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="toptrader_divergence", value=divergence)
+        
     def on_order_filled(self, order_filled) -> None:
         return self.base_on_order_filled(order_filled)
 
@@ -349,8 +376,11 @@ class CoinShortStrategy(BaseStrategy,Strategy):
         current_instrument = self.instrument_dict.get(instrument_id)
         if current_instrument is not None:
             current_instrument["short_entry_price"] = None
-            current_instrument["bars_since_entry"] = 0
+            current_instrument["bars_since_entry"] = 0  
             current_instrument["bars_above_ema"] = 0
+            current_instrument["max_topt_difference_since_entry"] = None
+            current_instrument["topt_difference_history"] = []
+            current_instrument["in_short_position"] = False
         return self.base_on_position_closed(position_closed)
 
     def on_error(self, error: Exception) -> None:
