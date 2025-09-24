@@ -26,8 +26,8 @@ data_sources:
     instrument_ids: all
 
 # Backtest-Zeitraum
-start_date: "2025-01-01T00:00:00Z"
-end_date: "2025-03-28T00:00:00Z"
+start_date: "2024-01-01T00:00:00Z"
+end_date: "2024-11-28T00:00:00Z"
 
 # Account/Venue-Parameter
 starting_account_balance: "10000 USDT"
@@ -56,13 +56,16 @@ use_min_coin_filters:
 
 use_trend_following_setup:
   enabled: true
-  entry_trend_ema_period: 100
-  min_bars_over_ema: 25
+  entry_trend_ema_period: 120
+  min_bars_over_ema: 35
+  min_bars_under_ema: 35
   sl_atr_multiple: 2
   atr_period: 14
 
 use_metrics_trend_following:
   enabled: false
-  min_extreme_reversal_topt_longshortratio: 0.2 # Do professionally after base strat runs
+  short_min_extreme_reversal_topt_longshortratio: 0.3 # Do professionally after base strat runs
+  long_min_extreme_reversal_topt_longshortratio: 0.3  # Exit when divergence decreases by this amount from maximum extreme
+
 # use_top_detection_setup: false
 

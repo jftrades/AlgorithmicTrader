@@ -28,6 +28,7 @@ class CoinShortConfig(StrategyConfig):
             "enabled": True,
             "entry_trend_ema_period": 20,
             "min_bars_over_ema": 5,
+            "min_bars_under_ema": 5,
             "sl_atr_multiple": 2,
             "atr_period"    : 14
         }
@@ -44,7 +45,8 @@ class CoinShortConfig(StrategyConfig):
     use_metrics_trend_following: Dict[str, Any] = Field(
         default_factory=lambda: {
             "enabled": True,
-            "min_extreme_reversal_topt_longshortratio": 0.4   # Exit when divergence increases by this amount from minimum extreme
+            "short_min_extreme_reversal_topt_longshortratio": 0.4, # Exit when divergence increases by this amount from minimum extreme
+            "long_min_extreme_reversal_topt_longshortratio": 0.6  # Exit when divergence decreases by this amount from maximum extreme
         }
     )
 
@@ -72,6 +74,7 @@ class CoinShortStrategy(BaseStrategy,Strategy):
             current_instrument["sl_price"] = None
             current_instrument["prev_bar_close"] = None
             current_instrument["short_entry_price"] = None
+            current_instrument["long_entry_price"] = None
             current_instrument["bars_since_entry"] = 0
             current_instrument["min_bars_before_exit"] = 10
             current_instrument["only_trade_rth"] = self.config.only_trade_rth
@@ -80,14 +83,18 @@ class CoinShortStrategy(BaseStrategy,Strategy):
             current_instrument["rth_end_hour"] = 21
             current_instrument["rth_end_minute"] = 0
             current_instrument["bars_above_ema"] = 0
+            current_instrument["bars_below_ema"] = 0
             
             l3_trend_metrics = self.config.use_metrics_trend_following
             current_instrument["use_metrics_trend_following"] = l3_trend_metrics.get("enabled", True)
-            current_instrument["min_extreme_reversal_topt_longshortratio"] = l3_trend_metrics.get("min_extreme_reversal_topt_longshortratio", 0.4)
+            current_instrument["short_min_extreme_reversal_topt_longshortratio"] = l3_trend_metrics.get("short_min_extreme_reversal_topt_longshortratio", 0.4)
+            current_instrument["long_min_extreme_reversal_topt_longshortratio"] = l3_trend_metrics.get("long_min_extreme_reversal_topt_longshortratio", 0.6)
             current_instrument["sum_toptrader_long_short_ratio"] = 0.0
             current_instrument["count_long_short_ratio"] = 0.0
             current_instrument["min_topt_difference_since_entry"] = None
+            current_instrument["max_topt_difference_since_entry"] = None
             current_instrument["in_short_position"] = False
+            current_instrument["in_long_position"] = False
 
             coin_filters = self.config.use_min_coin_filters
             current_instrument["use_min_coin_filters"] = coin_filters.get("enabled", True)
@@ -222,45 +229,29 @@ class CoinShortStrategy(BaseStrategy,Strategy):
         if not self.passes_coin_filters(bar, current_instrument):
             return
 
-        self.trend_following_setup_logic(bar, current_instrument)
+        self.trend_following_setup(bar, current_instrument)
         self.base_collect_bar_data(bar, current_instrument)
         self.update_visualizer_data(bar, current_instrument)
 
-    def trend_following_setup_logic(self, bar: Bar, current_instrument: Dict[str, Any]):
+    def trend_following_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_trend_following_setup.get("enabled", True):
             return
         instrument_id = bar.bar_type.instrument_id
-        trade_size_usdt = float(current_instrument["trade_size_usdt"])
-        qty = max(1, trade_size_usdt / float(bar.close))
         entry_trend_ema_value = current_instrument["entry_trend_ema"].value
-        prev_bar_close = current_instrument.get("prev_bar_close")
         if entry_trend_ema_value is None:
             return
+        
         position = self.base_get_position(instrument_id)
+        
         if position is not None and position.side == PositionSide.SHORT:
-            current_instrument["bars_since_entry"] += 1
-            entry_price = current_instrument.get("short_entry_price")
-            if entry_price is None:
-                entry_price = float(position.avg_px_open) if hasattr(position, 'avg_px_open') else None
-            bars_since_entry = current_instrument["bars_since_entry"]
-            min_bars_required = current_instrument["min_bars_before_exit"]
-            sl_price = current_instrument.get("sl_price")
+            self.short_exit_logic(bar, current_instrument, position)
+            return
             
-            if sl_price is not None and float(bar.close) >= sl_price:
-                self.sl_trend_following_setup(instrument_id, int(position.quantity))
-                current_instrument["short_entry_price"] = None
-                current_instrument["bars_since_entry"] = 0
-                current_instrument["sl_price"] = None
-                current_instrument["prev_bar_close"] = float(bar.close)
-                return
-            
-            if (float(bar.close) < entry_price
-                and entry_price is not None and
-                bars_since_entry >= min_bars_required):
-                self.tp_trend_following_setup(instrument_id, int(abs(position.quantity)))
-            current_instrument["prev_bar_close"] = float(bar.close)
+        if position is not None and position.side == PositionSide.LONG:
+            self.long_exit_logic(bar, current_instrument, position)
             return
         
+        prev_bar_close = current_instrument.get("prev_bar_close")
         if prev_bar_close is None:
             current_instrument["prev_bar_close"] = float(bar.close)
             return
@@ -268,95 +259,155 @@ class CoinShortStrategy(BaseStrategy,Strategy):
         prev_bar_close_f = float(prev_bar_close)
         bar_close_f = float(bar.close)
         ema_f = float(entry_trend_ema_value)
-        min_bars_over_ema = self.config.use_trend_following_setup.get("min_bars_over_ema", 30)
-
+        
         if bar_close_f >= ema_f:
             current_instrument["bars_above_ema"] += 1
+            self.long_entry_logic(bar, current_instrument, prev_bar_close_f, bar_close_f, ema_f)
+            current_instrument["bars_below_ema"] = 0
         else:
-            if (prev_bar_close_f >= ema_f and bar_close_f < ema_f and 
-                current_instrument["bars_above_ema"] >= min_bars_over_ema):
-                self.short_trend_following_setup_market_order(instrument_id, int(qty))
-                current_instrument["short_entry_price"] = bar_close_f
-                current_instrument["bars_since_entry"] = 0
-                atr_value = current_instrument["atr"].value
-                sl_atr_multiple = current_instrument["sl_atr_multiple"]
-                if atr_value is not None:
-                    current_instrument["sl_price"] = bar_close_f + sl_atr_multiple * atr_value
-                else:
-                    current_instrument["sl_price"] = None
-            
+            current_instrument["bars_below_ema"] += 1
+            self.short_entry_logic(bar, current_instrument, prev_bar_close_f, bar_close_f, ema_f)
             current_instrument["bars_above_ema"] = 0
         
         current_instrument["prev_bar_close"] = bar_close_f
 
-    def short_trend_following_setup_market_order(self, instrument_id: InstrumentId, qty: int):
-        current_instrument = self.instrument_dict.get(instrument_id)
-        if current_instrument is not None:
+    def long_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_bar_close: float, bar_close: float, ema_value: float):
+        min_bars_under_ema = self.config.use_trend_following_setup.get("min_bars_under_ema", 30)
+        if (prev_bar_close < ema_value and bar_close >= ema_value and current_instrument["bars_below_ema"] >= min_bars_under_ema):
+            instrument_id = bar.bar_type.instrument_id
+            trade_size_usdt = float(current_instrument["trade_size_usdt"])
+            qty = max(1, trade_size_usdt / bar_close)
+            
+            current_instrument["max_topt_difference_since_entry"] = None
+            current_instrument["in_long_position"] = True
+            current_instrument["long_entry_price"] = bar_close
+            current_instrument["bars_since_entry"] = 0
+            atr_value = current_instrument["atr"].value
+            sl_atr_multiple = current_instrument["sl_atr_multiple"]
+            if atr_value is not None:
+                current_instrument["sl_price"] = bar_close - sl_atr_multiple * atr_value
+            else:
+                current_instrument["sl_price"] = None
+            self.order_types.submit_long_market_order(instrument_id, int(qty))
+
+    def short_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_bar_close: float, bar_close: float, ema_value: float):
+        min_bars_over_ema = self.config.use_trend_following_setup.get("min_bars_over_ema", 30)
+        if (prev_bar_close >= ema_value and bar_close < ema_value and current_instrument["bars_above_ema"] >= min_bars_over_ema):
+            instrument_id = bar.bar_type.instrument_id
+            trade_size_usdt = float(current_instrument["trade_size_usdt"])
+            qty = max(1, trade_size_usdt / bar_close)
+            
             current_instrument["min_topt_difference_since_entry"] = None
             current_instrument["in_short_position"] = True
-        self.order_types.submit_short_market_order(instrument_id, qty)
+            current_instrument["short_entry_price"] = bar_close
+            current_instrument["bars_since_entry"] = 0
+            atr_value = current_instrument["atr"].value
+            sl_atr_multiple = current_instrument["sl_atr_multiple"]
+            if atr_value is not None:
+                current_instrument["sl_price"] = bar_close + sl_atr_multiple * atr_value
+            else:
+                current_instrument["sl_price"] = None
+            self.order_types.submit_short_market_order(instrument_id, int(qty))
 
-    def tp_trend_following_setup(self, instrument_id: InstrumentId, qty: int):
-        current_instrument = self.instrument_dict.get(instrument_id)
-        if current_instrument is None:
+    def long_exit_logic(self, bar: Bar, current_instrument: Dict[str, Any], position):
+        current_instrument["bars_since_entry"] += 1
+        entry_price = current_instrument.get("long_entry_price")
+        if entry_price is None:
+            entry_price = float(position.avg_px_open) if hasattr(position, 'avg_px_open') else None
+        bars_since_entry = current_instrument["bars_since_entry"]
+        min_bars_required = current_instrument["min_bars_before_exit"]
+        sl_price = current_instrument.get("sl_price")
+        instrument_id = bar.bar_type.instrument_id
+        
+        if sl_price is not None and float(bar.close) <= sl_price:
+            close_qty = min(int(abs(position.quantity)), abs(position.quantity))
+            if close_qty > 0:
+                self.order_types.submit_short_market_order(instrument_id, int(close_qty))
+            self.reset_position_tracking(current_instrument)
+            current_instrument["prev_bar_close"] = float(bar.close)
             return
         
-        # Check if metrics trend following is enabled
-        if current_instrument.get("use_metrics_trend_following", False):
-            # Use divergence-based exit logic
-            difference = self.difference_topt_longshortratio(current_instrument)
-            if difference is not None:
-                min_diff = current_instrument.get("min_topt_difference_since_entry")
-                if min_diff is None or difference < min_diff:
-                    current_instrument["min_topt_difference_since_entry"] = difference
-                    min_diff = difference
-                
-                min_reversal_threshold = current_instrument["min_extreme_reversal_topt_longshortratio"]
-                
-                if (min_diff is not None and 
-                    (difference - min_diff) >= min_reversal_threshold):
+        if (float(bar.close) > entry_price and entry_price is not None and bars_since_entry >= min_bars_required):
+            if current_instrument.get("use_metrics_trend_following", False):
+                difference = self.difference_topt_longshortratio(current_instrument)
+                if difference is not None:
+                    max_diff = current_instrument.get("max_topt_difference_since_entry")
+                    if max_diff is None or difference > max_diff:
+                        current_instrument["max_topt_difference_since_entry"] = difference
+                        max_diff = difference
                     
-                    position = self.base_get_position(instrument_id)
-                    if position is not None and position.side == PositionSide.SHORT:
-                        close_qty = min(qty, abs(position.quantity))
-                        if close_qty <= 0:
-                            return
-                        self.order_types.submit_long_market_order(instrument_id, int(close_qty))
-                        self.log.info(f"{instrument_id}: Closed short - divergence minimum {min_diff:.3f}, current {difference:.3f}, increase {difference-min_diff:.3f} ≥ {min_reversal_threshold:.3f}", LogColor.GREEN)
-                        current_instrument["min_topt_difference_since_entry"] = None
-        else:
-            # Fallback: Close position when price crosses above EMA
-            self._check_ema_cross_exit(instrument_id, qty, current_instrument)
-    
-    def _check_ema_cross_exit(self, instrument_id: InstrumentId, qty: int, current_instrument: Dict[str, Any]):
-        prev_bar_close = current_instrument.get("prev_bar_close")
-        if prev_bar_close is None:
-            return
-            
-        entry_trend_ema_value = current_instrument["entry_trend_ema"].value
-        if entry_trend_ema_value is None:
-            return
-        current_price = prev_bar_close
-        ema_value = float(entry_trend_ema_value)
+                    min_reversal_threshold = current_instrument["long_min_extreme_reversal_topt_longshortratio"]
+                    
+                    if (max_diff is not None and (max_diff - difference) >= min_reversal_threshold):
+                        close_qty = min(int(abs(position.quantity)), abs(position.quantity))
+                        if close_qty > 0:
+                            self.order_types.submit_short_market_order(instrument_id, int(close_qty))
+                        current_instrument["max_topt_difference_since_entry"] = None
+            else:
+                entry_trend_ema_value = current_instrument["entry_trend_ema"].value
+                if entry_trend_ema_value is not None:
+                    current_price = float(bar.close)
+                    ema_value = float(entry_trend_ema_value)
+                    if current_price <= ema_value:
+                        close_qty = min(int(abs(position.quantity)), abs(position.quantity))
+                        if close_qty > 0:
+                            self.order_types.submit_short_market_order(instrument_id, int(close_qty))
+        current_instrument["prev_bar_close"] = float(bar.close)
+
+    def short_exit_logic(self, bar: Bar, current_instrument: Dict[str, Any], position):
+        current_instrument["bars_since_entry"] += 1
+        entry_price = current_instrument.get("short_entry_price")
+        if entry_price is None:
+            entry_price = float(position.avg_px_open) if hasattr(position, 'avg_px_open') else None
+        bars_since_entry = current_instrument["bars_since_entry"]
+        min_bars_required = current_instrument["min_bars_before_exit"]
+        sl_price = current_instrument.get("sl_price")
+        instrument_id = bar.bar_type.instrument_id
         
-        # Check if price crossed above EMA (bullish signal to exit short)
-        if current_price >= ema_value:
-            position = self.base_get_position(instrument_id)
-            if position is not None and position.side == PositionSide.SHORT:
-                close_qty = min(qty, abs(position.quantity))
-                if close_qty <= 0:
-                    return
+        if sl_price is not None and float(bar.close) >= sl_price:
+            close_qty = min(int(abs(position.quantity)), abs(position.quantity))
+            if close_qty > 0:
                 self.order_types.submit_long_market_order(instrument_id, int(close_qty))
-                self.log.info(f"{instrument_id}: Closed short - price {current_price:.4f} crossed above EMA {ema_value:.4f}", LogColor.GREEN)
-    
-    def sl_trend_following_setup(self, instrument_id: InstrumentId, qty: int):
-        position = self.base_get_position(instrument_id)
-        if position is None or position.quantity < 0:
+            self.reset_position_tracking(current_instrument)
+            current_instrument["prev_bar_close"] = float(bar.close)
             return
-        close_qty = min(qty, abs(position.quantity))
-        if close_qty <= 0:
-            return
-        self.order_types.submit_long_market_order(instrument_id, int(close_qty))
+        
+        if (float(bar.close) < entry_price and entry_price is not None and bars_since_entry >= min_bars_required):
+            if current_instrument.get("use_metrics_trend_following", False):
+                difference = self.difference_topt_longshortratio(current_instrument)
+                if difference is not None:
+                    min_diff = current_instrument.get("min_topt_difference_since_entry")
+                    if min_diff is None or difference < min_diff:
+                        current_instrument["min_topt_difference_since_entry"] = difference
+                        min_diff = difference
+                    
+                    min_reversal_threshold = current_instrument["short_min_extreme_reversal_topt_longshortratio"]
+                    
+                    if (min_diff is not None and (difference - min_diff) >= min_reversal_threshold):
+                        close_qty = min(int(abs(position.quantity)), abs(position.quantity))
+                        if close_qty > 0:
+                            self.order_types.submit_long_market_order(instrument_id, int(close_qty))
+                        current_instrument["min_topt_difference_since_entry"] = None
+            else:
+                entry_trend_ema_value = current_instrument["entry_trend_ema"].value
+                if entry_trend_ema_value is not None:
+                    current_price = float(bar.close)
+                    ema_value = float(entry_trend_ema_value)
+                    if current_price >= ema_value:
+                        close_qty = min(int(abs(position.quantity)), abs(position.quantity))
+                        if close_qty > 0:
+                            self.order_types.submit_long_market_order(instrument_id, int(close_qty))
+        current_instrument["prev_bar_close"] = float(bar.close)
+
+    def reset_position_tracking(self, current_instrument: Dict[str, Any]):
+        current_instrument["short_entry_price"] = None
+        current_instrument["long_entry_price"] = None
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["sl_price"] = None
+        current_instrument["min_topt_difference_since_entry"] = None
+        current_instrument["max_topt_difference_since_entry"] = None
+        current_instrument["in_short_position"] = False
+        current_instrument["in_long_position"] = False
 
     def update_visualizer_data(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         inst_id = bar.bar_type.instrument_id
@@ -375,11 +426,9 @@ class CoinShortStrategy(BaseStrategy,Strategy):
         instrument_id = position_closed.instrument_id
         current_instrument = self.instrument_dict.get(instrument_id)
         if current_instrument is not None:
-            current_instrument["short_entry_price"] = None
-            current_instrument["bars_since_entry"] = 0  
+            self.reset_position_tracking(current_instrument)
             current_instrument["bars_above_ema"] = 0
-            current_instrument["min_topt_difference_since_entry"] = None
-            current_instrument["in_short_position"] = False
+            current_instrument["bars_below_ema"] = 0
         return self.base_on_position_closed(position_closed)
 
     def on_error(self, error: Exception) -> None:
