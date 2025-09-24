@@ -22,17 +22,27 @@ class CoinFullConfig(StrategyConfig):
     max_leverage: float
     min_account_balance: float
     run_id: str
+    sl_atr_multiple: float = 2.0
+    atr_period: int = 14
 
     use_trend_following_setup: Dict[str, Any] = Field(
         default_factory=lambda: {   
             "enabled": True,
             "entry_trend_ema_period": 20,
             "min_bars_over_ema": 5,
-            "min_bars_under_ema": 5,
-            "sl_atr_multiple": 2,
-            "atr_period"    : 14
+            "min_bars_under_ema": 5
         }
     )
+
+    use_spike_reversion_system: Dict[str, Any] = Field(
+        default_factory=lambda: {  
+            "enabled": True,
+            "reversion_ema_period": 20,
+            "spike_atr_threshold": 2.5,
+            "spike_atr_period": 20
+        }
+    )
+
     use_min_coin_filters: Dict[str, Any] = Field(
         default_factory=lambda: {
             "enabled": True,
@@ -50,6 +60,8 @@ class CoinFullConfig(StrategyConfig):
         }
     )
 
+
+
     only_trade_rth: bool = False
     close_positions_on_stop: bool = True
 
@@ -64,27 +76,39 @@ class CoinFullStrategy(BaseStrategy,Strategy):
     
     def add_instrument_context(self):
         for current_instrument in self.instrument_dict.values():
-            
+            # risk management
+            current_instrument["atr"] = AverageTrueRange(self.config.atr_period)
+            current_instrument["sl_atr_multiple"] = self.config.sl_atr_multiple
+            current_instrument["sl_price"] = None
+
+            # spike basic
+            spike_config = self.config.use_spike_reversion_system
+            spike_atr_period = spike_config.get("spike_atr_period", 20)
+            reversion_ema_period = spike_config.get("reversion_ema_period", 20)
+            current_instrument["spike_atr"] = AverageTrueRange(spike_atr_period)
+            current_instrument["reversion_ema"] = ExponentialMovingAverage(reversion_ema_period)
+            current_instrument["spike_atr_threshold"] = spike_config.get("spike_atr_threshold", 2.5)
+
+            # trend basic
             trend_config = self.config.use_trend_following_setup
             entry_trend_ema_period = trend_config.get("entry_trend_ema_period", 20)
             current_instrument["entry_trend_ema"] = ExponentialMovingAverage(entry_trend_ema_period)
-            atr_period = trend_config.get("atr_period", 14)
-            current_instrument["atr"] = AverageTrueRange(atr_period)
-            current_instrument["sl_atr_multiple"] = trend_config.get("sl_atr_multiple", 2)
-            current_instrument["sl_price"] = None
             current_instrument["prev_bar_close"] = None
             current_instrument["short_entry_price"] = None
             current_instrument["long_entry_price"] = None
             current_instrument["bars_since_entry"] = 0
             current_instrument["min_bars_before_exit"] = 10
+            current_instrument["bars_above_ema"] = 0
+            current_instrument["bars_below_ema"] = 0
+            
+            # rth
             current_instrument["only_trade_rth"] = self.config.only_trade_rth
             current_instrument["rth_start_hour"] = 14
             current_instrument["rth_start_minute"] = 30
             current_instrument["rth_end_hour"] = 21
             current_instrument["rth_end_minute"] = 0
-            current_instrument["bars_above_ema"] = 0
-            current_instrument["bars_below_ema"] = 0
             
+            # l3 trend metrics
             l3_trend_metrics = self.config.use_metrics_trend_following
             current_instrument["use_metrics_trend_following"] = l3_trend_metrics.get("enabled", True)
             current_instrument["short_min_extreme_reversal_topt_longshortratio"] = l3_trend_metrics.get("short_min_extreme_reversal_topt_longshortratio", 0.4)
@@ -96,6 +120,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             current_instrument["in_short_position"] = False
             current_instrument["in_long_position"] = False
 
+            # coin filters
             coin_filters = self.config.use_min_coin_filters
             current_instrument["use_min_coin_filters"] = coin_filters.get("enabled", True)
             current_instrument["min_price"] = coin_filters.get("min_price", 0.1)
@@ -107,8 +132,16 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             current_instrument["rolling_24h_dollar_volume"] = 0.0
             current_instrument["latest_open_interest_value"] = 0.0
 
-            current_instrument["collector"].initialise_logging_indicator("entry_trend_ema", 0)
-            current_instrument["collector"].initialise_logging_indicator("toptrader_divergence", 1)
+            # visualize
+            visualization_index = 0
+            if self.config.use_trend_following_setup.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("entry_trend_ema", visualization_index)
+                visualization_index += 1
+            if self.config.use_spike_reversion_system.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("reversion_ema", visualization_index)
+                visualization_index += 1
+            if self.config.use_metrics_trend_following.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("toptrader_divergence", visualization_index)
 
 
     def on_start(self):
@@ -213,10 +246,13 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         self.update_rolling_24h_volume(bar, current_instrument)
         
         current_instrument["atr"].handle_bar(bar)
+        current_instrument["spike_atr"].handle_bar(bar)
         entry_trend_ema = current_instrument["entry_trend_ema"]
         entry_trend_ema.handle_bar(bar)
+        reversion_ema = current_instrument["reversion_ema"]
+        reversion_ema.handle_bar(bar)
 
-        if not entry_trend_ema.initialized:
+        if not entry_trend_ema.initialized or not reversion_ema.initialized:
             return
 
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
@@ -228,18 +264,6 @@ class CoinFullStrategy(BaseStrategy,Strategy):
 
         if not self.passes_coin_filters(bar, current_instrument):
             return
-
-        self.trend_following_setup(bar, current_instrument)
-        self.base_collect_bar_data(bar, current_instrument)
-        self.update_visualizer_data(bar, current_instrument)
-
-    def trend_following_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
-        if not self.config.use_trend_following_setup.get("enabled", True):
-            return
-        instrument_id = bar.bar_type.instrument_id
-        entry_trend_ema_value = current_instrument["entry_trend_ema"].value
-        if entry_trend_ema_value is None:
-            return
         
         position = self.base_get_position(instrument_id)
         
@@ -249,6 +273,82 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             
         if position is not None and position.side == PositionSide.LONG:
             self.long_exit_logic(bar, current_instrument, position)
+            return
+
+        self.spike_reversion_setup(bar, current_instrument)
+        self.trend_following_setup(bar, current_instrument)
+        self.base_collect_bar_data(bar, current_instrument)
+        self.update_visualizer_data(bar, current_instrument)
+
+    def spike_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
+        if not self.config.use_spike_reversion_system.get("enabled", True):
+            return
+        
+        spike_atr = current_instrument["spike_atr"]
+        reversion_ema = current_instrument["reversion_ema"]
+        
+        if not spike_atr.initialized or not reversion_ema.initialized:
+            return
+            
+        spike_atr_threshold = current_instrument["spike_atr_threshold"]
+        prev_close = current_instrument.get("prev_bar_close")
+        if prev_close is None:
+            prev_close = float(bar.open) if bar.open is not None else float(bar.close)
+        
+        bar_tr = max(
+            float(bar.high) - float(bar.low),
+            abs(float(bar.high) - prev_close),
+            abs(float(bar.low) - prev_close)
+        )
+        
+        if bar_tr > spike_atr_threshold:
+            reversion_ema_value = float(reversion_ema.value)
+            
+            if float(bar.close) > reversion_ema_value:
+                self.spike_short_entry_logic(bar, current_instrument)
+            elif float(bar.close) < reversion_ema_value:
+                self.spike_long_entry_logic(bar, current_instrument)
+
+    def spike_short_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any]):
+        instrument_id = bar.bar_type.instrument_id
+        trade_size_usdt = float(current_instrument["trade_size_usdt"])
+        qty = max(1, trade_size_usdt / float(bar.close))
+        
+        current_instrument["in_short_position"] = True
+        current_instrument["short_entry_price"] = float(bar.close)
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["min_topt_difference_since_entry"] = None
+        atr_value = current_instrument["atr"].value
+        sl_atr_multiple = current_instrument["sl_atr_multiple"]
+        if atr_value is not None:
+            current_instrument["sl_price"] = float(bar.close) + sl_atr_multiple * atr_value
+        else:
+            current_instrument["sl_price"] = None
+        self.order_types.submit_short_market_order(instrument_id, int(qty))
+
+    def spike_long_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any]):
+        instrument_id = bar.bar_type.instrument_id
+        trade_size_usdt = float(current_instrument["trade_size_usdt"])
+        qty = max(1, trade_size_usdt / float(bar.close))
+        
+        current_instrument["in_long_position"] = True
+        current_instrument["long_entry_price"] = float(bar.close)
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["max_topt_difference_since_entry"] = None
+        atr_value = current_instrument["atr"].value
+        sl_atr_multiple = current_instrument["sl_atr_multiple"]
+        if atr_value is not None:
+            current_instrument["sl_price"] = float(bar.close) - sl_atr_multiple * atr_value
+        else:
+            current_instrument["sl_price"] = None
+        self.order_types.submit_long_market_order(instrument_id, int(qty))
+                
+
+    def trend_following_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
+        if not self.config.use_trend_following_setup.get("enabled", True):
+            return
+        entry_trend_ema_value = current_instrument["entry_trend_ema"].value
+        if entry_trend_ema_value is None:
             return
         
         prev_bar_close = current_instrument.get("prev_bar_close")
@@ -262,16 +362,16 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         
         if bar_close_f >= ema_f:
             current_instrument["bars_above_ema"] += 1
-            self.long_entry_logic(bar, current_instrument, prev_bar_close_f, bar_close_f, ema_f)
+            self.trend_long_entry_logic(bar, current_instrument, prev_bar_close_f, bar_close_f, ema_f)
             current_instrument["bars_below_ema"] = 0
         else:
             current_instrument["bars_below_ema"] += 1
-            self.short_entry_logic(bar, current_instrument, prev_bar_close_f, bar_close_f, ema_f)
+            self.trend_short_entry_logic(bar, current_instrument, prev_bar_close_f, bar_close_f, ema_f)
             current_instrument["bars_above_ema"] = 0
         
         current_instrument["prev_bar_close"] = bar_close_f
 
-    def long_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_bar_close: float, bar_close: float, ema_value: float):
+    def trend_long_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_bar_close: float, bar_close: float, ema_value: float):
         min_bars_under_ema = self.config.use_trend_following_setup.get("min_bars_under_ema", 30)
         if (prev_bar_close < ema_value and bar_close >= ema_value and current_instrument["bars_below_ema"] >= min_bars_under_ema):
             instrument_id = bar.bar_type.instrument_id
@@ -290,7 +390,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 current_instrument["sl_price"] = None
             self.order_types.submit_long_market_order(instrument_id, int(qty))
 
-    def short_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_bar_close: float, bar_close: float, ema_value: float):
+    def trend_short_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_bar_close: float, bar_close: float, ema_value: float):
         min_bars_over_ema = self.config.use_trend_following_setup.get("min_bars_over_ema", 30)
         if (prev_bar_close >= ema_value and bar_close < ema_value and current_instrument["bars_above_ema"] >= min_bars_over_ema):
             instrument_id = bar.bar_type.instrument_id
@@ -413,11 +513,17 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         inst_id = bar.bar_type.instrument_id
         self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)
 
-        entry_trend_ema_value = float(current_instrument["entry_trend_ema"].value) if current_instrument["entry_trend_ema"].value is not None else None
-        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="entry_trend_ema", value=entry_trend_ema_value)
+        if self.config.use_trend_following_setup.get("enabled", False):
+            entry_trend_ema_value = float(current_instrument["entry_trend_ema"].value) if current_instrument["entry_trend_ema"].value is not None else None
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="entry_trend_ema", value=entry_trend_ema_value)
 
-        divergence = self.difference_topt_longshortratio(current_instrument)
-        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="toptrader_divergence", value=divergence)
+        if self.config.use_spike_reversion_system.get("enabled", False):
+            reversion_ema_value = float(current_instrument["reversion_ema"].value) if current_instrument["reversion_ema"].value is not None else None
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="reversion_ema", value=reversion_ema_value)
+
+        if self.config.use_metrics_trend_following.get("enabled", False):
+            divergence = self.difference_topt_longshortratio(current_instrument)
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="toptrader_divergence", value=divergence)
         
     def on_order_filled(self, order_filled) -> None:
         return self.base_on_order_filled(order_filled)

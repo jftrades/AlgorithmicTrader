@@ -48,6 +48,9 @@ close_positions_on_stop: [true]
 
 only_trade_rth: false
 
+sl_atr_multiple: 2
+atr_period: 14
+
 use_min_coin_filters:
   enabled: true
   min_price: 0.25
@@ -55,12 +58,16 @@ use_min_coin_filters:
   min_sum_open_interest_value: 1000000  # $1M minimum open interest value
 
 use_trend_following_setup:
-  enabled: true
+  enabled: false
   entry_trend_ema_period: 120
   min_bars_over_ema: 35
   min_bars_under_ema: 35
-  sl_atr_multiple: 2
-  atr_period: 14
+
+use_spike_reversion_system:
+  enabled: true
+  reversion_ema_period: 35
+  spike_atr_threshold: 2.5
+  spike_atr_period: 20
 
 use_metrics_trend_following:
   enabled: false
