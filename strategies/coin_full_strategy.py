@@ -39,7 +39,9 @@ class CoinFullConfig(StrategyConfig):
             "enabled": True,
             "reversion_ema_period": 20,
             "spike_atr_threshold": 2.5,
-            "spike_atr_period": 20
+            "spike_atr_period": 20,
+            "min_bars_spike_over_ema": 35,
+            "min_bars_spike_under_ema": 35
         }
     )
 
@@ -91,7 +93,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
 
             # trend basic
             trend_config = self.config.use_trend_following_setup
-            entry_trend_ema_period = trend_config.get("entry_trend_ema_period", 20)
+            entry_trend_ema_period = trend_config.get("entry_trend_ema_period", 120)
             current_instrument["entry_trend_ema"] = ExponentialMovingAverage(entry_trend_ema_period)
             current_instrument["prev_bar_close"] = None
             current_instrument["short_entry_price"] = None
@@ -100,6 +102,8 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             current_instrument["min_bars_before_exit"] = 10
             current_instrument["bars_above_ema"] = 0
             current_instrument["bars_below_ema"] = 0
+            current_instrument["bars_above_reversion_ema"] = 0
+            current_instrument["bars_below_reversion_ema"] = 0
             
             # rth
             current_instrument["only_trade_rth"] = self.config.only_trade_rth
@@ -139,6 +143,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 visualization_index += 1
             if self.config.use_spike_reversion_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("reversion_ema", visualization_index)
+                current_instrument["collector"].initialise_logging_indicator("entry_trend_ema", visualization_index)
                 visualization_index += 1
             if self.config.use_metrics_trend_following.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("toptrader_divergence", visualization_index)
@@ -252,7 +257,13 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         reversion_ema = current_instrument["reversion_ema"]
         reversion_ema.handle_bar(bar)
 
-        if not entry_trend_ema.initialized or not reversion_ema.initialized:
+        self.base_collect_bar_data(bar, current_instrument)
+        self.update_visualizer_data(bar, current_instrument)
+
+        if not entry_trend_ema.initialized:
+            return
+        
+        if self.config.use_spike_reversion_system.get("enabled", False) and not reversion_ema.initialized:
             return
 
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
@@ -277,8 +288,6 @@ class CoinFullStrategy(BaseStrategy,Strategy):
 
         self.spike_reversion_setup(bar, current_instrument)
         self.trend_following_setup(bar, current_instrument)
-        self.base_collect_bar_data(bar, current_instrument)
-        self.update_visualizer_data(bar, current_instrument)
 
     def spike_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_spike_reversion_system.get("enabled", True):
@@ -289,6 +298,16 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         
         if not spike_atr.initialized or not reversion_ema.initialized:
             return
+            
+        reversion_ema_value = float(reversion_ema.value)
+        bar_close = float(bar.close)
+        
+        if bar_close >= reversion_ema_value:
+            current_instrument["bars_above_reversion_ema"] += 1
+            current_instrument["bars_below_reversion_ema"] = 0
+        else:
+            current_instrument["bars_below_reversion_ema"] += 1
+            current_instrument["bars_above_reversion_ema"] = 0
             
         spike_atr_threshold = current_instrument["spike_atr_threshold"]
         prev_close = current_instrument.get("prev_bar_close")
@@ -301,12 +320,19 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             abs(float(bar.low) - prev_close)
         )
         
-        if bar_tr > spike_atr_threshold:
-            reversion_ema_value = float(reversion_ema.value)
+        spike_atr_value = current_instrument["spike_atr"].value
+        if spike_atr_value is None or spike_atr_value <= 0:
+            return
             
-            if float(bar.close) > reversion_ema_value:
+        if bar_tr < (spike_atr_threshold * spike_atr_value):
+            min_bars_spike_over_ema = self.config.use_spike_reversion_system.get("min_bars_spike_over_ema", 35)
+            min_bars_spike_under_ema = self.config.use_spike_reversion_system.get("min_bars_spike_under_ema", 35)
+            
+            if (bar_close > reversion_ema_value and 
+                current_instrument["bars_above_reversion_ema"] >= min_bars_spike_over_ema):
                 self.spike_short_entry_logic(bar, current_instrument)
-            elif float(bar.close) < reversion_ema_value:
+            elif (bar_close < reversion_ema_value and 
+                  current_instrument["bars_below_reversion_ema"] >= min_bars_spike_under_ema):
                 self.spike_long_entry_logic(bar, current_instrument)
 
     def spike_short_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any]):
@@ -535,6 +561,8 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             self.reset_position_tracking(current_instrument)
             current_instrument["bars_above_ema"] = 0
             current_instrument["bars_below_ema"] = 0
+            current_instrument["bars_above_reversion_ema"] = 0
+            current_instrument["bars_below_reversion_ema"] = 0
         return self.base_on_position_closed(position_closed)
 
     def on_error(self, error: Exception) -> None:
