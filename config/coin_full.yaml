@@ -1,6 +1,6 @@
 # in here will be the yaml for the 14 day listing short strategy
-strategy_path: "strategies.coin_short_strategy:CoinShortStrategy"
-config_path: "strategies.coin_short_strategy:CoinShortConfig"
+strategy_path: "strategies.coin_full_strategy:CoinFullStrategy"
+config_path: "strategies.coin_full_strategy:CoinFullConfig"
 
 visualize: true
 venue: "BINANCE"

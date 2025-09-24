@@ -18,7 +18,7 @@ from core.visualizing.dashboard.main import launch_dashbaord
 
 #STRAT PARAMETER
 
-yaml_name = "coin_short.yaml"
+yaml_name = "coin_full.yaml"
 
 # ------------------------------------------------------------
 # YAML laden & vorbereiten

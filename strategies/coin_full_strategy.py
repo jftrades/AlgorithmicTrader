@@ -17,7 +17,7 @@ from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 from data.download.crypto_downloads.custom_class.metrics_data import MetricsData
 
-class CoinShortConfig(StrategyConfig):
+class CoinFullConfig(StrategyConfig):
     instruments: List[dict]  
     max_leverage: float
     min_account_balance: float
@@ -54,8 +54,8 @@ class CoinShortConfig(StrategyConfig):
     close_positions_on_stop: bool = True
 
 
-class CoinShortStrategy(BaseStrategy,Strategy):
-    def __init__(self, config: CoinShortConfig):
+class CoinFullStrategy(BaseStrategy,Strategy):
+    def __init__(self, config: CoinFullConfig):
         self.instrument_dict: Dict[InstrumentId, Dict[str, Any]] = {}
         super().__init__(config)
         self.risk_manager = RiskManager(config)
