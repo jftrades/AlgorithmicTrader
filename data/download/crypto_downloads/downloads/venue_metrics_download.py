@@ -2,6 +2,7 @@ from pathlib import Path
 from datetime import datetime, date
 import shutil
 import pandas as pd
+import os  # NEU
 from binance_historical_data import BinanceDataDumper
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.core.datetime import dt_to_unix_nanos, unix_nanos_to_iso8601
@@ -20,6 +21,7 @@ class VenueMetricsDownloader:
         save_in_catalog: bool = True,
         download_if_missing: bool = True,
         remove_processed: bool = True,  # NEU
+        csv_output_subdir: str | None = None,  # NEU
     ):
         self.symbol = symbol              # z.B. SOLUSDT-PERP
         self.base_symbol = symbol.replace("-PERP", "")
@@ -32,6 +34,7 @@ class VenueMetricsDownloader:
         self.save_in_catalog = save_in_catalog
         self.download_if_missing = download_if_missing
         self.remove_processed = remove_processed  # NEU
+        self.csv_output_subdir = csv_output_subdir  # NEU
 
         # NEU: Cache Root
         self.cache_dir = self.base_data_dir / "cache"
@@ -150,7 +153,8 @@ class VenueMetricsDownloader:
             catalog.write_data(records)
 
         if self.save_as_csv:
-            out_dir = self.base_data_dir / "csv_data" / self.symbol
+            subdir = self.csv_output_subdir or os.getenv("CSV_OUTPUT_SUBDIR") or "csv_data"  # NEU
+            out_dir = self.base_data_dir / subdir / self.symbol
             out_dir.mkdir(parents=True, exist_ok=True)
             out_path = out_dir / "METRICS.csv"
             pd.DataFrame(csv_rows).to_csv(out_path, index=False)

@@ -3,8 +3,8 @@ import pandas as pd
 import shutil
 
 BASE_DATA_DIR = Path(__file__).resolve().parents[3] / "DATA_STORAGE"
-INPUT_ROOT = BASE_DATA_DIR / "csv_data"
-OUTPUT_ROOT = BASE_DATA_DIR / "csv_data_processed"
+INPUT_ROOT = BASE_DATA_DIR / "csv_test_small"
+OUTPUT_ROOT = BASE_DATA_DIR / "csv_test_small_processed"
 FNG_DIR_NAME = "FNG-INDEX.BINANCE"
 FNG_FILE = INPUT_ROOT / FNG_DIR_NAME / "FNG.csv"
 

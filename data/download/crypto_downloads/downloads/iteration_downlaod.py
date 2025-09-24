@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import csv
 import json
 import time
+import os  # NEU
 
 from main_download import CryptoDataOrchestrator
 from new_future_list_download import BinancePerpetualFuturesDiscovery  # NEU
@@ -13,6 +14,10 @@ from fear_and_greed_download import FearAndGreedDownloader  # NEU
 # ========================
 BASE_DATA_DIR = Path(__file__).resolve().parents[3] / "DATA_STORAGE"
 FUTURES_CSV = BASE_DATA_DIR / "project_future_scraper" / "new_binance_perpetual_futures.csv"
+
+# NEU: Konfigurierbarer Zielordner (statt fest 'csv_data')
+CSV_OUTPUT_SUBDIR = "csv_data_test_1234"  # bei Bedarf z.B. "csv_data_alt" setzen
+os.environ["CSV_OUTPUT_SUBDIR"] = CSV_OUTPUT_SUBDIR  # für Downloader verfügbar
 
 RUN_DISCOVERY = True                 # NEU: führe Discovery vor Iteration aus
 DISCOVERY_WINDOW_START = "2025-01-01"
@@ -75,6 +80,7 @@ def run_fng_once():
             save_in_catalog=SAVE_IN_CATALOG,
             download_if_missing=True,
             remove_processed=True,
+            csv_output_subdir=CSV_OUTPUT_SUBDIR,  # NEU
         )
         _fng_result = dl.run()
         print(f"[OK] Fear & Greed geladen: records={_fng_result.get('records')}")
@@ -132,6 +138,7 @@ def iterate_symbols():
             download_if_missing=DOWNLOAD_IF_MISSING,
             run_fng=False,                    # NEU: pro Symbol deaktiviert
             fng_instrument_id=FNG_INSTRUMENT_ID,
+            csv_output_subdir=CSV_OUTPUT_SUBDIR,  # NEU
         )
         # NEU: Statt orch.run() modulare Ausführung mit sichtbaren Sektionen
         results = {}
