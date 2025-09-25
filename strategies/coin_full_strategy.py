@@ -27,7 +27,7 @@ class CoinFullConfig(StrategyConfig):
     # Exit Methods Configuration
     use_close_ema: Dict[str, Any] = Field(
         default_factory=lambda: {
-            "enabled": True,
+            "enabled": False,
             "exit_trend_ema_period": 120,
             "min_bars_over_ema": 35,
             "min_bars_under_ema": 35
@@ -58,15 +58,26 @@ class CoinFullConfig(StrategyConfig):
     )
 
     # Entry Methods Configuration
+    use_min_coin_filters: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": True,
+            "min_price": 0.25,
+            "min_24h_volume": 50000,
+            "min_sum_open_interest_value": 1000000
+        }
+    )
+
     use_trend_following_setup: Dict[str, Any] = Field(
-        default_factory=lambda: {   
-            "enabled": False,
-            "entry_trend_ema_period": 120
+        default_factory=lambda: {
+            "enabled": True,
+            "entry_trend_ema_period": 40,
+            "min_bars_under_ema": 20,
+            "min_bars_over_ema": 20
         }
     )
 
     use_spike_reversion_system: Dict[str, Any] = Field(
-        default_factory=lambda: {  
+        default_factory=lambda: {
             "enabled": False,
             "reversion_ema_period": 25,
             "spike_atr_threshold": 0.4,
@@ -78,19 +89,10 @@ class CoinFullConfig(StrategyConfig):
 
     use_rsi_simple_reversion_system: Dict[str, Any] = Field(
         default_factory=lambda: {
-            "enabled": True,
+            "enabled": False,
             "rsi_period": 20,
             "rsi_overbought": 0.7,
             "rsi_oversold": 0.3
-        }
-    )
-
-    use_min_coin_filters: Dict[str, Any] = Field(
-        default_factory=lambda: {
-            "enabled": True,
-            "min_price": 0.25,
-            "min_24h_volume": 50000,
-            "min_sum_open_interest_value": 1000000
         }
     )
 
@@ -117,7 +119,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             # spike basic
             spike_config = self.config.use_spike_reversion_system
             spike_atr_period = spike_config.get("spike_atr_period", 20)
-            reversion_ema_period = spike_config.get("reversion_ema_period", 20)
+            reversion_ema_period = spike_config.get("reversion_ema_period", 25)
             current_instrument["spike_atr"] = AverageTrueRange(spike_atr_period)
             current_instrument["reversion_ema"] = ExponentialMovingAverage(reversion_ema_period)
             current_instrument["spike_atr_threshold"] = spike_config.get("spike_atr_threshold", 2.5)
@@ -131,13 +133,17 @@ class CoinFullStrategy(BaseStrategy,Strategy):
 
             # trend basic
             trend_config = self.config.use_trend_following_setup
-            entry_trend_ema_period = trend_config.get("entry_trend_ema_period", 120)
+            entry_trend_ema_period = trend_config.get("entry_trend_ema_period", 40)
             current_instrument["entry_trend_ema"] = ExponentialMovingAverage(entry_trend_ema_period)
             
             # exit methods
             exit_config = self.config.use_close_ema
             exit_trend_ema_period = exit_config.get("exit_trend_ema_period", 120)
             current_instrument["exit_trend_ema"] = ExponentialMovingAverage(exit_trend_ema_period)
+            if self.config.use_rsi_as_exit.get("enabled", False):
+                rsi_exit_config = self.config.use_rsi_as_exit
+                rsi_exit_period = rsi_exit_config.get("rsi_period", 20)
+                current_instrument["rsi_exit"] = RelativeStrengthIndex(rsi_exit_period)
             current_instrument["prev_bar_close"] = None
             current_instrument["short_entry_price"] = None
             current_instrument["long_entry_price"] = None
@@ -176,16 +182,19 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             current_instrument["rolling_24h_dollar_volume"] = 0.0
             current_instrument["latest_open_interest_value"] = 0.0
 
-            # visualize
-            current_instrument["collector"].initialise_logging_indicator("entry_trend_ema", 0)
-            current_instrument["collector"].initialise_logging_indicator("exit_trend_ema", 2)
-
-            if self.config.use_rsi_simple_reversion_system.get("enabled", False):
-                current_instrument["collector"].initialise_logging_indicator("rsi", 1)
+            # visualize - only show indicators for enabled systems
+            if self.config.use_trend_following_setup.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("entry_trend_ema", 0)
+            if self.config.use_close_ema.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("exit_trend_ema", 0)
             if self.config.use_spike_reversion_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("reversion_ema", 0)
+            if self.config.use_rsi_simple_reversion_system.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("rsi", 1)
+            if self.config.use_rsi_as_exit.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("rsi_exit", 1)
 
-    def on_start(self):
+    def on_start(self): 
         super().on_start()
         self._subscribe_to_metrics_data()
         
@@ -295,26 +304,50 @@ class CoinFullStrategy(BaseStrategy,Strategy):
     
         self.update_rolling_24h_volume(bar, current_instrument)
         
+        # Always handle ATR (needed for stop loss)
         current_instrument["atr"].handle_bar(bar)
-        current_instrument["spike_atr"].handle_bar(bar)
-        entry_trend_ema = current_instrument["entry_trend_ema"]
-        entry_trend_ema.handle_bar(bar)
-        reversion_ema = current_instrument["reversion_ema"]
-        reversion_ema.handle_bar(bar)
-        rsi = current_instrument["rsi"]
-        rsi.handle_bar(bar)
+        
+        # Only handle indicators for enabled systems
+        if self.config.use_trend_following_setup.get("enabled", False):
+            entry_trend_ema = current_instrument["entry_trend_ema"]
+            entry_trend_ema.handle_bar(bar)
+        
+        if self.config.use_close_ema.get("enabled", False):
+            exit_trend_ema = current_instrument["exit_trend_ema"]
+            exit_trend_ema.handle_bar(bar)
+        
+        if self.config.use_spike_reversion_system.get("enabled", False):
+            current_instrument["spike_atr"].handle_bar(bar)
+            reversion_ema = current_instrument["reversion_ema"]
+            reversion_ema.handle_bar(bar)
+        
+        if self.config.use_rsi_simple_reversion_system.get("enabled", False):
+            rsi = current_instrument["rsi"]
+            rsi.handle_bar(bar)
+        
+        if self.config.use_rsi_as_exit.get("enabled", False):
+            rsi_exit = current_instrument.get("rsi_exit")
+            if rsi_exit:
+                rsi_exit.handle_bar(bar)
 
         self.base_collect_bar_data(bar, current_instrument)
         self.update_visualizer_data(bar, current_instrument)
 
-        if not entry_trend_ema.initialized:
-            return
+        # Only check initialization for enabled systems
+        if self.config.use_trend_following_setup.get("enabled", False):
+            entry_trend_ema = current_instrument["entry_trend_ema"]
+            if not entry_trend_ema.initialized:
+                return
         
-        if self.config.use_spike_reversion_system.get("enabled", False) and not reversion_ema.initialized:
-            return
+        if self.config.use_spike_reversion_system.get("enabled", False):
+            reversion_ema = current_instrument["reversion_ema"]
+            if not reversion_ema.initialized:
+                return
             
-        if self.config.use_rsi_simple_reversion_system.get("enabled", False) and not rsi.initialized:
-            return
+        if self.config.use_rsi_simple_reversion_system.get("enabled", False):
+            rsi = current_instrument["rsi"]
+            if not rsi.initialized:
+                return
 
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
         if open_orders:
@@ -341,7 +374,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         self.trend_following_setup(bar, current_instrument)
 
     def spike_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
-        if not self.config.use_spike_reversion_system.get("enabled", True):
+        if not self.config.use_spike_reversion_system.get("enabled", False):
             return
         
         spike_atr = current_instrument["spike_atr"]
@@ -376,8 +409,8 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             return
             
         if bar_tr < (spike_atr_threshold * spike_atr_value):
-            min_bars_spike_over_ema = self.config.use_spike_reversion_system.get("min_bars_spike_over_ema", 35)
-            min_bars_spike_under_ema = self.config.use_spike_reversion_system.get("min_bars_spike_under_ema", 35)
+            min_bars_spike_over_ema = self.config.use_spike_reversion_system.get("min_bars_spike_over_ema", 12)
+            min_bars_spike_under_ema = self.config.use_spike_reversion_system.get("min_bars_spike_under_ema", 12)
             
             if (bar_close > reversion_ema_value and 
                 current_instrument["bars_above_reversion_ema"] >= min_bars_spike_over_ema):
@@ -476,7 +509,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         self.order_types.submit_long_market_order(instrument_id, int(qty))
 
     def trend_following_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
-        if not self.config.use_trend_following_setup.get("enabled", True):
+        if not self.config.use_trend_following_setup.get("enabled", False):
             return
         entry_trend_ema_value = current_instrument["entry_trend_ema"].value
         if entry_trend_ema_value is None:
@@ -503,7 +536,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         current_instrument["prev_bar_close"] = bar_close_f
 
     def trend_long_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_bar_close: float, bar_close: float, ema_value: float):
-        min_bars_under_ema = self.config.use_trend_following_setup.get("min_bars_under_ema", 30)
+        min_bars_under_ema = self.config.use_trend_following_setup.get("min_bars_under_ema", 20)
         if (prev_bar_close < ema_value and bar_close >= ema_value and current_instrument["bars_below_ema"] >= min_bars_under_ema):
             instrument_id = bar.bar_type.instrument_id
             trade_size_usdt = float(current_instrument["trade_size_usdt"])
@@ -521,7 +554,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             self.order_types.submit_long_market_order(instrument_id, int(qty))
 
     def trend_short_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_bar_close: float, bar_close: float, ema_value: float):
-        min_bars_over_ema = self.config.use_trend_following_setup.get("min_bars_over_ema", 30)
+        min_bars_over_ema = self.config.use_trend_following_setup.get("min_bars_over_ema", 20)
         if (prev_bar_close >= ema_value and bar_close < ema_value and current_instrument["bars_above_ema"] >= min_bars_over_ema):
             instrument_id = bar.bar_type.instrument_id
             trade_size_usdt = float(current_instrument["trade_size_usdt"])
@@ -593,6 +626,10 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         
         if self.config.use_close_ema.get("enabled", False):
             if self.check_ema_exit_short(bar, current_instrument):
+                should_exit = True
+        
+        if not should_exit and self.config.use_rsi_as_exit.get("enabled", False):
+            if self.check_rsi_exit_short(bar, current_instrument):
                 should_exit = True
         
         if not should_exit and self.config.use_topt_ratio_as_exit.get("enabled", False):
@@ -731,6 +768,28 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         # Exit if target is reached
         return current_price <= target_price
 
+    def check_rsi_exit_long(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
+        rsi_exit = current_instrument.get("rsi_exit")
+        if not rsi_exit or not rsi_exit.initialized:
+            return False
+        
+        rsi_value = float(rsi_exit.value)
+        rsi_threshold = self.config.use_rsi_as_exit.get("rsi_exit_threshold", 0.5)
+        
+        # Exit long position when RSI crosses below threshold (momentum weakening)
+        return rsi_value <= rsi_threshold
+
+    def check_rsi_exit_short(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
+        rsi_exit = current_instrument.get("rsi_exit")
+        if not rsi_exit or not rsi_exit.initialized:
+            return False
+        
+        rsi_value = float(rsi_exit.value)
+        rsi_threshold = self.config.use_rsi_as_exit.get("rsi_exit_threshold", 0.5)
+        
+        # Exit short position when RSI crosses above threshold (momentum weakening)
+        return rsi_value >= rsi_threshold
+
     def update_visualizer_data(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         inst_id = bar.bar_type.instrument_id
         self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)
@@ -743,15 +802,23 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if self.config.use_close_ema.get("enabled", False):
             exit_trend_ema_value = float(current_instrument["exit_trend_ema"].value) if current_instrument["exit_trend_ema"].value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="exit_trend_ema", value=exit_trend_ema_value)
-
-        # System-specific indicators
-        if self.config.use_rsi_simple_reversion_system.get("enabled", False):
-            rsi_value = float(current_instrument["rsi"].value) if current_instrument["rsi"].value is not None else None
-            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="rsi", value=rsi_value)
-
+        
+        # Spike reversion EMA (position 0)
         if self.config.use_spike_reversion_system.get("enabled", False):
             reversion_ema_value = float(current_instrument["reversion_ema"].value) if current_instrument["reversion_ema"].value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="reversion_ema", value=reversion_ema_value)
+
+        # RSI for reversion system (position 1)
+        if self.config.use_rsi_simple_reversion_system.get("enabled", False):
+            rsi_value = float(current_instrument["rsi"].value) if current_instrument["rsi"].value is not None else None
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="rsi", value=rsi_value)
+        
+        # RSI for exit method (position 1)
+        if self.config.use_rsi_as_exit.get("enabled", False):
+            rsi_exit = current_instrument.get("rsi_exit")
+            if rsi_exit and rsi_exit.value is not None:
+                rsi_exit_value = float(rsi_exit.value)
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="rsi_exit", value=rsi_exit_value)
         
     def on_order_filled(self, order_filled) -> None:
         return self.base_on_order_filled(order_filled)

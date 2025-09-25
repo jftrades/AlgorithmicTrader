@@ -54,13 +54,13 @@ atr_period: 14
 
 # exit methods:
 use_close_ema:
-  enabled: false
+  enabled: true
   exit_trend_ema_period: 120
   min_bars_over_ema: 35
   min_bars_under_ema: 35
 
 use_fixed_rr:
-  enabled: true
+  enabled: false
   rr_tp_ratio: 1.5 # in relation to "exit methods"
 
 use_rsi_as_exit:
@@ -78,10 +78,10 @@ use_min_coin_filters:
   enabled: true
   min_price: 0.25
   min_24h_volume: 50000
-  min_sum_open_interest_value: 1000000  # $1M minimum open interest value
+  min_sum_open_interest_value: 1000000  # $1M minimum open interest value 
 
 use_trend_following_setup:
-  enabled: true
+  enabled: false
   entry_trend_ema_period: 40
   min_bars_under_ema: 20
   min_bars_over_ema: 20
@@ -95,7 +95,7 @@ use_spike_reversion_system:
   min_bars_spike_under_ema: 12
 
 use_rsi_simple_reversion_system:
-  enabled: false
+  enabled: true
   rsi_period: 20
   rsi_overbought: 0.7
   rsi_oversold: 0.3  # Exit when divergence decreases by this amount from maximum extreme
