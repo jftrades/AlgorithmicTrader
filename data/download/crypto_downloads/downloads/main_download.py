@@ -16,7 +16,7 @@ from fear_and_greed_download import FearAndGreedDownloader  # NEU
 SYMBOL = "BTCUSDT-PERP"
 START_DATE = "2024-01-01"
 END_DATE = "2025-09-01"
-BASE_DATA_DIR = str(Path(__file__).resolve().parents[3] / "DATA_STORAGE")
+BASE_DATA_DIR = str(Path(__file__).resolve().parents[3] / "DATA_STORAGE" / "csv_data_catalog")
 
 RUN_LUNAR = False
 RUN_VENUE = False

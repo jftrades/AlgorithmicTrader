@@ -12,19 +12,19 @@ from fear_and_greed_download import FearAndGreedDownloader  # NEU
 # ========================
 # Konfiguration
 # ========================
-BASE_DATA_DIR = Path(__file__).resolve().parents[3] / "DATA_STORAGE"
+BASE_DATA_DIR = Path(__file__).resolve().parents[3] / "DATA_STORAGE" / "csv_data_catalog"
 FUTURES_CSV = BASE_DATA_DIR / "project_future_scraper" / "new_binance_perpetual_futures.csv"
 
 # NEU: Konfigurierbarer Zielordner (statt fest 'csv_data')
-CSV_OUTPUT_SUBDIR = "csv_data_test_1234"  # bei Bedarf z.B. "csv_data_alt" setzen
+CSV_OUTPUT_SUBDIR = "csv_data_all"  # bei Bedarf z.B. "csv_data_alt" setzen
 os.environ["CSV_OUTPUT_SUBDIR"] = CSV_OUTPUT_SUBDIR  # für Downloader verfügbar
 
 RUN_DISCOVERY = True                 # NEU: führe Discovery vor Iteration aus
-DISCOVERY_WINDOW_START = "2025-01-01"
-DISCOVERY_WINDOW_END = "2025-01-10"
+DISCOVERY_WINDOW_START = "2024-01-01"
+DISCOVERY_WINDOW_END = "2025-09-24"
 DISCOVERY_ONLY_USDT = True
 
-RANGE_DAYS = 2
+RANGE_DAYS = 28
 MAX_SYMBOLS = None
 SLEEP_SECONDS = 2
 
