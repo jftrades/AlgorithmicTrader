@@ -9,6 +9,7 @@ from nautilus_trader.model.enums import PositionSide
 from nautilus_trader.common.enums import LogColor
 from pydantic import Field
 from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
+from nautilus_trader.indicators.macd import MovingAverageConvergenceDivergence
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 from nautilus_trader.indicators.atr import AverageTrueRange
 from tools.help_funcs.base_strategy import BaseStrategy
@@ -96,7 +97,14 @@ class CoinFullConfig(StrategyConfig):
         }
     )
 
-
+    use_macd_simple_reversion_system: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "macd_fast_period": 12,
+            "macd_slow_period": 26,
+            "macd_signal_period": 9
+        }
+    )   
 
     only_trade_rth: bool = False
     close_positions_on_stop: bool = True
@@ -123,6 +131,18 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             current_instrument["spike_atr"] = AverageTrueRange(spike_atr_period)
             current_instrument["reversion_ema"] = ExponentialMovingAverage(reversion_ema_period)
             current_instrument["spike_atr_threshold"] = spike_config.get("spike_atr_threshold", 2.5)
+
+            # macd simple reversion
+            macd_config = self.config.use_macd_simple_reversion_system
+            macd_fast_period = macd_config.get("macd_fast_period", 12)
+            macd_slow_period = macd_config.get("macd_slow_period", 26)
+            macd_signal_period = macd_config.get("macd_signal_period", 9)
+            # Create MACD line (fast MA - slow MA)
+            current_instrument["macd"] = MovingAverageConvergenceDivergence(macd_fast_period, macd_slow_period)
+            # Create signal line (EMA of MACD line)
+            current_instrument["macd_signal_ema"] = ExponentialMovingAverage(macd_signal_period)
+            current_instrument["prev_macd_line"] = None
+            current_instrument["prev_macd_signal"] = None
 
             # rsi simple reversion
             rsi_config = self.config.use_rsi_simple_reversion_system
@@ -191,6 +211,9 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 current_instrument["collector"].initialise_logging_indicator("reversion_ema", 0)
             if self.config.use_rsi_simple_reversion_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("rsi", 1)
+            if self.config.use_macd_simple_reversion_system.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("macd", 1)
+                current_instrument["collector"].initialise_logging_indicator("macd_signal", 1)
             if self.config.use_rsi_as_exit.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("rsi_exit", 1)
 
@@ -324,7 +347,15 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if self.config.use_rsi_simple_reversion_system.get("enabled", False):
             rsi = current_instrument["rsi"]
             rsi.handle_bar(bar)
-        
+
+        if self.config.use_macd_simple_reversion_system.get("enabled", False):
+            macd = current_instrument["macd"]
+            macd.handle_bar(bar)
+            # Update signal line EMA with MACD value
+            if macd.initialized:
+                macd_signal_ema = current_instrument["macd_signal_ema"]
+                macd_signal_ema.update_raw(macd.value)
+
         if self.config.use_rsi_as_exit.get("enabled", False):
             rsi_exit = current_instrument.get("rsi_exit")
             if rsi_exit:
@@ -333,7 +364,6 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         self.base_collect_bar_data(bar, current_instrument)
         self.update_visualizer_data(bar, current_instrument)
 
-        # Only check initialization for enabled systems
         if self.config.use_trend_following_setup.get("enabled", False):
             entry_trend_ema = current_instrument["entry_trend_ema"]
             if not entry_trend_ema.initialized:
@@ -347,6 +377,12 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if self.config.use_rsi_simple_reversion_system.get("enabled", False):
             rsi = current_instrument["rsi"]
             if not rsi.initialized:
+                return
+
+        if self.config.use_macd_simple_reversion_system.get("enabled", False):
+            macd = current_instrument["macd"]
+            macd_signal_ema = current_instrument["macd_signal_ema"]
+            if not macd.initialized or not macd_signal_ema.initialized:
                 return
 
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
@@ -369,6 +405,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             self.long_exit_logic(bar, current_instrument, position)
             return
 
+        self.macd_simple_reversion_setup(bar, current_instrument)
         self.spike_reversion_setup(bar, current_instrument)
         self.rsi_simple_reversion_setup(bar, current_instrument)
         self.trend_following_setup(bar, current_instrument)
@@ -507,6 +544,68 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         else:
             current_instrument["sl_price"] = None
         self.order_types.submit_long_market_order(instrument_id, int(qty))
+
+    def macd_simple_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
+        if not self.config.use_macd_simple_reversion_system.get("enabled", False):
+            return
+            
+        macd = current_instrument["macd"]
+        macd_signal_ema = current_instrument["macd_signal_ema"]
+        
+        if not macd.initialized or not macd_signal_ema.initialized:
+            return
+        
+        macd_line = float(macd.value)              # MACD line (fast line)
+        signal_line = float(macd_signal_ema.value) # Signal line (slow line)
+        
+        prev_macd = current_instrument.get("prev_macd_line")
+        prev_signal = current_instrument.get("prev_macd_signal")
+        
+        if prev_macd is not None and prev_signal is not None:            
+            if (prev_macd <= prev_signal and macd_line > signal_line and 
+                macd_line < 0 and signal_line < 0):
+                self.enter_long_macd_reversion(bar, current_instrument)
+            
+            elif (prev_macd >= prev_signal and macd_line < signal_line and
+                  macd_line > 0 and signal_line > 0):
+                self.enter_short_macd_reversion(bar, current_instrument)
+        
+        current_instrument["prev_macd_line"] = macd_line
+        current_instrument["prev_macd_signal"] = signal_line
+
+    def enter_long_macd_reversion(self, bar: Bar, current_instrument: Dict[str, Any]):
+        instrument_id = bar.bar_type.instrument_id
+        trade_size_usdt = float(current_instrument["trade_size_usdt"])
+        qty = max(1, trade_size_usdt / float(bar.close))
+        
+        current_instrument["in_long_position"] = True
+        current_instrument["long_entry_price"] = float(bar.close)
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["max_topt_difference_since_entry"] = None
+        atr_value = current_instrument["atr"].value
+        sl_atr_multiple = current_instrument["sl_atr_multiple"]
+        if atr_value is not None:
+            current_instrument["sl_price"] = float(bar.close) - sl_atr_multiple * atr_value
+        else:
+            current_instrument["sl_price"] = None
+        self.order_types.submit_long_market_order(instrument_id, int(qty))
+
+    def enter_short_macd_reversion(self, bar: Bar, current_instrument: Dict[str, Any]):
+        instrument_id = bar.bar_type.instrument_id
+        trade_size_usdt = float(current_instrument["trade_size_usdt"])
+        qty = max(1, trade_size_usdt / float(bar.close))
+        
+        current_instrument["in_short_position"] = True
+        current_instrument["short_entry_price"] = float(bar.close)
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["min_topt_difference_since_entry"] = None
+        atr_value = current_instrument["atr"].value
+        sl_atr_multiple = current_instrument["sl_atr_multiple"]
+        if atr_value is not None:
+            current_instrument["sl_price"] = float(bar.close) + sl_atr_multiple * atr_value
+        else:
+            current_instrument["sl_price"] = None
+        self.order_types.submit_short_market_order(instrument_id, int(qty))
 
     def trend_following_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_trend_following_setup.get("enabled", False):
@@ -660,6 +759,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         current_instrument["min_extreme_topt_short"] = None
         current_instrument["bars_over_ema_exit"] = 0
         current_instrument["bars_under_ema_exit"] = 0
+        current_instrument["ema_exit_qualified"] = False
 
     def check_ema_exit_long(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
         exit_trend_ema = current_instrument["exit_trend_ema"]
@@ -669,14 +769,27 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             
         current_price = float(bar.close)
         ema_value = float(exit_trend_ema.value)
-        min_bars = self.config.use_close_ema.get("min_bars_under_ema", 35)
+        min_bars = self.config.use_close_ema.get("min_bars_over_ema", 35)
         
-        if current_price <= ema_value:
-            current_instrument["bars_under_ema_exit"] += 1
-        else:
+        if "ema_exit_qualified" not in current_instrument:
+            current_instrument["ema_exit_qualified"] = False
+        
+        if current_price > ema_value:
+            current_instrument["bars_over_ema_exit"] += 1
             current_instrument["bars_under_ema_exit"] = 0
-        
-        return current_instrument["bars_under_ema_exit"] >= min_bars
+            
+            if current_instrument["bars_over_ema_exit"] >= min_bars:
+                current_instrument["ema_exit_qualified"] = True
+                
+        else:
+            current_instrument["bars_under_ema_exit"] += 1
+            current_instrument["bars_over_ema_exit"] = 0
+            
+            if current_instrument["ema_exit_qualified"] and current_price <= ema_value:
+                current_instrument["ema_exit_qualified"] = False  # Reset for next trade
+                return True
+                
+        return False
 
     def check_ema_exit_short(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
         exit_trend_ema = current_instrument["exit_trend_ema"]
@@ -686,16 +799,28 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             
         current_price = float(bar.close)
         ema_value = float(exit_trend_ema.value)
-        min_bars = self.config.use_close_ema.get("min_bars_over_ema", 35)
+        min_bars = self.config.use_close_ema.get("min_bars_under_ema", 35)
         
-        # Track bars over EMA for short positions
-        if current_price >= ema_value:
-            current_instrument["bars_over_ema_exit"] += 1
-        else:
+        if "ema_exit_qualified" not in current_instrument:
+            current_instrument["ema_exit_qualified"] = False
+        
+        # EVERY bar: check if above or below EMA
+        if current_price < ema_value:
+            current_instrument["bars_under_ema_exit"] += 1
             current_instrument["bars_over_ema_exit"] = 0
-        
-        # Exit if we've been over EMA for required bars
-        return current_instrument["bars_over_ema_exit"] >= min_bars
+            
+            if current_instrument["bars_under_ema_exit"] >= min_bars:
+                current_instrument["ema_exit_qualified"] = True
+                
+        else:
+            current_instrument["bars_over_ema_exit"] += 1
+            current_instrument["bars_under_ema_exit"] = 0
+            
+            if current_instrument["ema_exit_qualified"] and current_price >= ema_value:
+                current_instrument["ema_exit_qualified"] = False  # Reset for next trade
+                return True
+                
+        return False
 
     def check_topt_ratio_exit_long(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
         min_reversal = self.config.use_topt_ratio_as_exit.get("long_min_extreme_reversal_topt_longshortratio", 0.3)
@@ -812,6 +937,16 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if self.config.use_rsi_simple_reversion_system.get("enabled", False):
             rsi_value = float(current_instrument["rsi"].value) if current_instrument["rsi"].value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="rsi", value=rsi_value)
+        
+        # MACD for reversion system (position 1)
+        if self.config.use_macd_simple_reversion_system.get("enabled", False):
+            macd = current_instrument["macd"]
+            macd_signal_ema = current_instrument["macd_signal_ema"]
+            if macd and macd.value is not None and macd_signal_ema and macd_signal_ema.value is not None:
+                macd_value = float(macd.value)
+                signal_value = float(macd_signal_ema.value)
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="macd", value=macd_value)
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="macd_signal", value=signal_value)
         
         # RSI for exit method (position 1)
         if self.config.use_rsi_as_exit.get("enabled", False):
