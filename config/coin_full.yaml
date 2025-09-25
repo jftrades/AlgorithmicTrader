@@ -27,7 +27,7 @@ data_sources:
 
 # Backtest-Zeitraum
 start_date: "2024-01-01T00:00:00Z"
-end_date: "2024-03-28T00:00:00Z"
+end_date: "2024-01-28T00:00:00Z"
 
 # Account/Venue-Parameter
 starting_account_balance: "10000 USDT"
@@ -53,10 +53,25 @@ sl_atr_multiple: 2
 atr_period: 14
 
 # exit methods:
-use_close_above_ema:
-  enabled: true  
-  min_bars_spike_over_ema: 12
-  min_bars_spike_under_ema: 12
+use_close_ema:
+  enabled: false
+  exit_trend_ema_period: 120
+  min_bars_over_ema: 35
+  min_bars_under_ema: 35
+
+use_fixed_rr:
+  enabled: true
+  rr_tp_ratio: 1.5 # in relation to "exit methods"
+
+use_rsi_as_exit:
+  enabled: false
+  rsi_period: 20
+  rsi_exit_threshold: 0.5
+
+use_topt_ratio_as_exit:
+  enabled: false
+  short_min_extreme_reversal_topt_longshortratio: 0.3 # Do professionally after base strat runs
+  long_min_extreme_reversal_topt_longshortratio: 0.3
 
 # entry methods
 use_min_coin_filters:
@@ -66,25 +81,22 @@ use_min_coin_filters:
   min_sum_open_interest_value: 1000000  # $1M minimum open interest value
 
 use_trend_following_setup:
-  enabled: false
-  entry_trend_ema_period: 120
-  min_bars_over_ema: 35
-  min_bars_under_ema: 35
+  enabled: true
+  entry_trend_ema_period: 40
+  min_bars_under_ema: 20
+  min_bars_over_ema: 20
 
 use_spike_reversion_system:
   enabled: false
   reversion_ema_period: 25
   spike_atr_threshold: 0.4
   spike_atr_period: 10
+  min_bars_spike_over_ema: 12
+  min_bars_spike_under_ema: 12
 
 use_rsi_simple_reversion_system:
-  enabled: true
+  enabled: false
   rsi_period: 20
   rsi_overbought: 0.7
-  rsi_oversold: 0.3
-
-use_metrics_trend_following:
-  enabled: false
-  short_min_extreme_reversal_topt_longshortratio: 0.3 # Do professionally after base strat runs
-  long_min_extreme_reversal_topt_longshortratio: 0.3  # Exit when divergence decreases by this amount from maximum extreme
+  rsi_oversold: 0.3  # Exit when divergence decreases by this amount from maximum extreme
 
