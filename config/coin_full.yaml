@@ -46,13 +46,32 @@ close_positions_on_stop: [true]
 # Strategie-spezifische Parameter
 # ===========================
 
-only_trade_rth: false
-
 # stoploss settings
 sl_atr_multiple: 2
 atr_period: 14
 
-# exit methods:
+# base filters
+# ----------------------------------------------------------------
+only_trade_rth: false
+
+use_min_coin_filters:
+  enabled: true
+  min_price: 0.25
+  min_24h_volume: 50000 # $50k minimum 24h volume
+  min_sum_open_interest_value: 1000000  # $1M minimum open interest value 
+
+use_directional_movement_filter:
+  enabled: true
+  period: 14
+  min_di_diff: 0.02
+
+use_htf_ema_bias_filter:
+  enabled: false
+  ema_period: 200
+
+
+# exit methodsS
+# ----------------------------------------------------------------
 use_close_ema:
   enabled: true
   exit_trend_ema_period: 100
@@ -73,14 +92,8 @@ use_topt_ratio_as_exit:
   short_min_extreme_reversal_topt_longshortratio: 0.3 # Do professionally after base strat runs
   long_min_extreme_reversal_topt_longshortratio: 0.3
 
-# coin filters
-use_min_coin_filters:
-  enabled: true
-  min_price: 0.25
-  min_24h_volume: 50000 # $50k minimum 24h volume
-  min_sum_open_interest_value: 1000000  # $1M minimum open interest value 
-
 # entry methods
+# ----------------------------------------------------------------
 use_trend_following_setup:
   enabled: false
   entry_trend_ema_period: 40

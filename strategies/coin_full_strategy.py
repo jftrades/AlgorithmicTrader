@@ -12,6 +12,7 @@ from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
 from nautilus_trader.indicators.macd import MovingAverageConvergenceDivergence
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 from nautilus_trader.indicators.atr import AverageTrueRange
+from nautilus_trader.indicators.dm import DirectionalMovement
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
@@ -65,6 +66,21 @@ class CoinFullConfig(StrategyConfig):
             "min_price": 0.25,
             "min_24h_volume": 50000,
             "min_sum_open_interest_value": 1000000
+        }
+    )
+
+    use_directional_movement_filter: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "period": 14,
+            "min_di_diff": 0.02
+        }
+    )
+
+    use_htf_ema_bias_filter: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "ema_period": 200
         }
     )
 
@@ -123,6 +139,17 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             current_instrument["atr"] = AverageTrueRange(self.config.atr_period)
             current_instrument["sl_atr_multiple"] = self.config.sl_atr_multiple
             current_instrument["sl_price"] = None
+
+            # directional movement filter
+            dm_config = self.config.use_directional_movement_filter
+            dm_period = dm_config.get("period", 14)
+            current_instrument["directional_movement"] = DirectionalMovement(dm_period)
+            current_instrument["min_di_diff"] = dm_config.get("min_di_diff", 0.02)
+
+            # htf ema bias filter
+            htf_ema_config = self.config.use_htf_ema_bias_filter
+            htf_ema_period = htf_ema_config.get("ema_period", 200)
+            current_instrument["htf_ema"] = ExponentialMovingAverage(htf_ema_period)
 
             # spike basic
             spike_config = self.config.use_spike_reversion_system
@@ -209,6 +236,10 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 current_instrument["collector"].initialise_logging_indicator("exit_trend_ema", 0)
             if self.config.use_spike_reversion_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("reversion_ema", 0)
+            if self.config.use_htf_ema_bias_filter.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("htf_ema", 0)
+            if self.config.use_directional_movement_filter.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("di_diff", 2)
             if self.config.use_rsi_simple_reversion_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("rsi", 1)
             if self.config.use_macd_simple_reversion_system.get("enabled", False):
@@ -314,6 +345,36 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         
         return True
 
+    def passes_directional_movement_filter(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
+        if not self.config.use_directional_movement_filter.get("enabled", False):
+            return True
+        
+        dm = current_instrument["directional_movement"]
+        if not dm.initialized:
+            return False
+        
+        min_di_diff = current_instrument["min_di_diff"]
+        di_diff = abs(dm.pos - dm.neg)
+        return di_diff >= min_di_diff
+
+    def passes_htf_ema_bias_filter(self, bar: Bar, current_instrument: Dict[str, Any], trade_direction: str) -> bool:
+        if not self.config.use_htf_ema_bias_filter.get("enabled", False):
+            return True
+        
+        htf_ema = current_instrument["htf_ema"]
+        if not htf_ema.initialized:
+            return True
+        
+        current_price = float(bar.close)
+        ema_value = float(htf_ema.value)
+        
+        if trade_direction == "long":
+            return current_price > ema_value
+        elif trade_direction == "short":
+            return current_price < ema_value
+        
+        return False
+
     def on_bar(self, bar: Bar) -> None:
         instrument_id = bar.bar_type.instrument_id
         current_instrument = self.instrument_dict.get(instrument_id)
@@ -329,6 +390,12 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         
         # Always handle ATR (needed for stop loss)
         current_instrument["atr"].handle_bar(bar)
+        
+        if self.config.use_directional_movement_filter.get("enabled", False):
+            current_instrument["directional_movement"].handle_bar(bar)
+        
+        if self.config.use_htf_ema_bias_filter.get("enabled", False):
+            current_instrument["htf_ema"].handle_bar(bar)
         
         # Only handle indicators for enabled systems
         if self.config.use_trend_following_setup.get("enabled", False):
@@ -395,6 +462,9 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if not self.passes_coin_filters(bar, current_instrument):
             return
         
+        if not self.passes_directional_movement_filter(bar, current_instrument):
+            return
+        
         position = self.base_get_position(instrument_id)
         
         if position is not None and position.side == PositionSide.SHORT:
@@ -450,10 +520,12 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             min_bars_spike_under_ema = self.config.use_spike_reversion_system.get("min_bars_spike_under_ema", 12)
             
             if (bar_close > reversion_ema_value and 
-                current_instrument["bars_above_reversion_ema"] >= min_bars_spike_over_ema):
+                current_instrument["bars_above_reversion_ema"] >= min_bars_spike_over_ema and
+                self.passes_htf_ema_bias_filter(bar, current_instrument, "short")):
                 self.spike_short_entry_logic(bar, current_instrument)
             elif (bar_close < reversion_ema_value and 
-                  current_instrument["bars_below_reversion_ema"] >= min_bars_spike_under_ema):
+                  current_instrument["bars_below_reversion_ema"] >= min_bars_spike_under_ema and
+                  self.passes_htf_ema_bias_filter(bar, current_instrument, "long")):
                 self.spike_long_entry_logic(bar, current_instrument)
 
     def spike_short_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any]):
@@ -504,11 +576,9 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         rsi_oversold = current_instrument["rsi_oversold"]
         
         # Immediate execution on extreme RSI levels - no minimum bars required
-        if rsi_value >= rsi_overbought:
-            # RSI overbought - go short
+        if rsi_value >= rsi_overbought and self.passes_htf_ema_bias_filter(bar, current_instrument, "short"):
             self.enter_short_rsi_reversion(bar, current_instrument)
-        elif rsi_value <= rsi_oversold:
-            # RSI oversold - go long  
+        elif rsi_value <= rsi_oversold and self.passes_htf_ema_bias_filter(bar, current_instrument, "long"):
             self.enter_long_rsi_reversion(bar, current_instrument)
 
     def enter_short_rsi_reversion(self, bar: Bar, current_instrument: Dict[str, Any]):
@@ -563,11 +633,13 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         
         if prev_macd is not None and prev_signal is not None:            
             if (prev_macd <= prev_signal and macd_line > signal_line and 
-                macd_line < 0 and signal_line < 0):
+                macd_line < 0 and signal_line < 0 and
+                self.passes_htf_ema_bias_filter(bar, current_instrument, "long")):
                 self.enter_long_macd_reversion(bar, current_instrument)
             
             elif (prev_macd >= prev_signal and macd_line < signal_line and
-                  macd_line > 0 and signal_line > 0):
+                  macd_line > 0 and signal_line > 0 and
+                  self.passes_htf_ema_bias_filter(bar, current_instrument, "short")):
                 self.enter_short_macd_reversion(bar, current_instrument)
         
         current_instrument["prev_macd_line"] = macd_line
@@ -636,7 +708,9 @@ class CoinFullStrategy(BaseStrategy,Strategy):
 
     def trend_long_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_bar_close: float, bar_close: float, ema_value: float):
         min_bars_under_ema = self.config.use_trend_following_setup.get("min_bars_under_ema", 20)
-        if (prev_bar_close < ema_value and bar_close >= ema_value and current_instrument["bars_below_ema"] >= min_bars_under_ema):
+        if (prev_bar_close < ema_value and bar_close >= ema_value and 
+            current_instrument["bars_below_ema"] >= min_bars_under_ema and
+            self.passes_htf_ema_bias_filter(bar, current_instrument, "long")):
             instrument_id = bar.bar_type.instrument_id
             trade_size_usdt = float(current_instrument["trade_size_usdt"])
             qty = max(1, trade_size_usdt / bar_close)
@@ -654,7 +728,9 @@ class CoinFullStrategy(BaseStrategy,Strategy):
 
     def trend_short_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_bar_close: float, bar_close: float, ema_value: float):
         min_bars_over_ema = self.config.use_trend_following_setup.get("min_bars_over_ema", 20)
-        if (prev_bar_close >= ema_value and bar_close < ema_value and current_instrument["bars_above_ema"] >= min_bars_over_ema):
+        if (prev_bar_close >= ema_value and bar_close < ema_value and 
+            current_instrument["bars_above_ema"] >= min_bars_over_ema and
+            self.passes_htf_ema_bias_filter(bar, current_instrument, "short")):
             instrument_id = bar.bar_type.instrument_id
             trade_size_usdt = float(current_instrument["trade_size_usdt"])
             qty = max(1, trade_size_usdt / bar_close)
@@ -932,6 +1008,20 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if self.config.use_spike_reversion_system.get("enabled", False):
             reversion_ema_value = float(current_instrument["reversion_ema"].value) if current_instrument["reversion_ema"].value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="reversion_ema", value=reversion_ema_value)
+
+        # HTF EMA bias filter (position 0)
+        if self.config.use_htf_ema_bias_filter.get("enabled", False):
+            htf_ema_value = float(current_instrument["htf_ema"].value) if current_instrument["htf_ema"].value is not None else None
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="htf_ema", value=htf_ema_value)
+
+        # Directional Movement difference (position 1)
+        if self.config.use_directional_movement_filter.get("enabled", False):
+            dm = current_instrument["directional_movement"]
+            if dm and dm.initialized:
+                di_diff_value = abs(dm.pos - dm.neg)
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="di_diff", value=di_diff_value)
+            else:
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="di_diff", value=None)
 
         # RSI for reversion system (position 1)
         if self.config.use_rsi_simple_reversion_system.get("enabled", False):
