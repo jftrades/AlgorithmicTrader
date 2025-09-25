@@ -1,14 +1,14 @@
-
-import time
-import databento as db
-import pandas as pd
 from pathlib import Path
 from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
+from nautilus_trader.model.identifiers import InstrumentId, Venue
+from nautilus_trader.model.instruments import FuturesContract
 import shutil
+import time
+import databento as db
 
 
-def download_dbn(symbol, start_date, end_date, dataset, schema, api_key, raw_dir):
+def download_dbn(symbol, start_date, end_date, dataset, schema, api_key, raw_dir, stype_out="instrument_id"):
     raw_dir = Path(raw_dir)
     raw_dir.mkdir(parents=True, exist_ok=True)
     
@@ -23,7 +23,7 @@ def download_dbn(symbol, start_date, end_date, dataset, schema, api_key, raw_dir
         schema=schema,
         split_duration="month",
         stype_in="raw_symbol",
-        stype_out="instrument_id",
+        stype_out=stype_out,
     )
     
     print(f"[INFO] Job ID: {job['id']}")
@@ -40,10 +40,14 @@ def download_dbn(symbol, start_date, end_date, dataset, schema, api_key, raw_dir
     return files
 
 
-def transform_dbn_to_parquet(symbol, raw_dir, catalog_root_path, venue="Nasdaq", delete_raw_dir=True):
+def transform_dbn_to_parquet(symbol, raw_dir, catalog_root_path, venue="GLBX", delete_raw_dir=True, flat_structure=False):
     raw_dir = Path(raw_dir)
     
-    organized_path = Path(catalog_root_path) / f"{symbol}_{venue}"
+    if flat_structure:
+        organized_path = Path(catalog_root_path)
+    else:
+        organized_path = Path(catalog_root_path) / f"{symbol}_{venue}"
+    
     organized_path.mkdir(parents=True, exist_ok=True)
     
     files = list(raw_dir.rglob("*.dbn*"))
@@ -56,6 +60,7 @@ def transform_dbn_to_parquet(symbol, raw_dir, catalog_root_path, venue="Nasdaq",
     
     print(f"[INFO] Transformiere {len(files)} DBN-Dateien...")
     print(f"[INFO] Speichere in: {organized_path}")
+    print(f"[INFO] Target venue: {venue}")
     
     for data_file in files:
         try:
@@ -63,7 +68,7 @@ def transform_dbn_to_parquet(symbol, raw_dir, catalog_root_path, venue="Nasdaq",
                 path=str(data_file),
                 instrument_id=None,
                 as_legacy_cython=True,
-                use_exchange_as_venue=False,  # ← ÄNDERUNG: False statt True!
+                use_exchange_as_venue=False,
             )
             
             if data:

@@ -1,0 +1,137 @@
+# ===========================
+# Globale Parameter
+# ===========================
+strategy_path: "strategies.mean_5m_regimes_strategy:Mean5mregimesStrategy"
+config_path: "strategies.mean_5m_regimes_strategy:Mean5mregimesStrategyConfig"
+
+visualize: true
+venue: "ARCA"
+
+# Instrumente
+instruments:
+  - instrument_id: "SPY.ARCA"
+    bar_types:
+      - "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
+    test: 1
+
+# Backtest_Zeitraum
+start_date: "2024-01-01T00:00:00Z"
+end_date: "2024-12-29T23:59:59Z"
+
+# Account/Venue-Parameter
+starting_account_balance: "100000 USD"
+base_currency: "USD"
+account_type: "MARGIN"
+oms_type: "NETTING"
+
+# Risiko-Parameter (global)
+invest_percent: 0.10  
+close_positions_on_stop: true
+risk_percent: 0.02
+max_leverage: 5.0
+min_account_balance: 1000
+
+# ===========================
+# Strategie-spezifische Parameter
+# ===========================
+
+only_trade_rth: true
+initialization_window: 150
+
+base_parameters:
+  ltf_kalman_process_var: 0.000001
+  ltf_kalman_measurement_var: 0.01
+  ltf_kalman_zscore_window: 35
+  
+  htf_kalman_process_var: 0.0000001
+  htf_kalman_measurement_var: 0.05
+  htf_kalman_zscore_window: 45
+ 
+  vwap: # Anchor method options: "kalman_cross","daily", "weekly", "rolling" 
+    anchor_method: "daily"
+    vwap_require_trade_for_reset: false
+    vwap_min_bars_for_zscore: 40
+    vwap_reset_grace_period: 40
+    rolling_window_bars: 500  # only for rolling method
+
+  # only uses ATR factor - higher volatility requires more extreme zscores
+  elastic_entry:
+    zscore_long_threshold: -1.6
+    zscore_short_threshold: 1.6
+    recovery_delta: 0.75
+    long_min_distance_from_kalman: -0.1
+    short_min_distance_from_kalman: 0.1
+    allow_multiple_recoveries: true
+    recovery_cooldown_bars: 25
+    allow_stacking: false
+    max_long_stacked_positions: 5
+    max_short_stacked_positions: 2
+    additional_zscore_min_gain: 0.9
+    recovery_delta_reentry: 0.5
+    stacking_bar_cooldown: 10
+    allow_daily_stacking_reset: true  # Reset stacking limits on new day when thresholds hit
+
+  # only uses slope factor (interpolation) - can use "linear", "exponential" and "logarithmic"
+  slope_exit_scaling:
+    enabled: true
+    scaling_method: "linear"
+    base_long_exit: 0.0
+    base_short_exit: 0.0
+    max_long_exit_uptrend: 4.0
+    max_long_exit_downtrend: -2.0
+    max_short_exit_uptrend: 2.0
+    max_short_exit_downtrend: -4.0
+
+  slope_risk_scaling:
+    enabled: true
+    scaling_method: "linear"
+    base_long_risk: 1.0
+    base_short_risk: 1.0
+    max_long_risk_uptrend: 1.1
+    max_long_risk_downtrend: 0.9
+    max_short_risk_uptrend: 0.9
+    max_short_risk_downtrend: 1.1
+
+  slope_asymmetric_offset:
+    enabled: true
+    scaling_method: "linear"
+    base_offset: 0.0
+    max_offset_uptrend: 0.5
+    max_offset_downtrend: -0.5
+
+  # Hard stop loss configuration
+  ATR_window_if_use_SL: 14
+  use_hard_stop_long:
+    enabled: false
+    atr_stop_long: 3.5
+  use_hard_stop_short:
+    enabled: false
+    atr_stop_short: 3.5
+
+# slope extracted and used directly in scaling systems
+adaptive_factors:
+  slope:
+    enabled: true
+    max_bull_slope: 0.015
+    max_bear_slope: -0.015
+
+# atr adaptive with 95 and 5 percentiles
+  atr:
+    enabled: true
+    window: 14
+    percentile_window: 500 
+    outlier_threshold: 2.0
+    min: 0.7
+    max: 1.5
+
+  distribution_monitor:
+    slope_distribution:
+      enabled: true
+    atr_distribution:
+      enabled: true
+    zscore_distribution:
+      enabled: true
+
+gap_threshold_pct: 0.1 # for cross & rolling method only
+vix_fear_threshold: 38
+
