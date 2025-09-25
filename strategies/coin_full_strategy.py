@@ -67,8 +67,8 @@ class CoinFullConfig(StrategyConfig):
         default_factory=lambda: {
             "enabled": False,
             "rsi_period": 14,
-            "rsi_overbought": 70,
-            "rsi_oversold": 30,
+            "rsi_overbought": 0.7,
+            "rsi_oversold": 0.3,
 
         }
     )
@@ -155,20 +155,16 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             current_instrument["latest_open_interest_value"] = 0.0
 
             # visualize
-            visualization_index = 0
+            current_instrument["collector"].initialise_logging_indicator("entry_trend_ema", 0)
+
             if self.config.use_trend_following_setup.get("enabled", False):
-                current_instrument["collector"].initialise_logging_indicator("entry_trend_ema", visualization_index)
-                visualization_index += 1
-            if self.config.use_spike_reversion_system.get("enabled", False):
-                current_instrument["collector"].initialise_logging_indicator("reversion_ema", visualization_index)
-                current_instrument["collector"].initialise_logging_indicator("entry_trend_ema", visualization_index)
-                visualization_index += 1
+                return
             if self.config.use_rsi_simple_reversion_system.get("enabled", False):
-                current_instrument["collector"].initialise_logging_indicator("rsi", visualization_index)
-                current_instrument["collector"].initialise_logging_indicator("entry_trend_ema", visualization_index)
-                visualization_index += 1
+                current_instrument["collector"].initialise_logging_indicator("rsi", 1)
+            if self.config.use_spike_reversion_system.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("reversion_ema", 0)
             if self.config.use_metrics_trend_following.get("enabled", False):
-                current_instrument["collector"].initialise_logging_indicator("toptrader_divergence", visualization_index)
+                current_instrument["collector"].initialise_logging_indicator("toptrader_divergence", 1)
 
 
     def on_start(self):
@@ -621,18 +617,18 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         inst_id = bar.bar_type.instrument_id
         self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)
 
-        if self.config.use_trend_following_setup.get("enabled", False):
-            entry_trend_ema_value = float(current_instrument["entry_trend_ema"].value) if current_instrument["entry_trend_ema"].value is not None else None
-            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="entry_trend_ema", value=entry_trend_ema_value)
+        entry_trend_ema_value = float(current_instrument["entry_trend_ema"].value) if current_instrument["entry_trend_ema"].value is not None else None
+        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="entry_trend_ema", value=entry_trend_ema_value)
 
-        if self.config.use_spike_reversion_system.get("enabled", False):
-            reversion_ema_value = float(current_instrument["reversion_ema"].value) if current_instrument["reversion_ema"].value is not None else None
-            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="reversion_ema", value=reversion_ema_value)
-
+        # System-specific indicators
         if self.config.use_rsi_simple_reversion_system.get("enabled", False):
             rsi_value = float(current_instrument["rsi"].value) if current_instrument["rsi"].value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="rsi", value=rsi_value)
 
+        if self.config.use_spike_reversion_system.get("enabled", False):
+            reversion_ema_value = float(current_instrument["reversion_ema"].value) if current_instrument["reversion_ema"].value is not None else None
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="reversion_ema", value=reversion_ema_value)
+        
         if self.config.use_metrics_trend_following.get("enabled", False):
             divergence = self.difference_topt_longshortratio(current_instrument)
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="toptrader_divergence", value=divergence)

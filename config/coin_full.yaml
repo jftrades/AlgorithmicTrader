@@ -27,7 +27,7 @@ data_sources:
 
 # Backtest-Zeitraum
 start_date: "2024-01-01T00:00:00Z"
-end_date: "2024-11-28T00:00:00Z"
+end_date: "2024-03-28T00:00:00Z"
 
 # Account/Venue-Parameter
 starting_account_balance: "10000 USDT"
@@ -48,9 +48,17 @@ close_positions_on_stop: [true]
 
 only_trade_rth: false
 
+# stoploss settings
 sl_atr_multiple: 2
 atr_period: 14
 
+# exit methods:
+use_close_above_ema:
+  enabled: true  
+  min_bars_spike_over_ema: 12
+  min_bars_spike_under_ema: 12
+
+# entry methods
 use_min_coin_filters:
   enabled: true
   min_price: 0.25
@@ -68,14 +76,12 @@ use_spike_reversion_system:
   reversion_ema_period: 25
   spike_atr_threshold: 0.4
   spike_atr_period: 10
-  min_bars_spike_over_ema: 12
-  min_bars_spike_under_ema: 12
 
 use_rsi_simple_reversion_system:
   enabled: true
-  rsi_period: 14
-  rsi_overbought: 70
-  rsi_oversold: 30
+  rsi_period: 20
+  rsi_overbought: 0.7
+  rsi_oversold: 0.3
 
 use_metrics_trend_following:
   enabled: false
