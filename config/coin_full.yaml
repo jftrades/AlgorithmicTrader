@@ -64,17 +64,21 @@ use_trend_following_setup:
   min_bars_under_ema: 35
 
 use_spike_reversion_system:
-  enabled: true
+  enabled: false
   reversion_ema_period: 25
   spike_atr_threshold: 0.4
   spike_atr_period: 10
   min_bars_spike_over_ema: 12
   min_bars_spike_under_ema: 12
 
+use_rsi_simple_reversion_system:
+  enabled: true
+  rsi_period: 14
+  rsi_overbought: 70
+  rsi_oversold: 30
+
 use_metrics_trend_following:
   enabled: false
   short_min_extreme_reversal_topt_longshortratio: 0.3 # Do professionally after base strat runs
   long_min_extreme_reversal_topt_longshortratio: 0.3  # Exit when divergence decreases by this amount from maximum extreme
-
-# use_top_detection_setup: false
 

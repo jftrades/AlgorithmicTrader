@@ -11,6 +11,7 @@ from nautilus_trader.common.enums import LogColor
 from pydantic import Field
 
 from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
+from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 from nautilus_trader.indicators.atr import AverageTrueRange
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
@@ -62,6 +63,16 @@ class CoinFullConfig(StrategyConfig):
         }
     )
 
+    use_rsi_simple_reversion_system: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "rsi_period": 14,
+            "rsi_overbought": 70,
+            "rsi_oversold": 30,
+
+        }
+    )
+
 
 
     only_trade_rth: bool = False
@@ -90,6 +101,13 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             current_instrument["spike_atr"] = AverageTrueRange(spike_atr_period)
             current_instrument["reversion_ema"] = ExponentialMovingAverage(reversion_ema_period)
             current_instrument["spike_atr_threshold"] = spike_config.get("spike_atr_threshold", 2.5)
+
+            # rsi simple reversion
+            rsi_config = self.config.use_rsi_simple_reversion_system
+            rsi_period = rsi_config.get("rsi_period", 14)
+            current_instrument["rsi"] = RelativeStrengthIndex(rsi_period)
+            current_instrument["rsi_overbought"] = rsi_config.get("rsi_overbought", 70)
+            current_instrument["rsi_oversold"] = rsi_config.get("rsi_oversold", 30)
 
             # trend basic
             trend_config = self.config.use_trend_following_setup
@@ -143,6 +161,10 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 visualization_index += 1
             if self.config.use_spike_reversion_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("reversion_ema", visualization_index)
+                current_instrument["collector"].initialise_logging_indicator("entry_trend_ema", visualization_index)
+                visualization_index += 1
+            if self.config.use_rsi_simple_reversion_system.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("rsi", visualization_index)
                 current_instrument["collector"].initialise_logging_indicator("entry_trend_ema", visualization_index)
                 visualization_index += 1
             if self.config.use_metrics_trend_following.get("enabled", False):
@@ -256,6 +278,8 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         entry_trend_ema.handle_bar(bar)
         reversion_ema = current_instrument["reversion_ema"]
         reversion_ema.handle_bar(bar)
+        rsi = current_instrument["rsi"]
+        rsi.handle_bar(bar)
 
         self.base_collect_bar_data(bar, current_instrument)
         self.update_visualizer_data(bar, current_instrument)
@@ -264,6 +288,9 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             return
         
         if self.config.use_spike_reversion_system.get("enabled", False) and not reversion_ema.initialized:
+            return
+            
+        if self.config.use_rsi_simple_reversion_system.get("enabled", False) and not rsi.initialized:
             return
 
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
@@ -287,6 +314,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             return
 
         self.spike_reversion_setup(bar, current_instrument)
+        self.rsi_simple_reversion_setup(bar, current_instrument)
         self.trend_following_setup(bar, current_instrument)
 
     def spike_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
@@ -369,6 +397,60 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             current_instrument["sl_price"] = None
         self.order_types.submit_long_market_order(instrument_id, int(qty))
                 
+
+    def rsi_simple_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
+        if not self.config.use_rsi_simple_reversion_system.get("enabled", False):
+            return
+            
+        rsi = current_instrument["rsi"]
+        if not rsi.initialized:
+            return
+            
+        rsi_value = float(rsi.value)
+        rsi_overbought = current_instrument["rsi_overbought"]
+        rsi_oversold = current_instrument["rsi_oversold"]
+        
+        # Immediate execution on extreme RSI levels - no minimum bars required
+        if rsi_value >= rsi_overbought:
+            # RSI overbought - go short
+            self.enter_short_rsi_reversion(bar, current_instrument)
+        elif rsi_value <= rsi_oversold:
+            # RSI oversold - go long  
+            self.enter_long_rsi_reversion(bar, current_instrument)
+
+    def enter_short_rsi_reversion(self, bar: Bar, current_instrument: Dict[str, Any]):
+        instrument_id = bar.bar_type.instrument_id
+        trade_size_usdt = float(current_instrument["trade_size_usdt"])
+        qty = max(1, trade_size_usdt / float(bar.close))
+        
+        current_instrument["in_short_position"] = True
+        current_instrument["short_entry_price"] = float(bar.close)
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["max_topt_difference_since_entry"] = None
+        atr_value = current_instrument["atr"].value
+        sl_atr_multiple = current_instrument["sl_atr_multiple"]
+        if atr_value is not None:
+            current_instrument["sl_price"] = float(bar.close) + sl_atr_multiple * atr_value
+        else:
+            current_instrument["sl_price"] = None
+        self.order_types.submit_short_market_order(instrument_id, int(qty))
+
+    def enter_long_rsi_reversion(self, bar: Bar, current_instrument: Dict[str, Any]):
+        instrument_id = bar.bar_type.instrument_id
+        trade_size_usdt = float(current_instrument["trade_size_usdt"])
+        qty = max(1, trade_size_usdt / float(bar.close))
+        
+        current_instrument["in_long_position"] = True
+        current_instrument["long_entry_price"] = float(bar.close)
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["max_topt_difference_since_entry"] = None
+        atr_value = current_instrument["atr"].value
+        sl_atr_multiple = current_instrument["sl_atr_multiple"]
+        if atr_value is not None:
+            current_instrument["sl_price"] = float(bar.close) - sl_atr_multiple * atr_value
+        else:
+            current_instrument["sl_price"] = None
+        self.order_types.submit_long_market_order(instrument_id, int(qty))
 
     def trend_following_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_trend_following_setup.get("enabled", True):
@@ -546,6 +628,10 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if self.config.use_spike_reversion_system.get("enabled", False):
             reversion_ema_value = float(current_instrument["reversion_ema"].value) if current_instrument["reversion_ema"].value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="reversion_ema", value=reversion_ema_value)
+
+        if self.config.use_rsi_simple_reversion_system.get("enabled", False):
+            rsi_value = float(current_instrument["rsi"].value) if current_instrument["rsi"].value is not None else None
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="rsi", value=rsi_value)
 
         if self.config.use_metrics_trend_following.get("enabled", False):
             divergence = self.difference_topt_longshortratio(current_instrument)
