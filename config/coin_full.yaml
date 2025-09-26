@@ -46,10 +46,13 @@ close_positions_on_stop: [true]
 # Strategie-spezifische Parameter
 # ===========================
 
+# ----------------------------------------------------------------
 # stoploss settings
+# ----------------------------------------------------------------
 sl_atr_multiple: 2
 atr_period: 14
 
+# ----------------------------------------------------------------
 # base filters
 # ----------------------------------------------------------------
 only_trade_rth: false
@@ -61,7 +64,7 @@ use_min_coin_filters:
   min_sum_open_interest_value: 1000000  # $1M minimum open interest value 
 
 use_directional_movement_filter:
-  enabled: true
+  enabled: false
   period: 14
   min_di_diff: 0.02
 
@@ -69,14 +72,14 @@ use_htf_ema_bias_filter:
   enabled: false
   ema_period: 200
 
-
-# exit methodsS
+# ----------------------------------------------------------------
+# exit methods
 # ----------------------------------------------------------------
 use_close_ema:
   enabled: true
-  exit_trend_ema_period: 100
-  min_bars_over_ema: 25
-  min_bars_under_ema: 25
+  exit_trend_ema_period: 80
+  min_bars_over_ema: 15
+  min_bars_under_ema: 15
 
 use_fixed_rr:
   enabled: false
@@ -92,6 +95,7 @@ use_topt_ratio_as_exit:
   short_min_extreme_reversal_topt_longshortratio: 0.3 # Do professionally after base strat runs
   long_min_extreme_reversal_topt_longshortratio: 0.3
 
+# ----------------------------------------------------------------
 # entry methods
 # ----------------------------------------------------------------
 use_trend_following_setup:
@@ -115,8 +119,13 @@ use_rsi_simple_reversion_system:
   rsi_oversold: 0.3 
 
 use_macd_simple_reversion_system:
-  enabled: true
+  enabled: false
   macd_fast_period: 10
   macd_slow_period: 32
   macd_signal_period: 10
 
+use_aroon_simple_trend_system:
+  enabled: true
+  aroon_period: 30
+  aroon_osc_long_threshold: 50
+  aroon_osc_short_threshold: -50

@@ -10,6 +10,7 @@ from nautilus_trader.common.enums import LogColor
 from pydantic import Field
 from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
 from nautilus_trader.indicators.macd import MovingAverageConvergenceDivergence
+from nautilus_trader.indicators.aroon import AroonOscillator
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 from nautilus_trader.indicators.atr import AverageTrueRange
 from nautilus_trader.indicators.dm import DirectionalMovement
@@ -122,6 +123,15 @@ class CoinFullConfig(StrategyConfig):
         }
     )   
 
+    use_aroon_simple_trend_system: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "aroon_period": 14,
+            "aroon_osc_long_threshold": 50,
+            "aroon_osc_short_threshold": -50
+        }
+    )
+
     only_trade_rth: bool = False
     close_positions_on_stop: bool = True
 
@@ -151,6 +161,15 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             htf_ema_period = htf_ema_config.get("ema_period", 200)
             current_instrument["htf_ema"] = ExponentialMovingAverage(htf_ema_period)
 
+            # aroon filter
+            aroon_config = self.config.use_aroon_simple_trend_system
+            aroon_period = aroon_config.get("aroon_period", 14)
+            aroon_osc_long_threshold = aroon_config.get("aroon_osc_long_threshold", 50)
+            aroon_osc_short_threshold = aroon_config.get("aroon_osc_short_threshold", -50)
+            current_instrument["aroon"] = AroonOscillator(aroon_period)
+            current_instrument["aroon_osc_long_threshold"] = aroon_osc_long_threshold   
+            current_instrument["aroon_osc_short_threshold"] = aroon_osc_short_threshold
+
             # spike basic
             spike_config = self.config.use_spike_reversion_system
             spike_atr_period = spike_config.get("spike_atr_period", 20)
@@ -164,9 +183,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             macd_fast_period = macd_config.get("macd_fast_period", 12)
             macd_slow_period = macd_config.get("macd_slow_period", 26)
             macd_signal_period = macd_config.get("macd_signal_period", 9)
-            # Create MACD line (fast MA - slow MA)
             current_instrument["macd"] = MovingAverageConvergenceDivergence(macd_fast_period, macd_slow_period)
-            # Create signal line (EMA of MACD line)
             current_instrument["macd_signal_ema"] = ExponentialMovingAverage(macd_signal_period)
             current_instrument["prev_macd_line"] = None
             current_instrument["prev_macd_signal"] = None
@@ -206,7 +223,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             current_instrument["in_short_position"] = False
             current_instrument["in_long_position"] = False
             
-                # rth
+            # rth
             current_instrument["only_trade_rth"] = self.config.only_trade_rth
             current_instrument["rth_start_hour"] = 14
             current_instrument["rth_start_minute"] = 30
@@ -245,6 +262,8 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             if self.config.use_macd_simple_reversion_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("macd", 1)
                 current_instrument["collector"].initialise_logging_indicator("macd_signal", 1)
+            if self.config.use_aroon_simple_trend_system.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("aroon_osc", 1)
             if self.config.use_rsi_as_exit.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("rsi_exit", 1)
 
@@ -423,6 +442,10 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 macd_signal_ema = current_instrument["macd_signal_ema"]
                 macd_signal_ema.update_raw(macd.value)
 
+        if self.config.use_aroon_simple_trend_system.get("enabled", False):
+            aroon = current_instrument["aroon"]
+            aroon.handle_bar(bar)
+
         if self.config.use_rsi_as_exit.get("enabled", False):
             rsi_exit = current_instrument.get("rsi_exit")
             if rsi_exit:
@@ -452,6 +475,11 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             if not macd.initialized or not macd_signal_ema.initialized:
                 return
 
+        if self.config.use_aroon_simple_trend_system.get("enabled", False):
+            aroon = current_instrument["aroon"]
+            if not aroon.initialized:
+                return
+
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
         if open_orders:
             return
@@ -475,10 +503,64 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             self.long_exit_logic(bar, current_instrument, position)
             return
 
+        self.aroon_simple_trend_setup(bar, current_instrument)
         self.macd_simple_reversion_setup(bar, current_instrument)
         self.spike_reversion_setup(bar, current_instrument)
         self.rsi_simple_reversion_setup(bar, current_instrument)
         self.trend_following_setup(bar, current_instrument)
+
+    def aroon_simple_trend_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
+        if not self.config.use_aroon_simple_trend_system.get("enabled", False):
+            return
+        
+        aroon = current_instrument["aroon"]
+        if not aroon.initialized:
+            return
+            
+        aroon_osc_value = float(aroon.value)
+        long_threshold = current_instrument["aroon_osc_long_threshold"]
+        short_threshold = current_instrument["aroon_osc_short_threshold"]
+        
+        if (aroon_osc_value >= long_threshold and 
+            self.passes_htf_ema_bias_filter(bar, current_instrument, "long")):
+            self.enter_long_aroon_trend(bar, current_instrument)
+        elif (aroon_osc_value <= short_threshold and 
+              self.passes_htf_ema_bias_filter(bar, current_instrument, "short")):
+            self.enter_short_aroon_trend(bar, current_instrument)
+
+    def enter_long_aroon_trend(self, bar: Bar, current_instrument: Dict[str, Any]):
+        instrument_id = bar.bar_type.instrument_id
+        trade_size_usdt = float(current_instrument["trade_size_usdt"])
+        qty = max(1, trade_size_usdt / float(bar.close))
+        
+        current_instrument["in_long_position"] = True
+        current_instrument["long_entry_price"] = float(bar.close)
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["max_topt_difference_since_entry"] = None
+        atr_value = current_instrument["atr"].value
+        sl_atr_multiple = current_instrument["sl_atr_multiple"]
+        if atr_value is not None:
+            current_instrument["sl_price"] = float(bar.close) - sl_atr_multiple * atr_value
+        else:
+            current_instrument["sl_price"] = None
+        self.order_types.submit_long_market_order(instrument_id, int(qty))
+
+    def enter_short_aroon_trend(self, bar: Bar, current_instrument: Dict[str, Any]):   
+        instrument_id = bar.bar_type.instrument_id
+        trade_size_usdt = float(current_instrument["trade_size_usdt"])
+        qty = max(1, trade_size_usdt / float(bar.close))
+        
+        current_instrument["in_short_position"] = True
+        current_instrument["short_entry_price"] = float(bar.close)
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["min_topt_difference_since_entry"] = None
+        atr_value = current_instrument["atr"].value
+        sl_atr_multiple = current_instrument["sl_atr_multiple"]
+        if atr_value is not None:
+            current_instrument["sl_price"] = float(bar.close) + sl_atr_multiple * atr_value
+        else:
+            current_instrument["sl_price"] = None
+        self.order_types.submit_short_market_order(instrument_id, int(qty))
 
     def spike_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_spike_reversion_system.get("enabled", False):
@@ -1037,7 +1119,13 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 signal_value = float(macd_signal_ema.value)
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="macd", value=macd_value)
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="macd_signal", value=signal_value)
-        
+
+        # Aroon Oscillator (position 1)
+        if self.config.use_aroon_simple_trend_system.get("enabled", False):
+            aroon = current_instrument["aroon"]
+            aroon_osc_value = float(aroon.value) if aroon.value is not None else None
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="aroon_osc", value=aroon_osc_value)
+
         # RSI for exit method (position 1)
         if self.config.use_rsi_as_exit.get("enabled", False):
             rsi_exit = current_instrument.get("rsi_exit")
