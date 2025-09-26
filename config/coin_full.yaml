@@ -125,7 +125,12 @@ use_macd_simple_reversion_system:
   macd_signal_period: 10
 
 use_aroon_simple_trend_system:
-  enabled: true
+  enabled: false
   aroon_period: 30
   aroon_osc_long_threshold: 50
   aroon_osc_short_threshold: -50
+
+use_donchian_breakout_system:
+  enabled: true
+  donchian_period: 20
+  min_breakout_strength: 0.01

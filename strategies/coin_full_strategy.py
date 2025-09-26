@@ -10,6 +10,7 @@ from nautilus_trader.common.enums import LogColor
 from pydantic import Field
 from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
 from nautilus_trader.indicators.macd import MovingAverageConvergenceDivergence
+from nautilus_trader.indicators.donchian_channel import DonchianChannel
 from nautilus_trader.indicators.aroon import AroonOscillator
 from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 from nautilus_trader.indicators.atr import AverageTrueRange
@@ -132,6 +133,14 @@ class CoinFullConfig(StrategyConfig):
         }
     )
 
+    use_donchian_breakout_system: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "donchian_period": 20,
+            "min_breakout_strength": 0.5
+        }
+    )
+
     only_trade_rth: bool = False
     close_positions_on_stop: bool = True
 
@@ -169,6 +178,13 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             current_instrument["aroon"] = AroonOscillator(aroon_period)
             current_instrument["aroon_osc_long_threshold"] = aroon_osc_long_threshold   
             current_instrument["aroon_osc_short_threshold"] = aroon_osc_short_threshold
+
+            # donchian channel
+            donchian_config = self.config.use_donchian_breakout_system
+            donchian_period = donchian_config.get("donchian_period", 20)
+            min_breakout_strength = donchian_config.get("min_breakout_strength", 0.5)
+            current_instrument["donchian"] = DonchianChannel(donchian_period)
+            current_instrument["min_breakout_strength"] = min_breakout_strength
 
             # spike basic
             spike_config = self.config.use_spike_reversion_system
@@ -264,8 +280,13 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 current_instrument["collector"].initialise_logging_indicator("macd_signal", 1)
             if self.config.use_aroon_simple_trend_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("aroon_osc", 1)
+            if self.config.use_donchian_breakout_system.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("donchian_upper", 0)
+                current_instrument["collector"].initialise_logging_indicator("donchian_lower", 0)
+                current_instrument["collector"].initialise_logging_indicator("donchian_middle", 0)
             if self.config.use_rsi_as_exit.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("rsi_exit", 1)
+
 
     def on_start(self): 
         super().on_start()
@@ -442,6 +463,14 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 macd_signal_ema = current_instrument["macd_signal_ema"]
                 macd_signal_ema.update_raw(macd.value)
 
+        if self.config.use_donchian_breakout_system.get("enabled", False):
+            donchian = current_instrument["donchian"]
+            # Store previous values before updating for breakout detection
+            if donchian.initialized:
+                current_instrument["prev_donchian_upper"] = float(donchian.upper)
+                current_instrument["prev_donchian_lower"] = float(donchian.lower)
+            donchian.handle_bar(bar)
+
         if self.config.use_aroon_simple_trend_system.get("enabled", False):
             aroon = current_instrument["aroon"]
             aroon.handle_bar(bar)
@@ -479,6 +508,10 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             aroon = current_instrument["aroon"]
             if not aroon.initialized:
                 return
+        if self.config.use_donchian_breakout_system.get("enabled", False):
+            donchian = current_instrument["donchian"]
+            if not donchian.initialized:
+                return
 
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
         if open_orders:
@@ -502,12 +535,77 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if position is not None and position.side == PositionSide.LONG:
             self.long_exit_logic(bar, current_instrument, position)
             return
-
+        
+        self.donchian_breakout_setup(bar, current_instrument)
         self.aroon_simple_trend_setup(bar, current_instrument)
         self.macd_simple_reversion_setup(bar, current_instrument)
         self.spike_reversion_setup(bar, current_instrument)
         self.rsi_simple_reversion_setup(bar, current_instrument)
         self.trend_following_setup(bar, current_instrument)
+
+    def donchian_breakout_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
+        if not self.config.use_donchian_breakout_system.get("enabled", False):
+            return
+        
+        donchian = current_instrument["donchian"]
+        if not donchian.initialized:
+            return
+            
+        # Use previous Donchian values for breakout detection to avoid look-ahead bias
+        if "prev_donchian_upper" not in current_instrument or "prev_donchian_lower" not in current_instrument:
+            return  # Wait for at least one previous value
+            
+        donchian_upper = current_instrument["prev_donchian_upper"]
+        donchian_lower = current_instrument["prev_donchian_lower"]
+        bar_close = float(bar.close)
+        min_breakout_strength = current_instrument["min_breakout_strength"]
+        
+        # Standard Donchian breakout with percentage strength filter
+        if bar_close > donchian_upper:
+            upper_breakout_strength = (bar_close - donchian_upper) / donchian_upper
+            if (upper_breakout_strength >= min_breakout_strength and
+                self.passes_htf_ema_bias_filter(bar, current_instrument, "long")):
+                self.enter_long_donchian_breakout(bar, current_instrument)
+
+        elif bar_close < donchian_lower:
+            lower_breakout_strength = (donchian_lower - bar_close) / donchian_lower
+            if (lower_breakout_strength >= min_breakout_strength and
+                self.passes_htf_ema_bias_filter(bar, current_instrument, "short")):
+                self.enter_short_donchian_breakout(bar, current_instrument)
+
+    def enter_long_donchian_breakout(self, bar: Bar, current_instrument: Dict[str, Any]):  
+        instrument_id = bar.bar_type.instrument_id
+        trade_size_usdt = float(current_instrument["trade_size_usdt"])
+        qty = max(1, trade_size_usdt / float(bar.close))
+        
+        current_instrument["in_long_position"] = True
+        current_instrument["long_entry_price"] = float(bar.close)
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["max_topt_difference_since_entry"] = None
+        atr_value = current_instrument["atr"].value
+        sl_atr_multiple = current_instrument["sl_atr_multiple"]
+        if atr_value is not None:
+            current_instrument["sl_price"] = float(bar.close) - sl_atr_multiple * atr_value
+        else:
+            current_instrument["sl_price"] = None
+        self.order_types.submit_long_market_order(instrument_id, int(qty))
+
+    def enter_short_donchian_breakout(self, bar: Bar, current_instrument: Dict[str, Any]):   
+        instrument_id = bar.bar_type.instrument_id
+        trade_size_usdt = float(current_instrument["trade_size_usdt"])
+        qty = max(1, trade_size_usdt / float(bar.close))
+        
+        current_instrument["in_short_position"] = True
+        current_instrument["short_entry_price"] = float(bar.close)
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["min_topt_difference_since_entry"] = None
+        atr_value = current_instrument["atr"].value
+        sl_atr_multiple = current_instrument["sl_atr_multiple"]
+        if atr_value is not None:
+            current_instrument["sl_price"] = float(bar.close) + sl_atr_multiple * atr_value
+        else:
+            current_instrument["sl_price"] = None
+        self.order_types.submit_short_market_order(instrument_id, int(qty))
 
     def aroon_simple_trend_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_aroon_simple_trend_system.get("enabled", False):
@@ -1126,8 +1224,18 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             aroon_osc_value = float(aroon.value) if aroon.value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="aroon_osc", value=aroon_osc_value)
 
+        # Donchian Channel (position 0)
+        if self.config.use_donchian_breakout_system.get("enabled", False):
+            donchian = current_instrument["donchian"]
+            donchian_upper_value = float(donchian.upper) if donchian.upper is not None else None
+            donchian_lower_value = float(donchian.lower) if donchian.lower is not None else None
+            donchian_middle_value = float(donchian.middle) if donchian.middle is not None else None
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="donchian_upper", value=donchian_upper_value)
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="donchian_lower", value=donchian_lower_value)
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="donchian_middle", value=donchian_middle_value)
+
         # RSI for exit method (position 1)
-        if self.config.use_rsi_as_exit.get("enabled", False):
+        if self.config.use_rsi_as_exit.get("enabled", False):       
             rsi_exit = current_instrument.get("rsi_exit")
             if rsi_exit and rsi_exit.value is not None:
                 rsi_exit_value = float(rsi_exit.value)
