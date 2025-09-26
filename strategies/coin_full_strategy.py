@@ -118,6 +118,7 @@ class CoinFullConfig(StrategyConfig):
     use_rsi_simple_reversion_system: Dict[str, Any] = Field(
         default_factory=lambda: {
             "enabled": False,
+            "usage_method": "execution",  # "execution" or "condition"
             "rsi_period": 20,
             "rsi_overbought": 0.7,
             "rsi_oversold": 0.3
@@ -295,6 +296,10 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 current_instrument["collector"].initialise_logging_indicator("di_diff", 2)
             if self.config.use_rsi_simple_reversion_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("rsi", 1)
+                usage_method = self.config.use_rsi_simple_reversion_system.get("usage_method", "execution")
+                if usage_method == "condition":
+                    current_instrument["collector"].initialise_logging_indicator("rsi_overbought_level", 1)
+                    current_instrument["collector"].initialise_logging_indicator("rsi_oversold_level", 1)
             if self.config.use_macd_simple_reversion_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("macd", 1)
                 current_instrument["collector"].initialise_logging_indicator("macd_signal", 1)
@@ -436,6 +441,34 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         elif trade_direction == "short":
             return current_price < ema_value
         
+        return False
+
+    def passes_rsi_condition_filter(self, bar: Bar, current_instrument: Dict[str, Any], trade_direction: str) -> bool:
+        """
+        RSI condition filter - only active when RSI usage_method is set to "condition"
+        """
+        if not self.config.use_rsi_simple_reversion_system.get("enabled", False):
+            return True
+            
+        usage_method = self.config.use_rsi_simple_reversion_system.get("usage_method", "execution")
+        if usage_method != "condition":
+            return True
+            
+        rsi = current_instrument["rsi"]
+        if not rsi.initialized:
+            return True
+            
+        rsi_value = float(rsi.value)
+        rsi_overbought = current_instrument["rsi_overbought"]
+        rsi_oversold = current_instrument["rsi_oversold"]
+        
+        if trade_direction == "long":
+            # For long trades, RSI should be oversold (good entry condition)
+            return rsi_value <= rsi_oversold
+        elif trade_direction == "short":
+            # For short trades, RSI should be overbought (good entry condition)
+            return rsi_value >= rsi_overbought
+            
         return False
 
     def on_bar(self, bar: Bar) -> None:
@@ -601,13 +634,15 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if bar_close > donchian_upper:
             upper_breakout_strength = (bar_close - donchian_upper) / donchian_upper
             if (upper_breakout_strength >= min_breakout_strength and
-                self.passes_htf_ema_bias_filter(bar, current_instrument, "long")):
+                self.passes_htf_ema_bias_filter(bar, current_instrument, "long") and
+                self.passes_rsi_condition_filter(bar, current_instrument, "long")):
                 self.enter_long_donchian_breakout(bar, current_instrument)
 
         elif bar_close < donchian_lower:
             lower_breakout_strength = (donchian_lower - bar_close) / donchian_lower
             if (lower_breakout_strength >= min_breakout_strength and
-                self.passes_htf_ema_bias_filter(bar, current_instrument, "short")):
+                self.passes_htf_ema_bias_filter(bar, current_instrument, "short") and
+                self.passes_rsi_condition_filter(bar, current_instrument, "short")):
                 self.enter_short_donchian_breakout(bar, current_instrument)
 
     def enter_long_donchian_breakout(self, bar: Bar, current_instrument: Dict[str, Any]):  
@@ -657,10 +692,12 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         short_threshold = current_instrument["aroon_osc_short_threshold"]
         
         if (aroon_osc_value >= long_threshold and 
-            self.passes_htf_ema_bias_filter(bar, current_instrument, "long")):
+            self.passes_htf_ema_bias_filter(bar, current_instrument, "long") and
+            self.passes_rsi_condition_filter(bar, current_instrument, "long")):
             self.enter_long_aroon_trend(bar, current_instrument)
         elif (aroon_osc_value <= short_threshold and 
-              self.passes_htf_ema_bias_filter(bar, current_instrument, "short")):
+              self.passes_htf_ema_bias_filter(bar, current_instrument, "short") and
+              self.passes_rsi_condition_filter(bar, current_instrument, "short")):
             self.enter_short_aroon_trend(bar, current_instrument)
 
     def enter_long_aroon_trend(self, bar: Bar, current_instrument: Dict[str, Any]):
@@ -738,11 +775,13 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             
             if (bar_close > reversion_ema_value and 
                 current_instrument["bars_above_reversion_ema"] >= min_bars_spike_over_ema and
-                self.passes_htf_ema_bias_filter(bar, current_instrument, "short")):
+                self.passes_htf_ema_bias_filter(bar, current_instrument, "short") and
+                self.passes_rsi_condition_filter(bar, current_instrument, "short")):
                 self.spike_short_entry_logic(bar, current_instrument)
             elif (bar_close < reversion_ema_value and 
                   current_instrument["bars_below_reversion_ema"] >= min_bars_spike_under_ema and
-                  self.passes_htf_ema_bias_filter(bar, current_instrument, "long")):
+                  self.passes_htf_ema_bias_filter(bar, current_instrument, "long") and
+                  self.passes_rsi_condition_filter(bar, current_instrument, "long")):
                 self.spike_long_entry_logic(bar, current_instrument)
 
     def spike_short_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any]):
@@ -788,15 +827,23 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if not rsi.initialized:
             return
             
-        rsi_value = float(rsi.value)
-        rsi_overbought = current_instrument["rsi_overbought"]
-        rsi_oversold = current_instrument["rsi_oversold"]
+        usage_method = self.config.use_rsi_simple_reversion_system.get("usage_method", "execution")
         
-        # Immediate execution on extreme RSI levels - no minimum bars required
-        if rsi_value >= rsi_overbought and self.passes_htf_ema_bias_filter(bar, current_instrument, "short"):
-            self.enter_short_rsi_reversion(bar, current_instrument)
-        elif rsi_value <= rsi_oversold and self.passes_htf_ema_bias_filter(bar, current_instrument, "long"):
-            self.enter_long_rsi_reversion(bar, current_instrument)
+        if usage_method == "execution":
+            # Original behavior - RSI directly triggers trades
+            rsi_value = float(rsi.value)
+            rsi_overbought = current_instrument["rsi_overbought"]
+            rsi_oversold = current_instrument["rsi_oversold"]
+            
+            # Immediate execution on extreme RSI levels - no minimum bars required
+            if rsi_value >= rsi_overbought and self.passes_htf_ema_bias_filter(bar, current_instrument, "short"):
+                self.enter_short_rsi_reversion(bar, current_instrument)
+            elif rsi_value <= rsi_oversold and self.passes_htf_ema_bias_filter(bar, current_instrument, "long"):
+                self.enter_long_rsi_reversion(bar, current_instrument)
+        elif usage_method == "condition":
+            # New behavior - RSI acts as a condition for other entry methods
+            # The actual condition checking is done in passes_rsi_condition_filter method
+            pass
 
     def enter_short_rsi_reversion(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
@@ -851,12 +898,14 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if prev_macd is not None and prev_signal is not None:            
             if (prev_macd <= prev_signal and macd_line > signal_line and 
                 macd_line < 0 and signal_line < 0 and
-                self.passes_htf_ema_bias_filter(bar, current_instrument, "long")):
+                self.passes_htf_ema_bias_filter(bar, current_instrument, "long") and
+                self.passes_rsi_condition_filter(bar, current_instrument, "long")):
                 self.enter_long_macd_reversion(bar, current_instrument)
             
             elif (prev_macd >= prev_signal and macd_line < signal_line and
                   macd_line > 0 and signal_line > 0 and
-                  self.passes_htf_ema_bias_filter(bar, current_instrument, "short")):
+                  self.passes_htf_ema_bias_filter(bar, current_instrument, "short") and
+                  self.passes_rsi_condition_filter(bar, current_instrument, "short")):
                 self.enter_short_macd_reversion(bar, current_instrument)
         
         current_instrument["prev_macd_line"] = macd_line
@@ -927,7 +976,8 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         min_bars_under_ema = self.config.use_trend_following_setup.get("min_bars_under_ema", 20)
         if (prev_bar_close < ema_value and bar_close >= ema_value and 
             current_instrument["bars_below_ema"] >= min_bars_under_ema and
-            self.passes_htf_ema_bias_filter(bar, current_instrument, "long")):
+            self.passes_htf_ema_bias_filter(bar, current_instrument, "long") and
+            self.passes_rsi_condition_filter(bar, current_instrument, "long")):
             instrument_id = bar.bar_type.instrument_id
             trade_size_usdt = float(current_instrument["trade_size_usdt"])
             qty = max(1, trade_size_usdt / bar_close)
@@ -947,7 +997,8 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         min_bars_over_ema = self.config.use_trend_following_setup.get("min_bars_over_ema", 20)
         if (prev_bar_close >= ema_value and bar_close < ema_value and 
             current_instrument["bars_above_ema"] >= min_bars_over_ema and
-            self.passes_htf_ema_bias_filter(bar, current_instrument, "short")):
+            self.passes_htf_ema_bias_filter(bar, current_instrument, "short") and
+            self.passes_rsi_condition_filter(bar, current_instrument, "short")):
             instrument_id = bar.bar_type.instrument_id
             trade_size_usdt = float(current_instrument["trade_size_usdt"])
             qty = max(1, trade_size_usdt / bar_close)
@@ -1305,6 +1356,14 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if self.config.use_rsi_simple_reversion_system.get("enabled", False):
             rsi_value = float(current_instrument["rsi"].value) if current_instrument["rsi"].value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="rsi", value=rsi_value)
+            
+            # Add condition mode visualization
+            usage_method = self.config.use_rsi_simple_reversion_system.get("usage_method", "execution")
+            if usage_method == "condition":
+                rsi_overbought = current_instrument["rsi_overbought"]
+                rsi_oversold = current_instrument["rsi_oversold"]
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="rsi_overbought_level", value=rsi_overbought)
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="rsi_oversold_level", value=rsi_oversold)
         
         # MACD for reversion system (position 1)
         if self.config.use_macd_simple_reversion_system.get("enabled", False):
