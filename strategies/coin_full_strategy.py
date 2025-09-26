@@ -61,6 +61,15 @@ class CoinFullConfig(StrategyConfig):
         }
     )
 
+    use_macd_exit_system: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "macd_fast_exit_period": 10,
+            "macd_slow_exit_period": 32,
+            "macd_signal_exit_period": 10
+        }
+    )
+
     # Entry Methods Configuration
     use_min_coin_filters: Dict[str, Any] = Field(
         default_factory=lambda: {
@@ -224,6 +233,17 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 rsi_exit_config = self.config.use_rsi_as_exit
                 rsi_exit_period = rsi_exit_config.get("rsi_period", 20)
                 current_instrument["rsi_exit"] = RelativeStrengthIndex(rsi_exit_period)
+                
+            # macd exit system
+            if self.config.use_macd_exit_system.get("enabled", False):
+                macd_exit_config = self.config.use_macd_exit_system
+                macd_exit_fast = macd_exit_config.get("macd_fast_exit_period", 10)
+                macd_exit_slow = macd_exit_config.get("macd_slow_exit_period", 32)
+                macd_exit_signal = macd_exit_config.get("macd_signal_exit_period", 10)
+                current_instrument["macd_exit"] = MovingAverageConvergenceDivergence(macd_exit_fast, macd_exit_slow)
+                current_instrument["macd_exit_signal"] = ExponentialMovingAverage(macd_exit_signal)
+                current_instrument["prev_macd_exit_line"] = None
+                current_instrument["prev_macd_exit_signal"] = None
             current_instrument["prev_bar_close"] = None
             current_instrument["short_entry_price"] = None
             current_instrument["long_entry_price"] = None
@@ -286,6 +306,9 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 current_instrument["collector"].initialise_logging_indicator("donchian_middle", 0)
             if self.config.use_rsi_as_exit.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("rsi_exit", 1)
+            if self.config.use_macd_exit_system.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("macd_exit", 1)
+                current_instrument["collector"].initialise_logging_indicator("macd_exit_signal", 1)
 
 
     def on_start(self): 
@@ -480,6 +503,14 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             if rsi_exit:
                 rsi_exit.handle_bar(bar)
 
+        if self.config.use_macd_exit_system.get("enabled", False):
+            macd_exit = current_instrument.get("macd_exit")
+            macd_exit_signal = current_instrument.get("macd_exit_signal")
+            if macd_exit and macd_exit_signal:
+                macd_exit.handle_bar(bar)
+                if macd_exit.initialized:
+                    macd_exit_signal.update_raw(macd_exit.value)
+
         self.base_collect_bar_data(bar, current_instrument)
         self.update_visualizer_data(bar, current_instrument)
 
@@ -511,6 +542,12 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if self.config.use_donchian_breakout_system.get("enabled", False):
             donchian = current_instrument["donchian"]
             if not donchian.initialized:
+                return
+
+        if self.config.use_macd_exit_system.get("enabled", False):
+            macd_exit = current_instrument.get("macd_exit")
+            macd_exit_signal = current_instrument.get("macd_exit_signal")
+            if not macd_exit or not macd_exit_signal or not macd_exit.initialized or not macd_exit_signal.initialized:
                 return
 
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
@@ -954,6 +991,10 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             if self.check_fixed_rr_exit_long(bar, current_instrument, position):
                 should_exit = True
         
+        if not should_exit and self.config.use_macd_exit_system.get("enabled", False):
+            if self.check_macd_exit_long(bar, current_instrument):
+                should_exit = True
+        
         # Execute exit if any method triggered
         if should_exit:
             close_qty = min(int(abs(position.quantity)), abs(position.quantity))
@@ -993,6 +1034,10 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         
         if not should_exit and self.config.use_fixed_rr.get("enabled", False):
             if self.check_fixed_rr_exit_short(bar, current_instrument, position):
+                should_exit = True
+        
+        if not should_exit and self.config.use_macd_exit_system.get("enabled", False):
+            if self.check_macd_exit_short(bar, current_instrument):
                 should_exit = True
         
         # Execute exit if any method triggered
@@ -1171,6 +1216,59 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         # Exit short position when RSI crosses above threshold (momentum weakening)
         return rsi_value >= rsi_threshold
 
+    def check_macd_exit_long(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
+        """
+        Long exit: When fast MACD line crosses slow MACD line above 0 line (from above to below)
+        """
+        macd_exit = current_instrument.get("macd_exit")
+        macd_exit_signal = current_instrument.get("macd_exit_signal")
+        
+        if not macd_exit or not macd_exit_signal or not macd_exit.initialized or not macd_exit_signal.initialized:
+            return False
+        
+        macd_line = float(macd_exit.value)  # Fast line
+        signal_line = float(macd_exit_signal.value)  # Slow line
+        
+        prev_macd = current_instrument.get("prev_macd_exit_line")
+        prev_signal = current_instrument.get("prev_macd_exit_signal")
+        
+        # Store current values for next bar
+        current_instrument["prev_macd_exit_line"] = macd_line
+        current_instrument["prev_macd_exit_signal"] = signal_line
+        
+        if prev_macd is None or prev_signal is None:
+            return False
+        
+        above_zero = macd_line > 0 and signal_line > 0
+        bearish_crossover = prev_macd > prev_signal and macd_line <= signal_line
+        
+        return above_zero and bearish_crossover
+
+    def check_macd_exit_short(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
+        macd_exit = current_instrument.get("macd_exit")
+        macd_exit_signal = current_instrument.get("macd_exit_signal")
+        
+        if not macd_exit or not macd_exit_signal or not macd_exit.initialized or not macd_exit_signal.initialized:
+            return False
+        
+        macd_line = float(macd_exit.value)  # Fast line
+        signal_line = float(macd_exit_signal.value)  # Slow line
+        
+        prev_macd = current_instrument.get("prev_macd_exit_line")
+        prev_signal = current_instrument.get("prev_macd_exit_signal")
+        
+        # Store current values for next bar
+        current_instrument["prev_macd_exit_line"] = macd_line
+        current_instrument["prev_macd_exit_signal"] = signal_line
+        
+        if prev_macd is None or prev_signal is None:
+            return False
+        
+        below_zero = macd_line < 0 and signal_line < 0
+        bullish_crossover = prev_macd < prev_signal and macd_line >= signal_line
+        
+        return below_zero and bullish_crossover
+
     def update_visualizer_data(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         inst_id = bar.bar_type.instrument_id
         self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)
@@ -1240,6 +1338,16 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             if rsi_exit and rsi_exit.value is not None:
                 rsi_exit_value = float(rsi_exit.value)
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="rsi_exit", value=rsi_exit_value)
+        
+        # MACD for exit method (position 1)
+        if self.config.use_macd_exit_system.get("enabled", False):
+            macd_exit = current_instrument.get("macd_exit")
+            macd_exit_signal = current_instrument.get("macd_exit_signal")
+            if macd_exit and macd_exit.value is not None and macd_exit_signal and macd_exit_signal.value is not None:
+                macd_exit_value = float(macd_exit.value)
+                macd_exit_signal_value = float(macd_exit_signal.value)
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="macd_exit", value=macd_exit_value)
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="macd_exit_signal", value=macd_exit_signal_value)
         
     def on_order_filled(self, order_filled) -> None:
         return self.base_on_order_filled(order_filled)

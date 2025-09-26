@@ -90,6 +90,12 @@ use_rsi_as_exit:
   rsi_period: 20
   rsi_exit_threshold: 0.5
 
+use_macd_exit_system:
+  enabled: true
+  macd_fast_exit_period: 10
+  macd_slow_exit_period: 32
+  macd_signal_exit_period: 10
+
 use_topt_ratio_as_exit:
   enabled: false
   short_min_extreme_reversal_topt_longshortratio: 0.3 # Do professionally after base strat runs
