@@ -49,7 +49,8 @@ class CoinFullConfig(StrategyConfig):
         default_factory=lambda: {
             "enabled": False,
             "rsi_period": 20,
-            "rsi_exit_threshold": 0.5
+            "rsi_long_exit_threshold": 0.7,
+            "rsi_short_exit_threshold": 0.3
         }
     )
 
@@ -1121,25 +1122,25 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             
         current_price = float(bar.close)
         ema_value = float(exit_trend_ema.value)
-        min_bars = self.config.use_close_ema.get("min_bars_over_ema", 35)
+        min_bars = self.config.use_close_ema.get("min_bars_under_ema", 25)
         
-        if "ema_exit_qualified" not in current_instrument:
-            current_instrument["ema_exit_qualified"] = False
-        
-        if current_price > ema_value:
-            current_instrument["bars_over_ema_exit"] += 1
+        # Initialize counters if not present
+        if "bars_under_ema_exit" not in current_instrument:
             current_instrument["bars_under_ema_exit"] = 0
-            
-            if current_instrument["bars_over_ema_exit"] >= min_bars:
-                current_instrument["ema_exit_qualified"] = True
-                
-        else:
+        if "bars_over_ema_exit" not in current_instrument:
+            current_instrument["bars_over_ema_exit"] = 0
+        
+        # Track bars below EMA
+        if current_price < ema_value:
             current_instrument["bars_under_ema_exit"] += 1
             current_instrument["bars_over_ema_exit"] = 0
-            
-            if current_instrument["ema_exit_qualified"] and current_price <= ema_value:
-                current_instrument["ema_exit_qualified"] = False  # Reset for next trade
-                return True
+        else:
+            current_instrument["bars_over_ema_exit"] += 1
+            current_instrument["bars_under_ema_exit"] = 0
+        
+        # Exit long when price has been under EMA for min_bars
+        if current_instrument["bars_under_ema_exit"] >= min_bars:
+            return True
                 
         return False
 
@@ -1151,26 +1152,25 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             
         current_price = float(bar.close)
         ema_value = float(exit_trend_ema.value)
-        min_bars = self.config.use_close_ema.get("min_bars_under_ema", 35)
+        min_bars = self.config.use_close_ema.get("min_bars_over_ema", 25)
         
-        if "ema_exit_qualified" not in current_instrument:
-            current_instrument["ema_exit_qualified"] = False
-        
-        # EVERY bar: check if above or below EMA
-        if current_price < ema_value:
-            current_instrument["bars_under_ema_exit"] += 1
+        # Initialize counters if not present
+        if "bars_under_ema_exit" not in current_instrument:
+            current_instrument["bars_under_ema_exit"] = 0
+        if "bars_over_ema_exit" not in current_instrument:
             current_instrument["bars_over_ema_exit"] = 0
-            
-            if current_instrument["bars_under_ema_exit"] >= min_bars:
-                current_instrument["ema_exit_qualified"] = True
-                
-        else:
+        
+        # Track bars above EMA
+        if current_price > ema_value:
             current_instrument["bars_over_ema_exit"] += 1
             current_instrument["bars_under_ema_exit"] = 0
-            
-            if current_instrument["ema_exit_qualified"] and current_price >= ema_value:
-                current_instrument["ema_exit_qualified"] = False  # Reset for next trade
-                return True
+        else:
+            current_instrument["bars_under_ema_exit"] += 1
+            current_instrument["bars_over_ema_exit"] = 0
+        
+        # Exit short when price has been over EMA for min_bars
+        if current_instrument["bars_over_ema_exit"] >= min_bars:
+            return True
                 
         return False
 
@@ -1251,10 +1251,10 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             return False
         
         rsi_value = float(rsi_exit.value)
-        rsi_threshold = self.config.use_rsi_as_exit.get("rsi_exit_threshold", 0.5)
+        rsi_long_exit_threshold = self.config.use_rsi_as_exit.get("rsi_long_exit_threshold", 0.7)
         
-        # Exit long position when RSI crosses below threshold (momentum weakening)
-        return rsi_value <= rsi_threshold
+        # Exit long position when RSI is overbought (momentum exhaustion)
+        return rsi_value >= rsi_long_exit_threshold
 
     def check_rsi_exit_short(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
         rsi_exit = current_instrument.get("rsi_exit")
@@ -1262,10 +1262,10 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             return False
         
         rsi_value = float(rsi_exit.value)
-        rsi_threshold = self.config.use_rsi_as_exit.get("rsi_exit_threshold", 0.5)
+        rsi_short_exit_threshold = self.config.use_rsi_as_exit.get("rsi_short_exit_threshold", 0.3)
         
-        # Exit short position when RSI crosses above threshold (momentum weakening)
-        return rsi_value >= rsi_threshold
+        # Exit short position when RSI is oversold (downside momentum exhaustion)
+        return rsi_value <= rsi_short_exit_threshold
 
     def check_macd_exit_long(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
         """
