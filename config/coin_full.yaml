@@ -49,13 +49,14 @@ close_positions_on_stop: [true]
 # ----------------------------------------------------------------
 # stoploss settings
 # ----------------------------------------------------------------
-sl_atr_multiple: 50.0
+sl_atr_multiple: 2.0
 atr_period: 14
 
 # ----------------------------------------------------------------
 # base filters
 # ----------------------------------------------------------------
 only_trade_rth: false
+only_execute_short: false
 
 use_min_coin_filters:
   enabled: true
@@ -70,19 +71,19 @@ use_directional_movement_filter:
 
 use_htf_ema_bias_filter:
   enabled: false
-  ema_period: 150
+  ema_period: 300
 
 # ----------------------------------------------------------------
 # exit methods
 # ----------------------------------------------------------------
 use_close_ema:
-  enabled: true
-  exit_trend_ema_period: 180
-  min_bars_over_ema: 25
-  min_bars_under_ema: 25
+  enabled: false
+  exit_trend_ema_period: 200
+  min_bars_over_ema: 40
+  min_bars_under_ema: 40
 
 use_fixed_rr:
-  enabled: false
+  enabled: true
   rr_tp_ratio: 3.0 # in relation to "stop loss settings"
 
 use_rsi_as_exit:
@@ -106,7 +107,7 @@ use_topt_ratio_as_exit:
 # entry methods
 # ----------------------------------------------------------------
 use_trend_following_setup:
-  enabled: false
+  enabled: true
   entry_trend_ema_period: 40
   min_bars_under_ema: 20
   min_bars_over_ema: 20
@@ -120,23 +121,23 @@ use_spike_reversion_system:
   min_bars_spike_under_ema: 12
 
 use_rsi_simple_reversion_system:
-  enabled: true
+  enabled: false
   usage_method: "condition" # or execution
   rsi_period: 20
   rsi_overbought: 0.6
   rsi_oversold: 0.3
 
 use_macd_simple_reversion_system:
-  enabled: true
+  enabled: false
   macd_fast_period: 12
   macd_slow_period: 26
   macd_signal_period: 9
 
 use_aroon_simple_trend_system:
   enabled: false
-  aroon_period: 30
-  aroon_osc_long_threshold: 50
-  aroon_osc_short_threshold: -50
+  aroon_period: 120
+  aroon_osc_long_threshold: 40
+  aroon_osc_short_threshold: -40
 
 use_donchian_breakout_system:
   enabled: false

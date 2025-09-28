@@ -153,6 +153,7 @@ class CoinFullConfig(StrategyConfig):
     )
 
     only_trade_rth: bool = False
+    only_execute_short: bool = False
     close_positions_on_stop: bool = True
 
 
@@ -472,6 +473,13 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             
         return False
 
+    def is_long_entry_allowed(self) -> bool:
+        """
+        Check if long entries are allowed based on configuration.
+        When only_execute_short is True, all long entries will be blocked.
+        """
+        return not self.config.only_execute_short
+
     def on_bar(self, bar: Bar) -> None:
         instrument_id = bar.bar_type.instrument_id
         current_instrument = self.instrument_dict.get(instrument_id)
@@ -635,6 +643,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if bar_close > donchian_upper:
             upper_breakout_strength = (bar_close - donchian_upper) / donchian_upper
             if (upper_breakout_strength >= min_breakout_strength and
+                self.is_long_entry_allowed() and
                 self.passes_htf_ema_bias_filter(bar, current_instrument, "long") and
                 self.passes_rsi_condition_filter(bar, current_instrument, "long")):
                 self.enter_long_donchian_breakout(bar, current_instrument)
@@ -693,6 +702,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         short_threshold = current_instrument["aroon_osc_short_threshold"]
         
         if (aroon_osc_value >= long_threshold and 
+            self.is_long_entry_allowed() and
             self.passes_htf_ema_bias_filter(bar, current_instrument, "long") and
             self.passes_rsi_condition_filter(bar, current_instrument, "long")):
             self.enter_long_aroon_trend(bar, current_instrument)
@@ -781,6 +791,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 self.spike_short_entry_logic(bar, current_instrument)
             elif (bar_close < reversion_ema_value and 
                   current_instrument["bars_below_reversion_ema"] >= min_bars_spike_under_ema and
+                  self.is_long_entry_allowed() and
                   self.passes_htf_ema_bias_filter(bar, current_instrument, "long") and
                   self.passes_rsi_condition_filter(bar, current_instrument, "long")):
                 self.spike_long_entry_logic(bar, current_instrument)
@@ -839,7 +850,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             # Immediate execution on extreme RSI levels - no minimum bars required
             if rsi_value >= rsi_overbought and self.passes_htf_ema_bias_filter(bar, current_instrument, "short"):
                 self.enter_short_rsi_reversion(bar, current_instrument)
-            elif rsi_value <= rsi_oversold and self.passes_htf_ema_bias_filter(bar, current_instrument, "long"):
+            elif rsi_value <= rsi_oversold and self.is_long_entry_allowed() and self.passes_htf_ema_bias_filter(bar, current_instrument, "long"):
                 self.enter_long_rsi_reversion(bar, current_instrument)
         elif usage_method == "condition":
             # New behavior - RSI acts as a condition for other entry methods
@@ -899,6 +910,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if prev_macd is not None and prev_signal is not None:            
             if (prev_macd <= prev_signal and macd_line > signal_line and 
                 macd_line < 0 and signal_line < 0 and
+                self.is_long_entry_allowed() and
                 self.passes_htf_ema_bias_filter(bar, current_instrument, "long") and
                 self.passes_rsi_condition_filter(bar, current_instrument, "long")):
                 self.enter_long_macd_reversion(bar, current_instrument)
@@ -977,6 +989,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         min_bars_under_ema = self.config.use_trend_following_setup.get("min_bars_under_ema", 20)
         if (prev_bar_close < ema_value and bar_close >= ema_value and 
             current_instrument["bars_below_ema"] >= min_bars_under_ema and
+            self.is_long_entry_allowed() and
             self.passes_htf_ema_bias_filter(bar, current_instrument, "long") and
             self.passes_rsi_condition_filter(bar, current_instrument, "long")):
             instrument_id = bar.bar_type.instrument_id
@@ -1122,7 +1135,8 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             
         current_price = float(bar.close)
         ema_value = float(exit_trend_ema.value)
-        min_bars = self.config.use_close_ema.get("min_bars_under_ema", 25)
+        min_bars_over = self.config.use_close_ema.get("min_bars_over_ema", 25)
+        min_bars_under = self.config.use_close_ema.get("min_bars_under_ema", 25)
         
         # Initialize counters if not present
         if "bars_under_ema_exit" not in current_instrument:
@@ -1130,17 +1144,26 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if "bars_over_ema_exit" not in current_instrument:
             current_instrument["bars_over_ema_exit"] = 0
         
-        # Track bars below EMA
-        if current_price < ema_value:
-            current_instrument["bars_under_ema_exit"] += 1
-            current_instrument["bars_over_ema_exit"] = 0
-        else:
+        # Track bars above/below EMA
+        if current_price > ema_value:
             current_instrument["bars_over_ema_exit"] += 1
             current_instrument["bars_under_ema_exit"] = 0
+        else:
+            current_instrument["bars_under_ema_exit"] += 1
+            current_instrument["bars_over_ema_exit"] = 0
+    
+        prev_bars_over = current_instrument.get("prev_bars_over_ema_exit", 0)
         
-        # Exit long when price has been under EMA for min_bars
-        if current_instrument["bars_under_ema_exit"] >= min_bars:
+        if current_instrument["bars_under_ema_exit"] >= min_bars_under:
             return True
+            
+        if (prev_bars_over >= min_bars_over and 
+            current_instrument["bars_under_ema_exit"] > 0 and 
+            current_instrument["bars_over_ema_exit"] == 0):
+            return True
+        
+        current_instrument["prev_bars_over_ema_exit"] = current_instrument["bars_over_ema_exit"]
+        current_instrument["prev_bars_under_ema_exit"] = current_instrument["bars_under_ema_exit"]
                 
         return False
 
@@ -1152,7 +1175,8 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             
         current_price = float(bar.close)
         ema_value = float(exit_trend_ema.value)
-        min_bars = self.config.use_close_ema.get("min_bars_over_ema", 25)
+        min_bars_over = self.config.use_close_ema.get("min_bars_over_ema", 25)
+        min_bars_under = self.config.use_close_ema.get("min_bars_under_ema", 25)
         
         # Initialize counters if not present
         if "bars_under_ema_exit" not in current_instrument:
@@ -1160,7 +1184,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         if "bars_over_ema_exit" not in current_instrument:
             current_instrument["bars_over_ema_exit"] = 0
         
-        # Track bars above EMA
+        # Track bars above/below EMA
         if current_price > ema_value:
             current_instrument["bars_over_ema_exit"] += 1
             current_instrument["bars_under_ema_exit"] = 0
@@ -1168,9 +1192,18 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             current_instrument["bars_under_ema_exit"] += 1
             current_instrument["bars_over_ema_exit"] = 0
         
-        # Exit short when price has been over EMA for min_bars
-        if current_instrument["bars_over_ema_exit"] >= min_bars:
+        prev_bars_under = current_instrument.get("prev_bars_under_ema_exit", 0)
+        
+        if current_instrument["bars_over_ema_exit"] >= min_bars_over:
             return True
+            
+        if (prev_bars_under >= min_bars_under and 
+            current_instrument["bars_over_ema_exit"] > 0 and 
+            current_instrument["bars_under_ema_exit"] == 0):
+            return True
+        
+        current_instrument["prev_bars_over_ema_exit"] = current_instrument["bars_over_ema_exit"]
+        current_instrument["prev_bars_under_ema_exit"] = current_instrument["bars_under_ema_exit"]
                 
         return False
 
