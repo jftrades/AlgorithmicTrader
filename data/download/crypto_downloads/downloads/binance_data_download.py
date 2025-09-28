@@ -477,6 +477,7 @@ class BarTransformer:
                     "open", "high", "low", "close", "volume",
                 ],
             )
+
         if self.save_in_catalog:
             bar_type_dir = (
                 self.catalog_root_path / "data" /
@@ -490,11 +491,14 @@ class BarTransformer:
             catalog.write_data(final_bars)
             print(f"Bars saved to catalog: {len(final_bars)}")
 
+        # NEU: CSV immer separat wenn save_as_csv True (nicht mehr an save_in_catalog gekoppelt)
+        if self.save_as_csv:
             csv_dir = self.base_data_dir / "csv_data" / (self.symbol + ("-PERP" if self.is_perp else ""))
             csv_dir.mkdir(parents=True, exist_ok=True)
             out_file = csv_dir / "OHLCV.csv"
             df_out.to_csv(out_file, index=False)
             print(f"Bars CSV exported: {out_file}")
+
         if final_bars:
             ts_min = unix_nanos_to_dt(min(b.ts_event for b in final_bars))
             ts_max = unix_nanos_to_dt(max(b.ts_event for b in final_bars))

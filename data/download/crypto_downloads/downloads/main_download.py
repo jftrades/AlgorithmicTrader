@@ -6,26 +6,28 @@ from lunar_metrics_download import LunarMetricsDownloader
 from venue_metrics_download import VenueMetricsDownloader
 from binance_data_download import CombinedCryptoDataDownloader
 import binance_data_download as bdd
+from fear_and_greed_download import FearAndGreedDownloader  # NEU
 # Entfernt: from new_future_list_download import BinancePerpetualFuturesDiscovery
 
 # ========================
 # Konfiguration (anpassen)
 # ========================
-SYMBOL = "ETHUSDT-Perp"
-START_DATE = "2025-01-06"
-END_DATE = "2025-01-07"
+SYMBOL = "BTCUSDT-PERP"
+START_DATE = "2024-01-01"
+END_DATE = "2025-09-01"
 BASE_DATA_DIR = str(Path(__file__).resolve().parents[3] / "DATA_STORAGE")
 
-RUN_LUNAR = True
-RUN_VENUE = True
+RUN_LUNAR = False
+RUN_VENUE = False
 RUN_BINANCE = True
-# Entfernt: RUN_NEW_FUTURES und Fenster-Konfiguration
+RUN_FNG = False  
 
 LUNAR_BUCKET = "hour"
 BINANCE_DATATYPE = "bar"
-BINANCE_INTERVAL = "1h"
+BINANCE_INTERVAL = "5m"
+FNG_INSTRUMENT_ID = "FNG-INDEX.BINANCE"  # NEU
 
-SAVE_AS_CSV = True
+SAVE_AS_CSV = False
 SAVE_IN_CATALOG = True
 DOWNLOAD_IF_MISSING = True
 # ========================
@@ -46,6 +48,8 @@ class CryptoDataOrchestrator:
         save_as_csv: bool,
         save_in_catalog: bool,
         download_if_missing: bool,
+        run_fng: bool = False,                 # NEU
+        fng_instrument_id: str = "FNG-INDEX.BINANCE",  # NEU
     ):
         # ...existing code...
         self.symbol = symbol
@@ -61,6 +65,8 @@ class CryptoDataOrchestrator:
         self.save_as_csv = save_as_csv
         self.save_in_catalog = save_in_catalog
         self.download_if_missing = download_if_missing
+        self.run_fng = run_fng          # NEU
+        self.fng_instrument_id = fng_instrument_id  # NEU
         self.base_symbol, self.perp_symbol = self._normalize_symbols(self.symbol)
         # Entfernt: futures-bezogene Attribute
 
@@ -137,6 +143,22 @@ class CryptoDataOrchestrator:
         except Exception as e:
             return {"error": str(e)}
 
+    def run_fear_greed(self):
+        try:
+            dl = FearAndGreedDownloader(
+                start_date=self.start,
+                end_date=self.end,
+                base_data_dir=self.base_data_dir,
+                instrument_id_str=self.fng_instrument_id,
+                save_as_csv=self.save_as_csv,
+                save_in_catalog=self.save_in_catalog,
+                download_if_missing=self.download_if_missing,
+                remove_processed=True,
+            )
+            return dl.run()
+        except Exception as e:
+            return {"error": str(e)}
+
     def run(self) -> Dict[str, Any]:
         results: Dict[str, Any] = {}
         if self.run_lunar:
@@ -145,6 +167,8 @@ class CryptoDataOrchestrator:
             results["venue_metrics"] = self.run_venue_metrics()
         if self.run_binance:
             results["binance_data"] = self.run_binance_data()
+        if self.run_fng:                      # NEU
+            results["fear_greed"] = self.run_fear_greed()
         return {
             "input": {
                 "symbol_input": self.symbol,
@@ -171,6 +195,8 @@ if __name__ == "__main__":
         save_as_csv=SAVE_AS_CSV,
         save_in_catalog=SAVE_IN_CATALOG,
         download_if_missing=DOWNLOAD_IF_MISSING,
+        run_fng=RUN_FNG,                      # NEU
+        fng_instrument_id=FNG_INSTRUMENT_ID,  # NEU
     )
     summary = orchestrator.run()
     print(json.dumps(summary, indent=2))
