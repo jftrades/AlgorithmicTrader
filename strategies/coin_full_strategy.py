@@ -1,5 +1,5 @@
 # in here is the coin short strategy to short coins that have been listed for 14 days
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timezone, timedelta
 from typing import Any, Dict, Optional, List
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
@@ -154,6 +154,7 @@ class CoinFullConfig(StrategyConfig):
 
     only_trade_rth: bool = False
     only_execute_short: bool = False
+    hold_profit_for_remaining_days: bool = False
     close_positions_on_stop: bool = True
 
 
@@ -162,6 +163,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         super().__init__(config)
         self.risk_manager = RiskManager(config)
         self.order_types = OrderTypes(self) 
+        self.onboard_dates = self.load_onboard_dates()
         self.add_instrument_context()
     
     def add_instrument_context(self):
@@ -479,6 +481,54 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         When only_execute_short is True, all long entries will be blocked.
         """
         return not self.config.only_execute_short
+
+    def load_onboard_dates(self):
+        import csv
+        from pathlib import Path
+        
+        onboard_dates = {}
+        csv_path = Path(__file__).parent.parent / "data" / "DATA_STORAGE" / "project_future_scraper" / "new_binance_perpetual_futures.csv"
+        
+        try:
+            with open(csv_path, 'r') as file:
+                reader = csv.DictReader(file)
+                for row in reader:
+                    symbol = row['symbol']
+                    onboard_date_str = row['onboardDate']
+                    onboard_date = datetime.strptime(onboard_date_str, "%Y-%m-%d %H:%M:%S")
+                    onboard_dates[symbol] = onboard_date
+        except Exception as e:
+            self.log.error(f"Failed to load onboard dates: {e}")
+            
+        return onboard_dates
+
+    def check_time_based_exit(self, bar: Bar, current_instrument: Dict[str, Any], position) -> bool:
+        if not self.config.hold_profit_for_remaining_days:
+            return False
+            
+        instrument_id_str = str(bar.bar_type.instrument_id)
+        base_symbol = instrument_id_str.split('-')[0]
+        
+        if base_symbol not in self.onboard_dates:
+            return False
+            
+        onboard_date = self.onboard_dates[base_symbol]
+        deadline = onboard_date + timedelta(days=13.5)
+        
+        current_time = datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=timezone.utc).replace(tzinfo=None)
+        
+        if current_time >= deadline:
+            entry_price = position.avg_px_open
+            current_price = float(bar.close)
+            
+            if position.side == PositionSide.LONG:
+                is_profitable = current_price > entry_price
+            else:
+                is_profitable = current_price < entry_price
+                
+            return is_profitable
+            
+        return False
 
     def on_bar(self, bar: Bar) -> None:
         instrument_id = bar.bar_type.instrument_id
@@ -1042,6 +1092,20 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             current_instrument["prev_bar_close"] = float(bar.close)
             return
         
+        # Check time-based exit (overrides all other exits if enabled)
+        if self.check_time_based_exit(bar, current_instrument, position):
+            close_qty = min(int(abs(position.quantity)), abs(position.quantity))
+            if close_qty > 0:
+                self.order_types.submit_short_market_order(instrument_id, int(close_qty))
+            self.reset_position_tracking(current_instrument)
+            current_instrument["prev_bar_close"] = float(bar.close)
+            return
+        
+        # Skip all other exits if time-based exit is enabled but deadline not reached
+        if self.config.hold_profit_for_remaining_days:
+            current_instrument["prev_bar_close"] = float(bar.close)
+            return
+        
         should_exit = False
         
         if self.config.use_close_ema.get("enabled", False):
@@ -1080,6 +1144,20 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             if close_qty > 0:
                 self.order_types.submit_long_market_order(instrument_id, int(close_qty))
             self.reset_position_tracking(current_instrument)
+            current_instrument["prev_bar_close"] = float(bar.close)
+            return
+        
+        # Check time-based exit (overrides all other exits if enabled)
+        if self.check_time_based_exit(bar, current_instrument, position):
+            close_qty = min(int(abs(position.quantity)), abs(position.quantity))
+            if close_qty > 0:
+                self.order_types.submit_long_market_order(instrument_id, int(close_qty))
+            self.reset_position_tracking(current_instrument)
+            current_instrument["prev_bar_close"] = float(bar.close)
+            return
+        
+        # Skip all other exits if time-based exit is enabled but deadline not reached
+        if self.config.hold_profit_for_remaining_days:
             current_instrument["prev_bar_close"] = float(bar.close)
             return
         
@@ -1135,36 +1213,29 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             
         current_price = float(bar.close)
         ema_value = float(exit_trend_ema.value)
-        min_bars_over = self.config.use_close_ema.get("min_bars_over_ema", 25)
-        min_bars_under = self.config.use_close_ema.get("min_bars_under_ema", 25)
-        
-        # Initialize counters if not present
+        min_bars = self.config.use_close_ema.get("min_bars_under_ema", 40)
+
+        if "ema_exit_qualified" not in current_instrument:
+            current_instrument["ema_exit_qualified"] = False
         if "bars_under_ema_exit" not in current_instrument:
             current_instrument["bars_under_ema_exit"] = 0
         if "bars_over_ema_exit" not in current_instrument:
             current_instrument["bars_over_ema_exit"] = 0
         
-        # Track bars above/below EMA
         if current_price > ema_value:
             current_instrument["bars_over_ema_exit"] += 1
             current_instrument["bars_under_ema_exit"] = 0
+            
+            if current_instrument["bars_over_ema_exit"] >= min_bars:
+                current_instrument["ema_exit_qualified"] = True
         else:
             current_instrument["bars_under_ema_exit"] += 1
             current_instrument["bars_over_ema_exit"] = 0
-    
-        prev_bars_over = current_instrument.get("prev_bars_over_ema_exit", 0)
-        
-        if current_instrument["bars_under_ema_exit"] >= min_bars_under:
-            return True
             
-        if (prev_bars_over >= min_bars_over and 
-            current_instrument["bars_under_ema_exit"] > 0 and 
-            current_instrument["bars_over_ema_exit"] == 0):
-            return True
-        
-        current_instrument["prev_bars_over_ema_exit"] = current_instrument["bars_over_ema_exit"]
-        current_instrument["prev_bars_under_ema_exit"] = current_instrument["bars_under_ema_exit"]
-                
+            if current_instrument["ema_exit_qualified"] and current_price <= ema_value:
+                current_instrument["ema_exit_qualified"] = False
+                return True
+
         return False
 
     def check_ema_exit_short(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
@@ -1175,36 +1246,29 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             
         current_price = float(bar.close)
         ema_value = float(exit_trend_ema.value)
-        min_bars_over = self.config.use_close_ema.get("min_bars_over_ema", 25)
-        min_bars_under = self.config.use_close_ema.get("min_bars_under_ema", 25)
-        
-        # Initialize counters if not present
+        min_bars = self.config.use_close_ema.get("min_bars_over_ema", 40)
+
+        if "ema_exit_qualified" not in current_instrument:
+            current_instrument["ema_exit_qualified"] = False
         if "bars_under_ema_exit" not in current_instrument:
             current_instrument["bars_under_ema_exit"] = 0
         if "bars_over_ema_exit" not in current_instrument:
             current_instrument["bars_over_ema_exit"] = 0
         
-        # Track bars above/below EMA
-        if current_price > ema_value:
-            current_instrument["bars_over_ema_exit"] += 1
-            current_instrument["bars_under_ema_exit"] = 0
-        else:
+        if current_price < ema_value:
             current_instrument["bars_under_ema_exit"] += 1
             current_instrument["bars_over_ema_exit"] = 0
-        
-        prev_bars_under = current_instrument.get("prev_bars_under_ema_exit", 0)
-        
-        if current_instrument["bars_over_ema_exit"] >= min_bars_over:
-            return True
             
-        if (prev_bars_under >= min_bars_under and 
-            current_instrument["bars_over_ema_exit"] > 0 and 
-            current_instrument["bars_under_ema_exit"] == 0):
-            return True
-        
-        current_instrument["prev_bars_over_ema_exit"] = current_instrument["bars_over_ema_exit"]
-        current_instrument["prev_bars_under_ema_exit"] = current_instrument["bars_under_ema_exit"]
-                
+            if current_instrument["bars_under_ema_exit"] >= min_bars:
+                current_instrument["ema_exit_qualified"] = True
+        else:
+            current_instrument["bars_over_ema_exit"] += 1
+            current_instrument["bars_under_ema_exit"] = 0
+            
+            if current_instrument["ema_exit_qualified"] and current_price >= ema_value:
+                current_instrument["ema_exit_qualified"] = False
+                return True
+
         return False
 
     def check_topt_ratio_exit_long(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
