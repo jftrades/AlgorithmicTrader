@@ -17,7 +17,7 @@ from core.visualizing.dashboard.main import launch_dashbaord
 
 #STRAT PARAMETER
 
-yaml_name = "test_custom_data.yaml"
+yaml_name = "beta.yaml"
 
 # ------------------------------------------------------------
 # YAML laden & vorbereiten

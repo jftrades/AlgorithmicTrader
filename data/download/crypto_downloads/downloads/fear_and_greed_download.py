@@ -84,8 +84,14 @@ class FearAndGreedDownloader:
             raise ValueError("No FNG data returned from API.")
 
         df = pd.DataFrame(data)
-        # API liefert "timestamp" als YYYY-MM-DD (oder älter evtl epoch?). Robust umwandeln:
-        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
+        # API (date_format=world) liefert DD-MM-YYYY -> explizites Format + dayfirst zur Warnungsunterdrückung
+        df["timestamp"] = pd.to_datetime(
+            df["timestamp"],
+            format="%d-%m-%Y",
+            dayfirst=True,
+            utc=True,
+            errors="coerce",
+        )
         df = df.dropna(subset=["timestamp"])
         # Zu Tages-Start normalisieren
         df["timestamp"] = df["timestamp"].dt.normalize()
@@ -180,12 +186,12 @@ if __name__ == "__main__":
     base_dir = Path(__file__).resolve().parents[3] / "DATA_STORAGE"
     downloader = FearAndGreedDownloader(
         start_date="2023-12-01",
-        end_date="2023-12-31",
+        end_date="2025-09-09",
         base_data_dir=str(base_dir),
         instrument_id_str="FNG-INDEX.BINANCE",
         limit=0,
         save_as_csv=True,
-        save_in_catalog=True,
+        save_in_catalog=False,
         download_if_missing=True,
         remove_processed=False,
     )
