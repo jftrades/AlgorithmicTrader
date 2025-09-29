@@ -2,11 +2,14 @@ from pathlib import Path
 import pandas as pd
 import shutil
 
-BASE_DATA_DIR = Path(__file__).resolve().parents[3] / "DATA_STORAGE"
-INPUT_ROOT = BASE_DATA_DIR / "csv_data"
-OUTPUT_ROOT = BASE_DATA_DIR / "csv_data_processed"
+BASE_DATA_DIR = Path(__file__).resolve().parents[3] / "DATA_STORAGE" / "csv_data_catalog"
+INPUT_ROOT = BASE_DATA_DIR / "csv_data_all"
+OUTPUT_ROOT = BASE_DATA_DIR / "csv_data_all_processed"
 FNG_DIR_NAME = "FNG-INDEX.BINANCE"
 FNG_FILE = INPUT_ROOT / FNG_DIR_NAME / "FNG.csv"
+# NEU: Dominance
+DOMINANCE_DIR_NAME = "DOMINANCE.BINANCE"  # NEU
+DOMINANCE_FILE = INPUT_ROOT / DOMINANCE_DIR_NAME / "DOMINANCE.csv"  # NEU
 
 
 def _read_csv_safe(path: Path) -> pd.DataFrame | None:
@@ -96,7 +99,27 @@ def load_fng():
     return fng[keep].sort_values("timestamp_nano")
 
 
-def process_symbol_dir(sym_dir: Path, fng_df: pd.DataFrame):
+# NEU: Dominance Loader (analog zu FNG, aber mehrere Metriken behalten)
+def load_dominance():
+    if not DOMINANCE_FILE.exists():
+        return None
+    dom = pd.read_csv(DOMINANCE_FILE)
+    if "timestamp_nano" not in dom.columns:
+        if "timestamp_iso" in dom.columns:
+            dom["timestamp_nano"] = pd.to_datetime(dom["timestamp_iso"], utc=True, errors="coerce").astype("int64")
+        else:
+            raise ValueError("Dominance file missing timestamp_nano and timestamp_iso.")
+    dom = _prepare_time(dom, "timestamp_nano")
+    # Unnötige Spalten entfernen
+    dom = dom.drop(columns=[c for c in ["timestamp_iso", "instrument_id"] if c in dom.columns], errors="ignore")
+    # Sicherstellen, dass mindestens eine Metrik vorhanden ist
+    metric_cols = [c for c in dom.columns if c != "timestamp_nano"]
+    if not metric_cols:
+        return None
+    return dom[["timestamp_nano"] + metric_cols].sort_values("timestamp_nano")
+
+
+def process_symbol_dir(sym_dir: Path, fng_df: pd.DataFrame, dom_df: pd.DataFrame):  # NEU: dom_df
     symbol = sym_dir.name
     ohlcv_path = sym_dir / "OHLCV.csv"
     metrics_path = sym_dir / "METRICS.csv"
@@ -141,14 +164,19 @@ def process_symbol_dir(sym_dir: Path, fng_df: pd.DataFrame):
     if fng_df is not None and not fng_df.empty:
         merged = _merge_asof(merged, fng_df, right_key="timestamp_nano", prefix="fng")
 
+    # NEU: Dominance (global)
+    if dom_df is not None and not dom_df.empty:
+        merged = _merge_asof(merged, dom_df, right_key="timestamp_nano", prefix="dom")
+
     # Spaltenordnung bauen
     base_cols = ["timestamp_nano", "timestamp_iso", "instrument_id", "open", "high", "low", "close", "volume"]
     metrics_cols = sorted([c for c in merged.columns if c.startswith("metrics_")])
     lunar_cols = sorted([c for c in merged.columns if c.startswith("lunar_")])
     fng_cols = sorted([c for c in merged.columns if c.startswith("fng_")])
-    others = [c for c in merged.columns if c not in base_cols + metrics_cols + lunar_cols + fng_cols]
+    dom_cols = sorted([c for c in merged.columns if c.startswith("dom_")])  # NEU
+    others = [c for c in merged.columns if c not in base_cols + metrics_cols + lunar_cols + fng_cols + dom_cols]
     # Ensure base first, then features
-    final_cols = base_cols + metrics_cols + lunar_cols + fng_cols + [c for c in others if c not in base_cols]
+    final_cols = base_cols + metrics_cols + lunar_cols + fng_cols + dom_cols + [c for c in others if c not in base_cols]
 
     merged = merged[final_cols]
 
@@ -175,12 +203,16 @@ def run():
     if fng_df is None:
         print("[WARN] Kein FNG gefunden – fng Spalten bleiben leer.")
 
+    dom_df = load_dominance()  # NEU
+    if dom_df is None:
+        print("[WARN] Keine Dominance-Daten gefunden – dom Spalten bleiben leer.")
+
     for sym_dir in sorted(INPUT_ROOT.iterdir()):
         if not sym_dir.is_dir():
             continue
-        if sym_dir.name == FNG_DIR_NAME:
+        if sym_dir.name in {FNG_DIR_NAME, DOMINANCE_DIR_NAME}:  # NEU Skip globale Ordner
             continue
-        process_symbol_dir(sym_dir, fng_df)
+        process_symbol_dir(sym_dir, fng_df, dom_df)  # NEU dom_df übergeben
 
 
 if __name__ == "__main__":

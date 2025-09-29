@@ -31,7 +31,8 @@ save_as_csv = True    # Bars zusätzlich als OHLCV.csv speichern
 save_in_catalog = True  # Bars in Nautilus Parquet-Katalog schreiben
 
 class CombinedCryptoDataDownloader:
-    def __init__(self, symbol, start_date, end_date, base_data_dir, datatype="tick", interval="1h"):
+    def __init__(self, symbol, start_date, end_date, base_data_dir, datatype="tick", interval="1h",
+                 csv_output_subdir: str | None = None):  # NEU
         # Symbol-Handling für Spot und Futures (PERP)
         self.is_perp = symbol.endswith("-PERP")
         self.symbol_for_binance = symbol.replace("-PERP", "")
@@ -44,6 +45,7 @@ class CombinedCryptoDataDownloader:
         self.interval = interval
         self.save_as_csv = save_as_csv
         self.save_in_catalog = save_in_catalog
+        self.csv_output_subdir = csv_output_subdir  # NEU
 
     def run(self):
         if self.datatype == "tick":
@@ -66,6 +68,7 @@ class CombinedCryptoDataDownloader:
                 save_as_csv=self.save_as_csv,
                 save_in_catalog=self.save_in_catalog,
                 base_data_dir=self.base_data_dir,
+                csv_output_subdir=self.csv_output_subdir,  # NEU
             )
             tick_transformer.run()
             try:
@@ -152,6 +155,7 @@ class CombinedCryptoDataDownloader:
                 save_as_csv=self.save_as_csv,
                 save_in_catalog=self.save_in_catalog,
                 base_data_dir=self.base_data_dir,
+                csv_output_subdir=self.csv_output_subdir,  # NEU
             )
             bar_transformer.run()
             try:
@@ -221,7 +225,8 @@ class TickTransformer:
     def __init__(self, csv_path, catalog_root_path,
                  symbol=None, is_perp=False,
                  save_as_csv=False, save_in_catalog=True,
-                 base_data_dir=None):
+                 base_data_dir=None,
+                 csv_output_subdir: str | None = None):  # NEU
         self.csv_path = Path(csv_path)
         self.catalog_root_path = Path(catalog_root_path)
         self.symbol = symbol
@@ -229,6 +234,7 @@ class TickTransformer:
         self.save_as_csv = save_as_csv
         self.save_in_catalog = save_in_catalog
         self.base_data_dir = Path(base_data_dir) if base_data_dir else self.catalog_root_path
+        self.csv_output_subdir = csv_output_subdir  # NEU
 
     def run(self):
         if self.save_in_catalog:
@@ -249,7 +255,8 @@ class TickTransformer:
             # Parsing timestamp robust: numeric (ms) oder ISO-String aus Altbeständen
             if self.save_as_csv:
                 if csv_out_path is None:
-                    sym_dir = self.base_data_dir / "csv_data" / (self.symbol + ("-PERP" if self.is_perp else ""))
+                    subdir = self.csv_output_subdir or os.getenv("CSV_OUTPUT_SUBDIR") or "csv_data"  # NEU
+                    sym_dir = self.base_data_dir / subdir / (self.symbol + ("-PERP" if self.is_perp else ""))
                     sym_dir.mkdir(parents=True, exist_ok=True)
                     csv_out_path = sym_dir / "TICK.csv"
 
@@ -404,6 +411,7 @@ class BarTransformer:
         save_as_csv=False,
         save_in_catalog=True,
         base_data_dir=None,
+        csv_output_subdir: str | None = None,  # NEU
     ):
         self.csv_path = Path(csv_path)
         self.catalog_root_path = Path(catalog_root_path)
@@ -417,6 +425,7 @@ class BarTransformer:
         self.save_as_csv = save_as_csv
         self.save_in_catalog = save_in_catalog
         self.base_data_dir = Path(base_data_dir) if base_data_dir else Path(catalog_root_path)
+        self.csv_output_subdir = csv_output_subdir  # NEU
 
     def run(self):
         print("Bar transform started.")
@@ -493,7 +502,8 @@ class BarTransformer:
 
         # NEU: CSV immer separat wenn save_as_csv True (nicht mehr an save_in_catalog gekoppelt)
         if self.save_as_csv:
-            csv_dir = self.base_data_dir / "csv_data" / (self.symbol + ("-PERP" if self.is_perp else ""))
+            subdir = self.csv_output_subdir or os.getenv("CSV_OUTPUT_SUBDIR") or "csv_data"  # NEU
+            csv_dir = self.base_data_dir / subdir / (self.symbol + ("-PERP" if self.is_perp else ""))
             csv_dir.mkdir(parents=True, exist_ok=True)
             out_file = csv_dir / "OHLCV.csv"
             df_out.to_csv(out_file, index=False)
@@ -575,5 +585,6 @@ if __name__ == "__main__":
         base_data_dir=base_data_dir,
         datatype=datatype,
         interval=interval,
+        csv_output_subdir=os.getenv("CSV_OUTPUT_SUBDIR"),  # NEU
     )
     downloader.run()

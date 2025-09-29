@@ -1,4 +1,5 @@
 import json
+import os  # NEU
 from pathlib import Path
 from typing import Tuple, Dict, Any
 
@@ -15,7 +16,7 @@ from fear_and_greed_download import FearAndGreedDownloader  # NEU
 SYMBOL = "BTCUSDT-PERP"
 START_DATE = "2024-01-01"
 END_DATE = "2025-09-01"
-BASE_DATA_DIR = str(Path(__file__).resolve().parents[3] / "DATA_STORAGE")
+BASE_DATA_DIR = str(Path(__file__).resolve().parents[3] / "DATA_STORAGE" / "csv_data_catalog")
 
 RUN_LUNAR = False
 RUN_VENUE = False
@@ -30,6 +31,7 @@ FNG_INSTRUMENT_ID = "FNG-INDEX.BINANCE"  # NEU
 SAVE_AS_CSV = False
 SAVE_IN_CATALOG = True
 DOWNLOAD_IF_MISSING = True
+CSV_OUTPUT_SUBDIR = None  # NEU
 # ========================
 
 class CryptoDataOrchestrator:
@@ -50,6 +52,7 @@ class CryptoDataOrchestrator:
         download_if_missing: bool,
         run_fng: bool = False,                 # NEU
         fng_instrument_id: str = "FNG-INDEX.BINANCE",  # NEU
+        csv_output_subdir: str | None = None,  # NEU
     ):
         # ...existing code...
         self.symbol = symbol
@@ -67,6 +70,7 @@ class CryptoDataOrchestrator:
         self.download_if_missing = download_if_missing
         self.run_fng = run_fng          # NEU
         self.fng_instrument_id = fng_instrument_id  # NEU
+        self.csv_output_subdir = csv_output_subdir  # NEU
         self.base_symbol, self.perp_symbol = self._normalize_symbols(self.symbol)
         # Entfernt: futures-bezogene Attribute
 
@@ -134,7 +138,9 @@ class CryptoDataOrchestrator:
                 base_data_dir=self.base_data_dir,
                 datatype=self.binance_datatype,
                 interval=self.binance_interval,
+                csv_output_subdir=self.csv_output_subdir,  # NEU
             ).run()
+            # Entfernt: erneutes Speichern OHLCV.csv (BarTransformer erledigt das jetzt im Zielsubdir)
             return {
                 "datatype": self.binance_datatype,
                 "interval": self.binance_interval,
@@ -197,6 +203,7 @@ if __name__ == "__main__":
         download_if_missing=DOWNLOAD_IF_MISSING,
         run_fng=RUN_FNG,                      # NEU
         fng_instrument_id=FNG_INSTRUMENT_ID,  # NEU
+        csv_output_subdir=CSV_OUTPUT_SUBDIR,  # NEU
     )
     summary = orchestrator.run()
     print(json.dumps(summary, indent=2))
