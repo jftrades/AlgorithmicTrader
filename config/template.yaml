@@ -39,13 +39,6 @@ data_sources:
   # Custom MetricsData für alle Instrumente
   - data_cls: "data.download.crypto_downloads.custom_class.metrics_data:MetricsData"
     instrument_ids: all
-    client_id: "my client id"
-
- # Custom AggTradeData nur für BTCUSDT-PERP.BINANCE
-  - data_cls: "data.download.custom_data_nautilius.aggTrades_data:AggTradeData"
-    instrument_ids:
-      - "BTCUSDT-PERP.BINANCE"
-    client_id: "my client id"
 
 # Backtest-Zeitraum
 start_date: "2024-10-01T00:00:00Z"

@@ -32,10 +32,7 @@ data_sources:
   - data_cls: "data.download.crypto_downloads.custom_class.lunar_data:LunarData"
     instrument_ids: all
 
-  # Custom AggTradeData nur für BTCUSDT-PERP.BINANCE (client_id wird automatisch gesetzt)
-  - data_cls: "data.download.custom_data_nautilius.aggTrades_data:AggTradeData"
-    instrument_ids:
-      - "BTCUSDT-PERP.BINANCE"
+
 
 # Backtest-Zeitraum
 start_date: "2024-10-01T00:00:00Z"

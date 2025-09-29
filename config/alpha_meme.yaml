@@ -37,14 +37,14 @@ data_sources:
     bar_types: from_instruments
 
   # Custom MetricsData für alle Instrumente (client_id wird automatisch gesetzt)
-  - data_cls: "data.download.custom_data_nautilius.metrics_data:MetricsData"
+  - data_cls: "data.download.crypto_downloads.custom_class.metrics_data:MetricsData"
     instrument_ids: all
 
-  - data_cls: "data.download.custom_data_nautilius.lunar_data:LunarData"
+  - data_cls: "data.download.crypto_downloads.custom_class.lunar_data:LunarData"
     instrument_ids: all
 
   # Custom AggTradeData nur für BTCUSDT-PERP.BINANCE (client_id wird automatisch gesetzt)
-  - data_cls: "data.download.custom_data_nautilius.aggTrades_data:AggTradeData"
+  - data_cls: "data.download.crypto_downloads.custom_class.aggTrades_data:AggTradeData"
     instrument_ids:
       - "BTCUSDT-PERP.BINANCE"
 
