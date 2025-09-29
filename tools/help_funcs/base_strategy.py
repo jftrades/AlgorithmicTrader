@@ -145,7 +145,7 @@ class BaseStrategy(Strategy):
         self.stop()
 
     def base_collect_bar_data(self, bar: Bar, current_instrument: Dict[str, Any]):
-        current_instrument["collector"].add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close, bar_type = bar.bar_type)
+        current_instrument["collector"].add_bar(timestamp=bar.ts_event, open_=bar.open, high=bar.high, low=bar.low, close=bar.close, volume=bar.volume, bar_type = bar.bar_type)
         self._update_general_metrics(bar.ts_event)
 
     def _update_general_metrics(self, ts):

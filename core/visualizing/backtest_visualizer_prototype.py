@@ -89,7 +89,7 @@ class BacktestDataCollector:
             self.plots_at_minus_one += 1
         self.indicator_plot_number[name] = plot_number
 
-    def add_bar(self, timestamp, open_, high, low, close, bar_type):
+    def add_bar(self, timestamp, open_, high, low, close, volume, bar_type):
         timeframe = extract_interval_from_bar_type(str(bar_type), str(bar_type.instrument_id))
         if timeframe not in self.bars:
             self.bars[timeframe] = []
@@ -99,6 +99,7 @@ class BacktestDataCollector:
             'high': high,
             'low': low,
             'close': close,
+            'volume': volume,
         }
         self.bars[timeframe].append(bar_dict)
 
@@ -174,7 +175,13 @@ class BacktestDataCollector:
         for tf, bar_list in self.bars.items():
             if not bar_list:
                 continue
-            df = pd.DataFrame(bar_list)  # enthält jetzt timeframe-Spalte
+            df = pd.DataFrame(bar_list)
+            # ensure volume is present and enforce column order
+            cols = ["timestamp", "open", "high", "low", "close", "volume"]
+            for c in cols:
+                if c not in df.columns:
+                    df[c] = None
+            df = df[cols]
             file_path = self.path / f"bars-{tf}.csv"
             df.to_csv(file_path, index=False)
             saved.append(file_path.name)
