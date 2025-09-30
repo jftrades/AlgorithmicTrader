@@ -3,95 +3,70 @@ from nautilus_trader.model.currencies import USDT, USD
 from nautilus_trader.model.identifiers import AccountId
 
 class RiskManager:
-    def __init__(self, strategy, risk_percent: Decimal = Decimal(0.01), max_leverage: Decimal = Decimal("5.0"), min_account_balance: Decimal = Decimal("10"), risk_reward_ratio: Decimal = Decimal("2")) -> None:
+    def __init__(self, config) -> None:
+        self.config = config
+        self.strategy = None
+        self.starting_balance = None
+
+    def set_strategy(self, strategy):
         self.strategy = strategy
-        self.risk_percent = risk_percent
-        self.max_leverage = max_leverage
-        self.min_account_balance = min_account_balance
-        self.risk_reward_ratio = risk_reward_ratio
 
-    def calculate_position_size(self, entry_price: Decimal, stop_loss_price: Decimal) -> Decimal:
-        valid_position = True
-        account_balance = self.get_account_balance()
-        risk_amount = Decimal(account_balance) * Decimal(self.risk_percent)
-        risk_per_unit = abs(entry_price - stop_loss_price)
+    def get_starting_balance(self):
+        if self.starting_balance is None:
+            if hasattr(self.strategy, 'config') and hasattr(self.strategy.config, 'starting_account_balance'):
+                balance_str = self.strategy.config.starting_account_balance
+                if isinstance(balance_str, str):
+                    self.starting_balance = Decimal(balance_str.split(" ")[0])
+                else:
+                    self.starting_balance = Decimal(str(balance_str))
+            else:
+                self.starting_balance = Decimal("1000")
+        return self.starting_balance
 
-        # Ensure the risk per unit is valid
-        if risk_per_unit <= 0:
-            valid_position = False
-            return 0, valid_position
-            
-        position_size = risk_amount / risk_per_unit
-
-        max_position_value = account_balance * self.max_leverage
-        max_position_size = max_position_value / entry_price
-
-        if position_size > max_position_size:
-            position_size = max_position_size
-        if position_size <= 0:
-            valid_position = False
-            #raise ValueError(f"Calculated position size must be greater than zero. {position_size} is not valid.")
-        return position_size, valid_position
-    
-    def calculate_investment_size(self, invest_percent: Decimal, price: Decimal, instrument_id=None) -> (int, bool):
-        valid_position = True
-        account_balance = self.get_account_balance(instrument_id)
-        invest_amount = account_balance * invest_percent
-
-        # Maximal erlaubtes Investment nach Leverage
-        max_position_value = account_balance * self.max_leverage
-        if invest_amount > max_position_value:
-            invest_amount = max_position_value
-
-        if price <= 0 or invest_amount <= 0:
-            valid_position = False
-            return 0, valid_position
-
-        qty = int(invest_amount // price)
-        if qty <= 0:
-            valid_position = False
-        return max(qty, 0), valid_position
-
-
-    def update_risk_percent(self, new_risk_percent: Decimal) -> None:
-        self.risk_percent = new_risk_percent
-    
-    def check_if_balance_is_sufficient(self, required_balance: Decimal = None) -> bool:
-        account_balance = self.get_account_balance()
-        if required_balance is None:
-            required_balance = self.min_account_balance
-        return account_balance >= required_balance
-    
-    def calculate_tp_price(self, entry_price: Decimal, stop_loss: Decimal, risk_reward_ratio: Decimal = None) -> Decimal:
-        if risk_reward_ratio is None:
-            risk_reward_ratio = self.risk_reward_ratio
-        if risk_reward_ratio <= 0:
-            raise ValueError("Risk-reward ratio must be greater than zero.")
+    def exp_growth_atr_risk(self, entry_price: Decimal, stop_loss_price: Decimal, risk_percent: Decimal) -> Decimal:
+        current_balance = self.get_current_balance()
         
-        risk = abs(entry_price - stop_loss)
+        risk_amount = current_balance * risk_percent
         
-        # Determine if it's a long or short position based on stop loss position
-        if stop_loss < entry_price:  # Long position
-            take_profit = entry_price + risk_reward_ratio * risk
-        else:  # Short position
-            take_profit = entry_price - risk_reward_ratio * risk
-            
-        return take_profit
-    
-    # Hilfsfunktion
-    def get_account_balance(self, instrument_id=None) -> Decimal:
-        # Use provided instrument_id or fallback to strategy.instrument_id for backward compatibility
-        if instrument_id is not None:
-            venue = instrument_id.venue
+        sl_distance = abs(entry_price - stop_loss_price)
+        
+        contracts_needed = risk_amount / sl_distance
+        
+        return contracts_needed
+
+    def log_growth_atr_risk(self, entry_price: Decimal, stop_loss_price: Decimal, risk_percent: Decimal) -> Decimal:
+        starting_balance = self.get_starting_balance()
+        
+        risk_amount = starting_balance * risk_percent
+        
+        sl_distance = abs(entry_price - stop_loss_price)
+        
+        contracts_needed = risk_amount / sl_distance
+        
+        return contracts_needed
+
+    def exp_fixed_trade_risk(self, entry_price: Decimal, invest_percent: Decimal) -> Decimal:
+        current_balance = self.get_current_balance()
+        invest_amount = current_balance * invest_percent
+        return invest_amount / entry_price
+
+    def log_fixed_trade_risk(self, entry_price: Decimal, investment_size: Decimal) -> Decimal:
+        return investment_size / entry_price
+
+    def get_current_balance(self) -> Decimal:
+        if self.strategy is None:
+            return Decimal("0")
+        
+        if hasattr(self.strategy, 'instrument_dict') and self.strategy.instrument_dict:
+            venue = next(iter(self.strategy.instrument_dict.keys())).venue
         else:
-            venue = self.strategy.instrument_id.venue  # Fallback for single-instrument strategies
+            return Decimal("0")
         
         account_id = AccountId(f"{venue}-001")
         account = self.strategy.cache.account(account_id)
         if account is None:
             return Decimal("0")
 
-        # Versuche zuerst USD, dann USDT
         for currency in (USD, USDT):
             balance_obj = account.balance(currency)
             if balance_obj is not None and balance_obj.free is not None:
@@ -99,5 +74,4 @@ class RiskManager:
                     return Decimal(str(balance_obj.free).split(" ")[0])
                 except Exception:
                     continue
-        # Fallback: 0, falls keine passende Balance gefunden
         return Decimal("0")

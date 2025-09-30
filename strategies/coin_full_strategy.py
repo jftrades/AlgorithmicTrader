@@ -28,6 +28,39 @@ class CoinFullConfig(StrategyConfig):
     sl_atr_multiple: float = 2.0
     atr_period: int = 14
 
+    # Risk Management Configuration
+    exp_growth_atr_risk: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": True,
+            "atr_period": 14,
+            "atr_multiple": 2.0,
+            "risk_percent": 0.04
+        }
+    )
+
+    log_growth_atr_risk: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "atr_period": 14,
+            "atr_multiple": 2.0,
+            "risk_percent": 0.04
+        }
+    )
+
+    exp_fixed_trade_risk: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "invest_percent": 0.05
+        }
+    )
+
+    log_fixed_trade_risk: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "investment_size": 50
+        }
+    )
+
     # Exit Methods Configuration
     use_close_ema: Dict[str, Any] = Field(
         default_factory=lambda: {
@@ -162,15 +195,25 @@ class CoinFullStrategy(BaseStrategy,Strategy):
     def __init__(self, config: CoinFullConfig):
         super().__init__(config)
         self.risk_manager = RiskManager(config)
+        self.risk_manager.set_strategy(self)  # Set strategy reference for risk manager
         self.order_types = OrderTypes(self) 
         self.onboard_dates = self.load_onboard_dates()
         self.add_instrument_context()
     
     def add_instrument_context(self):
         for current_instrument in self.instrument_dict.values():
-            # risk management
-            current_instrument["atr"] = AverageTrueRange(self.config.atr_period)
-            current_instrument["sl_atr_multiple"] = self.config.sl_atr_multiple
+            # risk management - get ATR period from enabled risk method
+            atr_period = self.config.atr_period
+            if self.config.exp_growth_atr_risk["enabled"]:
+                atr_period = self.config.exp_growth_atr_risk["atr_period"]
+                current_instrument["sl_atr_multiple"] = self.config.exp_growth_atr_risk["atr_multiple"]
+            elif self.config.log_growth_atr_risk["enabled"]:
+                atr_period = self.config.log_growth_atr_risk["atr_period"]
+                current_instrument["sl_atr_multiple"] = self.config.log_growth_atr_risk["atr_multiple"]
+            else:
+                current_instrument["sl_atr_multiple"] = self.config.sl_atr_multiple
+            
+            current_instrument["atr"] = AverageTrueRange(atr_period)
             current_instrument["sl_price"] = None
 
             # directional movement filter
@@ -530,6 +573,24 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             
         return False
 
+    def is_trading_allowed_after_listing(self, bar: Bar) -> bool:
+        if not self.config.hold_profit_for_remaining_days:
+            return True
+            
+        instrument_id_str = str(bar.bar_type.instrument_id)
+        base_symbol = instrument_id_str.split('-')[0]
+        
+        if base_symbol not in self.onboard_dates:
+            return True
+            
+        onboard_date = self.onboard_dates[base_symbol]
+        deadline = onboard_date + timedelta(days=13.5)
+        
+        current_time = datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=timezone.utc).replace(tzinfo=None)
+        
+        # Block all new trades after deadline
+        return current_time < deadline
+
     def on_bar(self, bar: Bar) -> None:
         instrument_id = bar.bar_type.instrument_id
         current_instrument = self.instrument_dict.get(instrument_id)
@@ -665,6 +726,10 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             self.long_exit_logic(bar, current_instrument, position)
             return
         
+        # Block new trades after listing deadline
+        if not self.is_trading_allowed_after_listing(bar):
+            return
+        
         self.donchian_breakout_setup(bar, current_instrument)
         self.aroon_simple_trend_setup(bar, current_instrument)
         self.macd_simple_reversion_setup(bar, current_instrument)
@@ -707,37 +772,49 @@ class CoinFullStrategy(BaseStrategy,Strategy):
 
     def enter_long_donchian_breakout(self, bar: Bar, current_instrument: Dict[str, Any]):  
         instrument_id = bar.bar_type.instrument_id
-        trade_size_usdt = float(current_instrument["trade_size_usdt"])
-        qty = max(1, trade_size_usdt / float(bar.close))
+        entry_price = float(bar.close)
         
-        current_instrument["in_long_position"] = True
-        current_instrument["long_entry_price"] = float(bar.close)
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["max_topt_difference_since_entry"] = None
+        # Calculate ATR-based stop loss
         atr_value = current_instrument["atr"].value
         sl_atr_multiple = current_instrument["sl_atr_multiple"]
         if atr_value is not None:
-            current_instrument["sl_price"] = float(bar.close) - sl_atr_multiple * atr_value
+            stop_loss_price = entry_price - sl_atr_multiple * atr_value
         else:
-            current_instrument["sl_price"] = None
-        self.order_types.submit_long_market_order(instrument_id, int(qty))
+            # Fallback to 2% stop loss if ATR not available
+            stop_loss_price = entry_price * 0.98
+        
+        # Calculate risk-based position size
+        qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+        
+        current_instrument["in_long_position"] = True
+        current_instrument["long_entry_price"] = entry_price
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["max_topt_difference_since_entry"] = None
+        current_instrument["sl_price"] = stop_loss_price
+        self.order_types.submit_long_market_order(instrument_id, qty)
 
     def enter_short_donchian_breakout(self, bar: Bar, current_instrument: Dict[str, Any]):   
         instrument_id = bar.bar_type.instrument_id
-        trade_size_usdt = float(current_instrument["trade_size_usdt"])
-        qty = max(1, trade_size_usdt / float(bar.close))
+        entry_price = float(bar.close)
         
-        current_instrument["in_short_position"] = True
-        current_instrument["short_entry_price"] = float(bar.close)
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["min_topt_difference_since_entry"] = None
+        # Calculate ATR-based stop loss
         atr_value = current_instrument["atr"].value
         sl_atr_multiple = current_instrument["sl_atr_multiple"]
         if atr_value is not None:
-            current_instrument["sl_price"] = float(bar.close) + sl_atr_multiple * atr_value
+            stop_loss_price = entry_price + sl_atr_multiple * atr_value
         else:
-            current_instrument["sl_price"] = None
-        self.order_types.submit_short_market_order(instrument_id, int(qty))
+            # Fallback to 2% stop loss if ATR not available
+            stop_loss_price = entry_price * 1.02
+        
+        # Calculate risk-based position size
+        qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+        
+        current_instrument["in_short_position"] = True
+        current_instrument["short_entry_price"] = entry_price
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["min_topt_difference_since_entry"] = None
+        current_instrument["sl_price"] = stop_loss_price
+        self.order_types.submit_short_market_order(instrument_id, qty)
 
     def aroon_simple_trend_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_aroon_simple_trend_system.get("enabled", False):
@@ -763,37 +840,49 @@ class CoinFullStrategy(BaseStrategy,Strategy):
 
     def enter_long_aroon_trend(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
-        trade_size_usdt = float(current_instrument["trade_size_usdt"])
-        qty = max(1, trade_size_usdt / float(bar.close))
+        entry_price = float(bar.close)
         
-        current_instrument["in_long_position"] = True
-        current_instrument["long_entry_price"] = float(bar.close)
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["max_topt_difference_since_entry"] = None
+        # Calculate ATR-based stop loss
         atr_value = current_instrument["atr"].value
         sl_atr_multiple = current_instrument["sl_atr_multiple"]
         if atr_value is not None:
-            current_instrument["sl_price"] = float(bar.close) - sl_atr_multiple * atr_value
+            stop_loss_price = entry_price - sl_atr_multiple * atr_value
         else:
-            current_instrument["sl_price"] = None
-        self.order_types.submit_long_market_order(instrument_id, int(qty))
+            # Fallback to 2% stop loss if ATR not available
+            stop_loss_price = entry_price * 0.98
+        
+        # Calculate risk-based position size
+        qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+        
+        current_instrument["in_long_position"] = True
+        current_instrument["long_entry_price"] = entry_price
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["max_topt_difference_since_entry"] = None
+        current_instrument["sl_price"] = stop_loss_price
+        self.order_types.submit_long_market_order(instrument_id, qty)
 
     def enter_short_aroon_trend(self, bar: Bar, current_instrument: Dict[str, Any]):   
         instrument_id = bar.bar_type.instrument_id
-        trade_size_usdt = float(current_instrument["trade_size_usdt"])
-        qty = max(1, trade_size_usdt / float(bar.close))
+        entry_price = float(bar.close)
         
-        current_instrument["in_short_position"] = True
-        current_instrument["short_entry_price"] = float(bar.close)
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["min_topt_difference_since_entry"] = None
+        # Calculate ATR-based stop loss
         atr_value = current_instrument["atr"].value
         sl_atr_multiple = current_instrument["sl_atr_multiple"]
         if atr_value is not None:
-            current_instrument["sl_price"] = float(bar.close) + sl_atr_multiple * atr_value
+            stop_loss_price = entry_price + sl_atr_multiple * atr_value
         else:
-            current_instrument["sl_price"] = None
-        self.order_types.submit_short_market_order(instrument_id, int(qty))
+            # Fallback to 2% stop loss if ATR not available
+            stop_loss_price = entry_price * 1.02
+        
+        # Calculate risk-based position size
+        qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+        
+        current_instrument["in_short_position"] = True
+        current_instrument["short_entry_price"] = entry_price
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["min_topt_difference_since_entry"] = None
+        current_instrument["sl_price"] = stop_loss_price
+        self.order_types.submit_short_market_order(instrument_id, qty)
 
     def spike_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_spike_reversion_system.get("enabled", False):
@@ -848,37 +937,49 @@ class CoinFullStrategy(BaseStrategy,Strategy):
 
     def spike_short_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
-        trade_size_usdt = float(current_instrument["trade_size_usdt"])
-        qty = max(1, trade_size_usdt / float(bar.close))
+        entry_price = float(bar.close)
         
-        current_instrument["in_short_position"] = True
-        current_instrument["short_entry_price"] = float(bar.close)
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["min_topt_difference_since_entry"] = None
+        # Calculate ATR-based stop loss
         atr_value = current_instrument["atr"].value
         sl_atr_multiple = current_instrument["sl_atr_multiple"]
         if atr_value is not None:
-            current_instrument["sl_price"] = float(bar.close) + sl_atr_multiple * atr_value
+            stop_loss_price = entry_price + sl_atr_multiple * atr_value
         else:
-            current_instrument["sl_price"] = None
-        self.order_types.submit_short_market_order(instrument_id, int(qty))
+            # Fallback to 2% stop loss if ATR not available
+            stop_loss_price = entry_price * 1.02
+        
+        # Calculate risk-based position size
+        qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+        
+        current_instrument["in_short_position"] = True
+        current_instrument["short_entry_price"] = entry_price
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["min_topt_difference_since_entry"] = None
+        current_instrument["sl_price"] = stop_loss_price
+        self.order_types.submit_short_market_order(instrument_id, qty)
 
     def spike_long_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
-        trade_size_usdt = float(current_instrument["trade_size_usdt"])
-        qty = max(1, trade_size_usdt / float(bar.close))
+        entry_price = float(bar.close)
         
-        current_instrument["in_long_position"] = True
-        current_instrument["long_entry_price"] = float(bar.close)
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["max_topt_difference_since_entry"] = None
+        # Calculate ATR-based stop loss
         atr_value = current_instrument["atr"].value
         sl_atr_multiple = current_instrument["sl_atr_multiple"]
         if atr_value is not None:
-            current_instrument["sl_price"] = float(bar.close) - sl_atr_multiple * atr_value
+            stop_loss_price = entry_price - sl_atr_multiple * atr_value
         else:
-            current_instrument["sl_price"] = None
-        self.order_types.submit_long_market_order(instrument_id, int(qty))
+            # Fallback to 2% stop loss if ATR not available
+            stop_loss_price = entry_price * 0.98
+        
+        # Calculate risk-based position size
+        qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+        
+        current_instrument["in_long_position"] = True
+        current_instrument["long_entry_price"] = entry_price
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["max_topt_difference_since_entry"] = None
+        current_instrument["sl_price"] = stop_loss_price
+        self.order_types.submit_long_market_order(instrument_id, qty)
                 
 
     def rsi_simple_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
@@ -909,37 +1010,49 @@ class CoinFullStrategy(BaseStrategy,Strategy):
 
     def enter_short_rsi_reversion(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
-        trade_size_usdt = float(current_instrument["trade_size_usdt"])
-        qty = max(1, trade_size_usdt / float(bar.close))
+        entry_price = float(bar.close)
         
-        current_instrument["in_short_position"] = True
-        current_instrument["short_entry_price"] = float(bar.close)
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["max_topt_difference_since_entry"] = None
+        # Calculate ATR-based stop loss
         atr_value = current_instrument["atr"].value
         sl_atr_multiple = current_instrument["sl_atr_multiple"]
         if atr_value is not None:
-            current_instrument["sl_price"] = float(bar.close) + sl_atr_multiple * atr_value
+            stop_loss_price = entry_price + sl_atr_multiple * atr_value
         else:
-            current_instrument["sl_price"] = None
-        self.order_types.submit_short_market_order(instrument_id, int(qty))
+            # Fallback to 2% stop loss if ATR not available
+            stop_loss_price = entry_price * 1.02
+        
+        # Calculate risk-based position size
+        qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+        
+        current_instrument["in_short_position"] = True
+        current_instrument["short_entry_price"] = entry_price
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["max_topt_difference_since_entry"] = None
+        current_instrument["sl_price"] = stop_loss_price
+        self.order_types.submit_short_market_order(instrument_id, qty)
 
     def enter_long_rsi_reversion(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
-        trade_size_usdt = float(current_instrument["trade_size_usdt"])
-        qty = max(1, trade_size_usdt / float(bar.close))
+        entry_price = float(bar.close)
         
-        current_instrument["in_long_position"] = True
-        current_instrument["long_entry_price"] = float(bar.close)
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["max_topt_difference_since_entry"] = None
+        # Calculate ATR-based stop loss
         atr_value = current_instrument["atr"].value
         sl_atr_multiple = current_instrument["sl_atr_multiple"]
         if atr_value is not None:
-            current_instrument["sl_price"] = float(bar.close) - sl_atr_multiple * atr_value
+            stop_loss_price = entry_price - sl_atr_multiple * atr_value
         else:
-            current_instrument["sl_price"] = None
-        self.order_types.submit_long_market_order(instrument_id, int(qty))
+            # Fallback to 2% stop loss if ATR not available
+            stop_loss_price = entry_price * 0.98
+        
+        # Calculate risk-based position size
+        qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+        
+        current_instrument["in_long_position"] = True
+        current_instrument["long_entry_price"] = entry_price
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["max_topt_difference_since_entry"] = None
+        current_instrument["sl_price"] = stop_loss_price
+        self.order_types.submit_long_market_order(instrument_id, qty)
 
     def macd_simple_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_macd_simple_reversion_system.get("enabled", False):
@@ -976,37 +1089,49 @@ class CoinFullStrategy(BaseStrategy,Strategy):
 
     def enter_long_macd_reversion(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
-        trade_size_usdt = float(current_instrument["trade_size_usdt"])
-        qty = max(1, trade_size_usdt / float(bar.close))
+        entry_price = float(bar.close)
         
-        current_instrument["in_long_position"] = True
-        current_instrument["long_entry_price"] = float(bar.close)
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["max_topt_difference_since_entry"] = None
+        # Calculate ATR-based stop loss
         atr_value = current_instrument["atr"].value
         sl_atr_multiple = current_instrument["sl_atr_multiple"]
         if atr_value is not None:
-            current_instrument["sl_price"] = float(bar.close) - sl_atr_multiple * atr_value
+            stop_loss_price = entry_price - sl_atr_multiple * atr_value
         else:
-            current_instrument["sl_price"] = None
-        self.order_types.submit_long_market_order(instrument_id, int(qty))
+            # Fallback to 2% stop loss if ATR not available
+            stop_loss_price = entry_price * 0.98
+        
+        # Calculate risk-based position size
+        qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+        
+        current_instrument["in_long_position"] = True
+        current_instrument["long_entry_price"] = entry_price
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["max_topt_difference_since_entry"] = None
+        current_instrument["sl_price"] = stop_loss_price
+        self.order_types.submit_long_market_order(instrument_id, qty)
 
     def enter_short_macd_reversion(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
-        trade_size_usdt = float(current_instrument["trade_size_usdt"])
-        qty = max(1, trade_size_usdt / float(bar.close))
+        entry_price = float(bar.close)
         
-        current_instrument["in_short_position"] = True
-        current_instrument["short_entry_price"] = float(bar.close)
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["min_topt_difference_since_entry"] = None
+        # Calculate ATR-based stop loss
         atr_value = current_instrument["atr"].value
         sl_atr_multiple = current_instrument["sl_atr_multiple"]
         if atr_value is not None:
-            current_instrument["sl_price"] = float(bar.close) + sl_atr_multiple * atr_value
+            stop_loss_price = entry_price + sl_atr_multiple * atr_value
         else:
-            current_instrument["sl_price"] = None
-        self.order_types.submit_short_market_order(instrument_id, int(qty))
+            # Fallback to 2% stop loss if ATR not available
+            stop_loss_price = entry_price * 1.02
+        
+        # Calculate risk-based position size
+        qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+        
+        current_instrument["in_short_position"] = True
+        current_instrument["short_entry_price"] = entry_price
+        current_instrument["bars_since_entry"] = 0
+        current_instrument["min_topt_difference_since_entry"] = None
+        current_instrument["sl_price"] = stop_loss_price
+        self.order_types.submit_short_market_order(instrument_id, qty)
 
     def trend_following_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_trend_following_setup.get("enabled", False):
@@ -1042,20 +1167,27 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             self.is_long_entry_allowed() and
             self.passes_htf_ema_bias_filter(bar, current_instrument, "long") and
             self.passes_rsi_condition_filter(bar, current_instrument, "long")):
-            instrument_id = bar.bar_type.instrument_id
-            trade_size_usdt = float(current_instrument["trade_size_usdt"])
-            qty = max(1, trade_size_usdt / bar_close)
             
-            current_instrument["in_long_position"] = True
-            current_instrument["long_entry_price"] = bar_close
-            current_instrument["bars_since_entry"] = 0
+            instrument_id = bar.bar_type.instrument_id
+            entry_price = bar_close
+            
+            # Calculate ATR-based stop loss
             atr_value = current_instrument["atr"].value
             sl_atr_multiple = current_instrument["sl_atr_multiple"]
             if atr_value is not None:
-                current_instrument["sl_price"] = bar_close - sl_atr_multiple * atr_value
+                stop_loss_price = entry_price - sl_atr_multiple * atr_value
             else:
-                current_instrument["sl_price"] = None
-            self.order_types.submit_long_market_order(instrument_id, int(qty))
+                # Fallback to 2% stop loss if ATR not available
+                stop_loss_price = entry_price * 0.98
+            
+            # Calculate risk-based position size
+            qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+            
+            current_instrument["in_long_position"] = True
+            current_instrument["long_entry_price"] = entry_price
+            current_instrument["bars_since_entry"] = 0
+            current_instrument["sl_price"] = stop_loss_price
+            self.order_types.submit_long_market_order(instrument_id, qty)
 
     def trend_short_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_bar_close: float, bar_close: float, ema_value: float):
         min_bars_over_ema = self.config.use_trend_following_setup.get("min_bars_over_ema", 20)
@@ -1063,20 +1195,27 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             current_instrument["bars_above_ema"] >= min_bars_over_ema and
             self.passes_htf_ema_bias_filter(bar, current_instrument, "short") and
             self.passes_rsi_condition_filter(bar, current_instrument, "short")):
-            instrument_id = bar.bar_type.instrument_id
-            trade_size_usdt = float(current_instrument["trade_size_usdt"])
-            qty = max(1, trade_size_usdt / bar_close)
             
-            current_instrument["in_short_position"] = True
-            current_instrument["short_entry_price"] = bar_close
-            current_instrument["bars_since_entry"] = 0
+            instrument_id = bar.bar_type.instrument_id
+            entry_price = bar_close
+            
+            # Calculate ATR-based stop loss
             atr_value = current_instrument["atr"].value
             sl_atr_multiple = current_instrument["sl_atr_multiple"]
             if atr_value is not None:
-                current_instrument["sl_price"] = bar_close + sl_atr_multiple * atr_value
+                stop_loss_price = entry_price + sl_atr_multiple * atr_value
             else:
-                current_instrument["sl_price"] = None
-            self.order_types.submit_short_market_order(instrument_id, int(qty))
+                # Fallback to 2% stop loss if ATR not available
+                stop_loss_price = entry_price * 1.02
+            
+            # Calculate risk-based position size
+            qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+            
+            current_instrument["in_short_position"] = True
+            current_instrument["short_entry_price"] = entry_price
+            current_instrument["bars_since_entry"] = 0
+            current_instrument["sl_price"] = stop_loss_price
+            self.order_types.submit_short_market_order(instrument_id, qty)
 
     def long_exit_logic(self, bar: Bar, current_instrument: Dict[str, Any], position):
         current_instrument["bars_since_entry"] += 1

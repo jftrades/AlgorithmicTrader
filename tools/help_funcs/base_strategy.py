@@ -4,7 +4,7 @@ from nautilus_trader.model.data import Bar, BarType
 from decimal import Decimal
 from nautilus_trader.common.enums import LogColor
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from nautilus_trader.model.identifiers import InstrumentId
 from  tools.help_funcs.help_funcs_strategy import extract_interval_from_bar_type
 
@@ -92,13 +92,42 @@ class BaseStrategy(Strategy):
             self.instrument_dict[inst_id] = current_instrument
 
     def instrument_ids(self):
-        """Gibt eine Liste aller InstrumentIds zurück."""
         return list(self.instrument_dict.keys())
     
     def get_instrument_context(self, instrument_id):
         return self.instrument_dict[instrument_id]
     
+    def calculate_risk_based_position_size(self, instrument_id: InstrumentId, entry_price: float, stop_loss_price: float) -> int:
+        entry_price_decimal = Decimal(str(entry_price))
+        stop_loss_price_decimal = Decimal(str(stop_loss_price))
+        
+        if self.config.exp_growth_atr_risk["enabled"]:
+            risk_percent = Decimal(str(self.config.exp_growth_atr_risk["risk_percent"]))
+            exact_contracts = self.risk_manager.exp_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, risk_percent)
+            return round(float(exact_contracts))
+        
+        if self.config.log_growth_atr_risk["enabled"]:
+            risk_percent = Decimal(str(self.config.log_growth_atr_risk["risk_percent"]))
+            exact_contracts = self.risk_manager.log_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, risk_percent)
+            return round(float(exact_contracts))
+        
+        return self.calculate_fixed_position_size(instrument_id, entry_price)
 
+    def calculate_fixed_position_size(self, instrument_id: InstrumentId, entry_price: float) -> int:
+        entry_price_decimal = Decimal(str(entry_price))
+        
+        if self.config.exp_fixed_trade_risk["enabled"]:
+            invest_percent = Decimal(str(self.config.exp_fixed_trade_risk["invest_percent"]))
+            qty = self.risk_manager.exp_fixed_trade_risk(entry_price_decimal, invest_percent)
+            return round(float(qty))
+        
+        if self.config.log_fixed_trade_risk["enabled"]:
+            investment_size = Decimal(str(self.config.log_fixed_trade_risk["investment_size"]))
+            qty = self.risk_manager.log_fixed_trade_risk(entry_price_decimal, investment_size)
+            return round(float(qty))
+        
+        return 0
+    
     def on_start(self) -> None:
         for inst_id, ctx in self.instrument_dict.items():
             for bar_type in ctx["bar_types"]:

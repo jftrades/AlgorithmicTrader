@@ -26,31 +26,43 @@ data_sources:
     instrument_ids: all
 
 # Backtest-Zeitraum
-start_date: "2024-01-01T00:00:00Z"
-end_date: "2024-12-28T00:00:00Z"
+start_date: "2025-01-01T00:00:00Z"
+end_date: "2025-07-15T00:00:00Z"
 
 # Account/Venue-Parameter
-starting_account_balance: "10000 USDT"
+starting_account_balance: "1000 USDT"
 base_currency: "USDT"
 account_type: "MARGIN"
 oms_type: "NETTING"
 
-# Risiko-Parameter (global)
-trade_size_usdt: 1000
-risk_percent: 0.01
-max_leverage: 2
+# Risk Params
+close_positions_on_stop: true
 min_account_balance: 1000
-close_positions_on_stop: [true]
+max_leverage: 2
+
+exp_growth_atr_risk:
+  enabled: false
+  atr_period: 14
+  atr_multiple: 2.0
+  risk_percent: 0.04
+
+log_growth_atr_risk:
+  enabled: true
+  atr_period: 14
+  atr_multiple: 2.0
+  risk_percent: 0.04
+
+exp_fixed_trade_risk:
+  enabled: false
+  invest_percent: 0.05 # percent of current account balance per trade (no sl calculation)
+
+log_fixed_trade_risk:
+  enabled: false
+  investment_size: 50 # fixed USDT amount per trade
 
 # ===========================
 # Strategie-spezifische Parameter
 # ===========================
-
-# ----------------------------------------------------------------
-# stoploss settings
-# ----------------------------------------------------------------
-sl_atr_multiple: 3.0
-atr_period: 14
 
 # ----------------------------------------------------------------
 # base filters
@@ -135,13 +147,13 @@ use_macd_simple_reversion_system:
   macd_signal_period: 70
 
 use_aroon_simple_trend_system:
-  enabled: false
-  aroon_period: 30
-  aroon_osc_long_threshold: 55
-  aroon_osc_short_threshold: -55
+  enabled: true
+  aroon_period: 70
+  aroon_osc_long_threshold: 40
+  aroon_osc_short_threshold: -40
 
 use_donchian_breakout_system:
-  enabled: true
+  enabled: false
   donchian_period: 50
   min_breakout_strength: 0.01
 
