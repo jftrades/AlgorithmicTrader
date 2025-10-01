@@ -786,12 +786,14 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         # Calculate risk-based position size
         qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
         
-        current_instrument["in_long_position"] = True
-        current_instrument["long_entry_price"] = entry_price
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["max_topt_difference_since_entry"] = None
-        current_instrument["sl_price"] = stop_loss_price
-        self.order_types.submit_long_market_order(instrument_id, qty)
+        # Only submit order if quantity > 0
+        if qty > 0:
+            current_instrument["in_long_position"] = True
+            current_instrument["long_entry_price"] = entry_price
+            current_instrument["bars_since_entry"] = 0
+            current_instrument["max_topt_difference_since_entry"] = None
+            current_instrument["sl_price"] = stop_loss_price
+            self.order_types.submit_long_market_order(instrument_id, qty)
 
     def enter_short_donchian_breakout(self, bar: Bar, current_instrument: Dict[str, Any]):   
         instrument_id = bar.bar_type.instrument_id
@@ -809,12 +811,14 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         # Calculate risk-based position size
         qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
         
-        current_instrument["in_short_position"] = True
-        current_instrument["short_entry_price"] = entry_price
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["min_topt_difference_since_entry"] = None
-        current_instrument["sl_price"] = stop_loss_price
-        self.order_types.submit_short_market_order(instrument_id, qty)
+        # Only submit order if quantity > 0
+        if qty > 0:
+            current_instrument["in_short_position"] = True
+            current_instrument["short_entry_price"] = entry_price
+            current_instrument["bars_since_entry"] = 0
+            current_instrument["min_topt_difference_since_entry"] = None
+            current_instrument["sl_price"] = stop_loss_price
+            self.order_types.submit_short_market_order(instrument_id, qty)
 
     def aroon_simple_trend_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_aroon_simple_trend_system.get("enabled", False):
@@ -854,12 +858,14 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         # Calculate risk-based position size
         qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
         
-        current_instrument["in_long_position"] = True
-        current_instrument["long_entry_price"] = entry_price
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["max_topt_difference_since_entry"] = None
-        current_instrument["sl_price"] = stop_loss_price
-        self.order_types.submit_long_market_order(instrument_id, qty)
+        # Only submit order if quantity > 0
+        if qty > 0:
+            current_instrument["in_long_position"] = True
+            current_instrument["long_entry_price"] = entry_price
+            current_instrument["bars_since_entry"] = 0
+            current_instrument["max_topt_difference_since_entry"] = None
+            current_instrument["sl_price"] = stop_loss_price
+            self.order_types.submit_long_market_order(instrument_id, qty)
 
     def enter_short_aroon_trend(self, bar: Bar, current_instrument: Dict[str, Any]):   
         instrument_id = bar.bar_type.instrument_id
@@ -877,12 +883,14 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         # Calculate risk-based position size
         qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
         
-        current_instrument["in_short_position"] = True
-        current_instrument["short_entry_price"] = entry_price
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["min_topt_difference_since_entry"] = None
-        current_instrument["sl_price"] = stop_loss_price
-        self.order_types.submit_short_market_order(instrument_id, qty)
+        # Only submit order if quantity > 0
+        if qty > 0:
+            current_instrument["in_short_position"] = True
+            current_instrument["short_entry_price"] = entry_price
+            current_instrument["bars_since_entry"] = 0
+            current_instrument["min_topt_difference_since_entry"] = None
+            current_instrument["sl_price"] = stop_loss_price
+            self.order_types.submit_short_market_order(instrument_id, qty)
 
     def spike_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_spike_reversion_system.get("enabled", False):
@@ -951,12 +959,14 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         # Calculate risk-based position size
         qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
         
-        current_instrument["in_short_position"] = True
-        current_instrument["short_entry_price"] = entry_price
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["min_topt_difference_since_entry"] = None
-        current_instrument["sl_price"] = stop_loss_price
-        self.order_types.submit_short_market_order(instrument_id, qty)
+        # Only submit order if quantity > 0
+        if qty > 0:
+            current_instrument["in_short_position"] = True
+            current_instrument["short_entry_price"] = entry_price
+            current_instrument["bars_since_entry"] = 0
+            current_instrument["min_topt_difference_since_entry"] = None
+            current_instrument["sl_price"] = stop_loss_price
+            self.order_types.submit_short_market_order(instrument_id, qty)
 
     def spike_long_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
@@ -974,12 +984,14 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         # Calculate risk-based position size
         qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
         
-        current_instrument["in_long_position"] = True
-        current_instrument["long_entry_price"] = entry_price
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["max_topt_difference_since_entry"] = None
-        current_instrument["sl_price"] = stop_loss_price
-        self.order_types.submit_long_market_order(instrument_id, qty)
+        # Only submit order if quantity > 0
+        if qty > 0:
+            current_instrument["in_long_position"] = True
+            current_instrument["long_entry_price"] = entry_price
+            current_instrument["bars_since_entry"] = 0
+            current_instrument["max_topt_difference_since_entry"] = None
+            current_instrument["sl_price"] = stop_loss_price
+            self.order_types.submit_long_market_order(instrument_id, qty)
                 
 
     def rsi_simple_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
@@ -1024,12 +1036,14 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         # Calculate risk-based position size
         qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
         
-        current_instrument["in_short_position"] = True
-        current_instrument["short_entry_price"] = entry_price
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["max_topt_difference_since_entry"] = None
-        current_instrument["sl_price"] = stop_loss_price
-        self.order_types.submit_short_market_order(instrument_id, qty)
+        # Only submit order if quantity > 0
+        if qty > 0:
+            current_instrument["in_short_position"] = True
+            current_instrument["short_entry_price"] = entry_price
+            current_instrument["bars_since_entry"] = 0
+            current_instrument["max_topt_difference_since_entry"] = None
+            current_instrument["sl_price"] = stop_loss_price
+            self.order_types.submit_short_market_order(instrument_id, qty)
 
     def enter_long_rsi_reversion(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
@@ -1047,12 +1061,14 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         # Calculate risk-based position size
         qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
         
-        current_instrument["in_long_position"] = True
-        current_instrument["long_entry_price"] = entry_price
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["max_topt_difference_since_entry"] = None
-        current_instrument["sl_price"] = stop_loss_price
-        self.order_types.submit_long_market_order(instrument_id, qty)
+        # Only submit order if quantity > 0
+        if qty > 0:
+            current_instrument["in_long_position"] = True
+            current_instrument["long_entry_price"] = entry_price
+            current_instrument["bars_since_entry"] = 0
+            current_instrument["max_topt_difference_since_entry"] = None
+            current_instrument["sl_price"] = stop_loss_price
+            self.order_types.submit_long_market_order(instrument_id, qty)
 
     def macd_simple_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_macd_simple_reversion_system.get("enabled", False):
@@ -1103,12 +1119,14 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         # Calculate risk-based position size
         qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
         
-        current_instrument["in_long_position"] = True
-        current_instrument["long_entry_price"] = entry_price
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["max_topt_difference_since_entry"] = None
-        current_instrument["sl_price"] = stop_loss_price
-        self.order_types.submit_long_market_order(instrument_id, qty)
+        # Only submit order if quantity > 0
+        if qty > 0:
+            current_instrument["in_long_position"] = True
+            current_instrument["long_entry_price"] = entry_price
+            current_instrument["bars_since_entry"] = 0
+            current_instrument["max_topt_difference_since_entry"] = None
+            current_instrument["sl_price"] = stop_loss_price
+            self.order_types.submit_long_market_order(instrument_id, qty)
 
     def enter_short_macd_reversion(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
@@ -1126,12 +1144,14 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         # Calculate risk-based position size
         qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
         
-        current_instrument["in_short_position"] = True
-        current_instrument["short_entry_price"] = entry_price
-        current_instrument["bars_since_entry"] = 0
-        current_instrument["min_topt_difference_since_entry"] = None
-        current_instrument["sl_price"] = stop_loss_price
-        self.order_types.submit_short_market_order(instrument_id, qty)
+        # Only submit order if quantity > 0
+        if qty > 0:
+            current_instrument["in_short_position"] = True
+            current_instrument["short_entry_price"] = entry_price
+            current_instrument["bars_since_entry"] = 0
+            current_instrument["min_topt_difference_since_entry"] = None
+            current_instrument["sl_price"] = stop_loss_price
+            self.order_types.submit_short_market_order(instrument_id, qty)
 
     def trend_following_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_trend_following_setup.get("enabled", False):
@@ -1183,11 +1203,13 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             # Calculate risk-based position size
             qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
             
-            current_instrument["in_long_position"] = True
-            current_instrument["long_entry_price"] = entry_price
-            current_instrument["bars_since_entry"] = 0
-            current_instrument["sl_price"] = stop_loss_price
-            self.order_types.submit_long_market_order(instrument_id, qty)
+            # Only submit order if quantity > 0
+            if qty > 0:
+                current_instrument["in_long_position"] = True
+                current_instrument["long_entry_price"] = entry_price
+                current_instrument["bars_since_entry"] = 0
+                current_instrument["sl_price"] = stop_loss_price
+                self.order_types.submit_long_market_order(instrument_id, qty)
 
     def trend_short_entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_bar_close: float, bar_close: float, ema_value: float):
         min_bars_over_ema = self.config.use_trend_following_setup.get("min_bars_over_ema", 20)
@@ -1211,11 +1233,13 @@ class CoinFullStrategy(BaseStrategy,Strategy):
             # Calculate risk-based position size
             qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
             
-            current_instrument["in_short_position"] = True
-            current_instrument["short_entry_price"] = entry_price
-            current_instrument["bars_since_entry"] = 0
-            current_instrument["sl_price"] = stop_loss_price
-            self.order_types.submit_short_market_order(instrument_id, qty)
+            # Only submit order if quantity > 0
+            if qty > 0:
+                current_instrument["in_short_position"] = True
+                current_instrument["short_entry_price"] = entry_price
+                current_instrument["bars_since_entry"] = 0
+                current_instrument["sl_price"] = stop_loss_price
+                self.order_types.submit_short_market_order(instrument_id, qty)
 
     def long_exit_logic(self, bar: Bar, current_instrument: Dict[str, Any], position):
         current_instrument["bars_since_entry"] += 1

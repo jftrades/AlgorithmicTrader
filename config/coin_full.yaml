@@ -27,7 +27,7 @@ data_sources:
 
 # Backtest-Zeitraum
 start_date: "2025-01-01T00:00:00Z"
-end_date: "2025-07-15T00:00:00Z"
+end_date: "2025-01-15T00:00:00Z"
 
 # Account/Venue-Parameter
 starting_account_balance: "1000 USDT"
@@ -72,7 +72,7 @@ only_execute_short: true
 hold_profit_for_remaining_days: true
 
 use_min_coin_filters:
-  enabled: true
+  enabled: false
   min_price: 0.25
   min_24h_volume: 50000 # $50k minimum 24h volume
   min_sum_open_interest_value: 1000000  # $1M minimum open interest value 

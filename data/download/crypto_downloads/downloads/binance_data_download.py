@@ -514,13 +514,18 @@ def find_csv_file(symbol, processed_dir):
 
 def _fetch_single_symbol_info(symbol: str, is_perp: bool) -> dict:
     base_url = "https://fapi.binance.com/fapi/v1/exchangeInfo" if is_perp else "https://api.binance.com/api/v3/exchangeInfo"
-    resp = requests.get(base_url, params={"symbol": symbol}, timeout=15)
+    # NOTE: Don't use symbol parameter as it doesn't filter correctly, fetch all and filter manually
+    resp = requests.get(base_url, timeout=15)
     resp.raise_for_status()
     data = resp.json()
     symbols = data.get("symbols") or []
-    if not symbols:
-        raise ValueError(f"exchangeInfo: Symbol '{symbol}' nicht gefunden (is_perp={is_perp}).")
-    return symbols[0]
+    
+    # Find the specific symbol
+    for symbol_info in symbols:
+        if symbol_info["symbol"] == symbol:
+            return symbol_info
+    
+    raise ValueError(f"exchangeInfo: Symbol '{symbol}' nicht gefunden (is_perp={is_perp}). Available symbols: {len(symbols)}")
 
 def get_instrument(symbol: str, is_perp: bool):
     from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue

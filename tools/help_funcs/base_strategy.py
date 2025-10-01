@@ -114,7 +114,7 @@ class BaseStrategy(Strategy):
         return self.calculate_fixed_position_size(instrument_id, entry_price)
 
     def calculate_fixed_position_size(self, instrument_id: InstrumentId, entry_price: float) -> int:
-        entry_price_decimal = Decimal(str(entry_price))
+        entry_price_decimal = Decimal(str(entry_price)) 
         
         if self.config.exp_fixed_trade_risk["enabled"]:
             invest_percent = Decimal(str(self.config.exp_fixed_trade_risk["invest_percent"]))
