@@ -1,0 +1,67 @@
+strategy_path: "strategies.coin_listing_short_strategy:CoinListingShortStrategy"
+config_path: "strategies.coin_listing_short_strategy:CoinListingShortConfig"
+
+visualize: true
+venue: "BINANCE"
+
+instruments_from_path:
+  path: "../data/DATA_STORAGE/project_future_scraper/new_binance_perpetual_futures.csv"
+  symbol_column: "symbol"
+  instrument_suffix: "-PERP"
+  bar_type_endings:
+    - "-15-MINUTE-LAST-EXTERNAL"
+  trade_size_usdt: "150"
+  test: 2
+
+data_sources:
+  - data_cls: "nautilus_trader.model.data:Bar"
+    instrument_ids: all
+    bar_types: from_instruments
+
+  - data_cls: "data.download.crypto_downloads.custom_class.metrics_data:MetricsData"
+    instrument_ids: all
+
+# backtest period
+start_date: "2024-01-01T00:00:00Z"
+end_date: "2025-05-01T00:00:00Z"
+
+# account/venue params
+starting_account_balance: "1000 USDT"
+base_currency: "USDT"
+account_type: "MARGIN"
+oms_type: "NETTING"
+
+# risk params
+close_positions_on_stop: true
+min_account_balance: 1000
+max_leverage: 1
+
+exp_growth_atr_risk:
+  enabled: false
+  atr_period: 20
+  atr_multiple: 2.0
+  risk_percent: 0.04
+
+log_growth_atr_risk:
+  enabled: true
+  atr_period: 20
+  atr_multiple: [2, 5]
+  risk_percent: 0.01
+
+# ===========================
+# Strategy-specific params
+# ===========================
+only_execute_short: true
+hold_profit_for_remaining_days: true
+time_after_listing_close: [7, 14, 19.5]
+
+use_min_coin_filters:
+  enabled: false
+  min_price: 0.25
+  min_24h_volume: 50000
+  min_sum_open_interest_value: 1000000
+
+use_aroon_simple_trend_system:
+  enabled: true
+  aroon_period: [30, 70, 150]
+  aroon_osc_short_threshold: [-40, -60]

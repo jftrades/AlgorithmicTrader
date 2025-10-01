@@ -26,8 +26,8 @@ data_sources:
     instrument_ids: all
 
 # Backtest-Zeitraum
-start_date: "2025-01-01T00:00:00Z"
-end_date: "2025-01-15T00:00:00Z"
+start_date: "2024-01-01T00:00:00Z"
+end_date: "2025-05-01T00:00:00Z"
 
 # Account/Venue-Parameter
 starting_account_balance: "1000 USDT"
@@ -38,19 +38,19 @@ oms_type: "NETTING"
 # Risk Params
 close_positions_on_stop: true
 min_account_balance: 1000
-max_leverage: 2
+max_leverage: 1
 
 exp_growth_atr_risk:
   enabled: false
-  atr_period: 14
+  atr_period: 20
   atr_multiple: 2.0
   risk_percent: 0.04
 
 log_growth_atr_risk:
   enabled: true
-  atr_period: 14
-  atr_multiple: 2.0
-  risk_percent: 0.04
+  atr_period: 20
+  atr_multiple: 3.0
+  risk_percent: 0.01
 
 exp_fixed_trade_risk:
   enabled: false
@@ -142,15 +142,15 @@ use_rsi_simple_reversion_system:
 
 use_macd_simple_reversion_system:
   enabled: false
-  macd_fast_period: 100
-  macd_slow_period: 180
-  macd_signal_period: 70
+  macd_fast_period: 20
+  macd_slow_period: 32
+  macd_signal_period: 16
 
 use_aroon_simple_trend_system:
   enabled: true
   aroon_period: 70
-  aroon_osc_long_threshold: 40
-  aroon_osc_short_threshold: -40
+  aroon_osc_long_threshold: 50
+  aroon_osc_short_threshold: -50
 
 use_donchian_breakout_system:
   enabled: false

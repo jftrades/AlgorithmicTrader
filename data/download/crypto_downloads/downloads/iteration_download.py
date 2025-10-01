@@ -13,9 +13,9 @@ from new_future_list_download import BinancePerpetualFuturesDiscovery  # NEU
 BASE_DATA_DIR = Path(__file__).resolve().parents[3] / "DATA_STORAGE"
 FUTURES_CSV = BASE_DATA_DIR / "project_future_scraper" / "new_binance_perpetual_futures.csv"
 
-RUN_DISCOVERY = True                
-DISCOVERY_WINDOW_START = "2024-01-01"
-DISCOVERY_WINDOW_END = "2024-01-30"
+RUN_DISCOVERY = True        
+DISCOVERY_WINDOW_START = "2025-04-23"
+DISCOVERY_WINDOW_END = "2025-09-29"
 DISCOVERY_ONLY_USDT = True
 
 RANGE_DAYS = 20
