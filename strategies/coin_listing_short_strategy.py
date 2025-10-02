@@ -73,6 +73,14 @@ class CoinListingShortConfig(StrategyConfig):
         }
     )
 
+    five_day_scaling_filters: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": True,
+            "toptrader_short_threshold": -0.7,
+            "oi_trade_threshold": 0
+        }
+    )
+
     only_execute_short: bool = False
     hold_profit_for_remaining_days: bool = False
     close_positions_on_stop: bool = True
@@ -152,6 +160,12 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["rolling_window_bars_binance"] = binance_config["rolling_window_bars_binance"]
             current_instrument["upper_percentile_threshold_binance"] = binance_config["upper_percentile_threshold_binance"]
             current_instrument["lower_percentile_threshold_binance"] = binance_config["lower_percentile_threshold_binance"]
+
+            # Five day scaling filters configuration
+            filter_config = self.config.five_day_scaling_filters
+            current_instrument["five_day_filters_enabled"] = filter_config["enabled"]
+            current_instrument["toptrader_short_threshold"] = filter_config["toptrader_short_threshold"]
+            current_instrument["oi_trade_threshold"] = filter_config["oi_trade_threshold"]
 
             # visualizer
             if self.config.use_aroon_simple_trend_system.get("enabled", False):
@@ -236,6 +250,24 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
                 return False
         
         return True
+    
+    def passes_five_day_scaling_filters(self, current_instrument: Dict[str, Any]) -> bool:
+        if not current_instrument.get("five_day_filters_enabled", True):
+            return True
+        
+        # Get thresholds
+        toptrader_threshold = current_instrument.get("toptrader_short_threshold", -0.7)
+        oi_threshold = current_instrument.get("oi_trade_threshold", 0)
+        
+        # Get scaled values (these are already calculated by scale_binance_metrics)
+        toptrader_scaled = current_instrument.get("sum_toptrader_long_short_ratio_scaled", 0.0)
+        oi_scaled = current_instrument.get("latest_open_interest_value_scaled", 0.0)
+        
+        # Check conditions
+        toptrader_condition = toptrader_scaled < toptrader_threshold  # Allow shorts when < -0.7
+        oi_condition = oi_scaled < oi_threshold  # Allow trades when < 0
+        
+        return toptrader_condition and oi_condition
     
     def load_onboard_dates(self):
         import csv
@@ -417,6 +449,10 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         aroon = current_instrument["aroon"]
         if not aroon.initialized:
+            return
+        
+        # Check five day scaling filters first
+        if not self.passes_five_day_scaling_filters(current_instrument):
             return
             
         aroon_osc_value = float(aroon.value)

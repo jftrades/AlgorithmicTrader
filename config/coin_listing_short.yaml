@@ -25,7 +25,7 @@ data_sources:
     instrument_ids: all
 
 # backtest period
-start_date: "2025-01-01T00:00:00Z"
+start_date: "2024-01-01T00:00:00Z"
 end_date: "2025-05-01T00:00:00Z"
 
 # account/venue params
@@ -71,6 +71,11 @@ use_aroon_simple_trend_system:
 
 scale_binance_metrics: # rank based approach
   enabled: true
-  rolling_window_bars_binance: 10000 # so we expand window till end
+  rolling_window_bars_binance: 500
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
+
+five_day_scaling_filters:
+  enabled: true
+  toptrader_short_threshold: -0.7  # Allow shorts when < -0.7
+  oi_trade_threshold: 0            # Allow trades when < 0
