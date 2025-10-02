@@ -14,7 +14,9 @@ from nautilus_trader.indicators.atr import AverageTrueRange
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
+from nautilus_trader.model.data import DataType
 from data.download.crypto_downloads.custom_class.metrics_data import MetricsData
+from data.download.crypto_downloads.custom_class.lunar_data import LunarData
 
 class CoinListingShortConfig(StrategyConfig):
     instruments: List[dict]  
@@ -116,20 +118,48 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["bars_since_entry"] = 0
             current_instrument["in_short_position"] = False
 
+            # l3 metrics
+            current_instrument["sum_toptrader_long_short_ratio"] = 0.0
+            current_instrument["count_long_short_ratio"] = 0.0
+            current_instrument["latest_open_interest_value"] = 0.0
+
+            # lunar data
+            current_instrument["posts_created"] = 0.0
+            current_instrument["sentiment"] = 0.0
+            current_instrument["interactions"] = 0.0
+
+            # visualizer
             if self.config.use_aroon_simple_trend_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("aroon_osc", 1)
+            
+            # Initialize lunar data visualization
+            current_instrument["collector"].initialise_logging_indicator("interactions", 2)
+            current_instrument["collector"].initialise_logging_indicator("posts_created", 3)
+            current_instrument["collector"].initialise_logging_indicator("sentiment", 4)
+            
+            # Initialize metrics data visualization
+            current_instrument["collector"].initialise_logging_indicator("toptr_long_short_ratio", 5)
+            current_instrument["collector"].initialise_logging_indicator("count_long_short_ratio", 6)
+            current_instrument["collector"].initialise_logging_indicator("open_interest_value", 7)
     
-    # def on_start(self): 
-    #     super().on_start()
-    #     self._subscribe_to_metrics_data()
-    
-    # def _subscribe_to_metrics_data(self):
-    #     try:
-    #         from nautilus_trader.model.data import DataType
-    #         metrics_data_type = DataType(MetricsData)
-    #         self.subscribe_data(data_type=metrics_data_type)
-    #     except Exception as e:
-    #         self.log.error(f"Failed to subscribe to MetricsData: {e}", LogColor.RED)
+    def on_start(self): 
+        super().on_start()
+        self._subscribe_to_metrics_data()
+        self._subscribe_to_lunar_data()
+
+    def _subscribe_to_lunar_data(self):
+        try:
+            lunar_data_type = DataType(LunarData)
+            self.subscribe_data(data_type=lunar_data_type)
+        except Exception as e:
+            self.log.error(f"Failed to subscribe to LunarData: {e}", LogColor.RED)
+
+    def _subscribe_to_metrics_data(self):
+        try:
+            metrics_data_type = DataType(MetricsData)
+            self.subscribe_data(data_type=metrics_data_type)
+        except Exception as e:
+            self.log.error(f"Failed to subscribe to MetricsData: {e}", LogColor.RED)
         
     def update_rolling_24h_volume(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         current_volume = float(bar.volume) if hasattr(bar, 'volume') else 0.0
@@ -155,17 +185,28 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         dollar_volumes = [vol * price for vol, price in zip(volume_history, price_history)]
         current_instrument["rolling_24h_dollar_volume"] = sum(dollar_volumes)
     
-    # def on_data(self, data) -> None:
-    #     if isinstance(data, MetricsData):
-    #         self.on_metrics_data(data)
-    
-    # def on_metrics_data(self, data: MetricsData) -> None:
-    #     instrument_id = data.instrument_id
-    #     current_instrument = self.instrument_dict.get(instrument_id)
-    #
-    #     if current_instrument is not None:
-    #         current_instrument["sum_toptrader_long_short_ratio"] = metrics_data.sum_toptrader_long_short_ratio
-    #         current_instrument["count_long_short_ratio"] = metrics_data.count_long_short_ratio
+    def on_data(self, data) -> None:
+        if isinstance(data, MetricsData):
+            self.on_metrics_data(data)
+        elif isinstance(data, LunarData):
+            self.on_lunar_data(data)
+    def on_lunar_data(self, data: LunarData) -> None:
+        instrument_id = data.instrument_id
+        current_instrument = self.instrument_dict.get(instrument_id)
+
+        if current_instrument is not None:
+            current_instrument["posts_created"] = data.posts_created
+            current_instrument["sentiment"] = data.sentiment
+            current_instrument["interactions"] = data.interactions
+
+    def on_metrics_data(self, data: MetricsData) -> None:
+        instrument_id = data.instrument_id
+        current_instrument = self.instrument_dict.get(instrument_id)
+
+        if current_instrument is not None:
+            current_instrument["sum_toptrader_long_short_ratio"] = data.sum_toptrader_long_short_ratio
+            current_instrument["count_long_short_ratio"] = data.count_long_short_ratio
+            current_instrument["latest_open_interest_value"] = data.sum_open_interest_value
 
     def passes_coin_filters(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
         if not current_instrument.get("use_min_coin_filters", True):
@@ -386,6 +427,16 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
     def update_visualizer_data(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         inst_id = bar.bar_type.instrument_id
         self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)
+
+        # Lunar data indicators
+        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="interactions", value=current_instrument.get("interactions", 0.0))
+        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="posts_created", value=current_instrument.get("posts_created", 0.0))
+        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sentiment", value=current_instrument.get("sentiment", 0.0))
+
+        # Metrics data indicators
+        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="toptr_long_short_ratio", value=current_instrument.get("sum_toptrader_long_short_ratio", 0.0))
+        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="count_long_short_ratio", value=current_instrument.get("count_long_short_ratio", 0.0))
+        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="open_interest_value", value=current_instrument.get("latest_open_interest_value", 0.0))
 
         # Aroon Oscillator (position 1)
         if self.config.use_aroon_simple_trend_system.get("enabled", False):

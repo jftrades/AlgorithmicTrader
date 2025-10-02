@@ -21,8 +21,11 @@ data_sources:
   - data_cls: "data.download.crypto_downloads.custom_class.metrics_data:MetricsData"
     instrument_ids: all
 
+  - data_cls: "data.download.crypto_downloads.custom_class.lunar_data:LunarData"
+    instrument_ids: all
+
 # backtest period
-start_date: "2024-01-01T00:00:00Z"
+start_date: "2025-01-01T00:00:00Z"
 end_date: "2025-05-01T00:00:00Z"
 
 # account/venue params
@@ -37,23 +40,23 @@ min_account_balance: 1000
 max_leverage: 1
 
 exp_growth_atr_risk:
-  enabled: false
+  enabled: true
   atr_period: 20
   atr_multiple: 2.0
   risk_percent: 0.04
 
 log_growth_atr_risk:
-  enabled: true
+  enabled: false
   atr_period: 20
-  atr_multiple: [2, 5]
-  risk_percent: 0.01
+  atr_multiple: 2
+  risk_percent: 0.04
 
 # ===========================
 # Strategy-specific params
 # ===========================
 only_execute_short: true
 hold_profit_for_remaining_days: true
-time_after_listing_close: [7, 14, 19.5]
+time_after_listing_close: 19
 
 use_min_coin_filters:
   enabled: false
@@ -63,5 +66,6 @@ use_min_coin_filters:
 
 use_aroon_simple_trend_system:
   enabled: true
-  aroon_period: [30, 70, 150]
-  aroon_osc_short_threshold: [-40, -60]
+  aroon_period: 70
+  aroon_osc_short_threshold: -40
+
