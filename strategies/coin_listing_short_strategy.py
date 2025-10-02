@@ -17,7 +17,6 @@ from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 from nautilus_trader.model.data import DataType
 from data.download.crypto_downloads.custom_class.metrics_data import MetricsData
-from data.download.crypto_downloads.custom_class.lunar_data import LunarData
 
 class CoinListingShortConfig(StrategyConfig):
     instruments: List[dict]  
@@ -71,15 +70,6 @@ class CoinListingShortConfig(StrategyConfig):
             "rolling_window_bars_binance": 100,
             "upper_percentile_threshold_binance": 95,
             "lower_percentile_threshold_binance": 5
-        }
-    )
-
-    scale_lunar_data: Dict[str, Any] = Field(
-        default_factory=lambda: {
-            "enabled": True,
-            "rolling_window_bars_lunar": 100,
-            "upper_percentile_threshold_lunar": 95,
-            "lower_percentile_threshold_lunar": 5
         }
     )
 
@@ -143,28 +133,18 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["count_long_short_ratio"] = 0.0
             current_instrument["latest_open_interest_value"] = 0.0
 
-            # lunar data
-            current_instrument["posts_created"] = 0.0
-            current_instrument["sentiment"] = 0.0
-            current_instrument["interactions"] = 0.0
 
             # Scaled values (separate from raw values)
             current_instrument["sum_toptrader_long_short_ratio_scaled"] = 0.0
             current_instrument["count_long_short_ratio_scaled"] = 0.0
             current_instrument["latest_open_interest_value_scaled"] = 0.0
-            current_instrument["posts_created_scaled"] = 0.0
-            current_instrument["sentiment_scaled"] = 0.0
-            current_instrument["interactions_scaled"] = 0.0
+
 
             # Historical storage for scaling - Binance metrics
             current_instrument["sum_toptrader_long_short_ratio_history"] = []
             current_instrument["count_long_short_ratio_history"] = []
             current_instrument["latest_open_interest_value_history"] = []
 
-            # Historical storage for scaling - Lunar data
-            current_instrument["posts_created_history"] = []
-            current_instrument["sentiment_history"] = []
-            current_instrument["interactions_history"] = []
 
             # Scaling configs - use values from YAML configuration
             binance_config = self.config.scale_binance_metrics
@@ -173,37 +153,19 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["upper_percentile_threshold_binance"] = binance_config["upper_percentile_threshold_binance"]
             current_instrument["lower_percentile_threshold_binance"] = binance_config["lower_percentile_threshold_binance"]
 
-            lunar_config = self.config.scale_lunar_data
-            current_instrument["scale_lunar_enabled"] = lunar_config["enabled"]   
-            current_instrument["rolling_window_bars_lunar"] = lunar_config["rolling_window_bars_lunar"]
-            current_instrument["upper_percentile_threshold_lunar"] = lunar_config["upper_percentile_threshold_lunar"]
-            current_instrument["lower_percentile_threshold_lunar"] = lunar_config["lower_percentile_threshold_lunar"]
-
             # visualizer
             if self.config.use_aroon_simple_trend_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("aroon_osc", 2)
             
             # Initialize scaled metrics visualization
-            current_instrument["collector"].initialise_logging_indicator("scaled_toptrader_ratio", 3)
-            current_instrument["collector"].initialise_logging_indicator("scaled_count_ratio", 4)
-            current_instrument["collector"].initialise_logging_indicator("scaled_open_interest", 5)
+            current_instrument["collector"].initialise_logging_indicator("scaled_toptrader_ratio", 1)
+            current_instrument["collector"].initialise_logging_indicator("scaled_count_ratio", 1)
+            current_instrument["collector"].initialise_logging_indicator("scaled_open_interest", 1)
             
-            # Initialize scaled lunar data visualization
-            current_instrument["collector"].initialise_logging_indicator("scaled_posts_created", 6)
-            current_instrument["collector"].initialise_logging_indicator("scaled_sentiment", 7)
-            current_instrument["collector"].initialise_logging_indicator("scaled_interactions", 1)
     
     def on_start(self): 
         super().on_start()
         self._subscribe_to_metrics_data()
-        self._subscribe_to_lunar_data()
-
-    def _subscribe_to_lunar_data(self):
-        try:
-            lunar_data_type = DataType(LunarData)
-            self.subscribe_data(data_type=lunar_data_type)
-        except Exception as e:
-            self.log.error(f"Failed to subscribe to LunarData: {e}", LogColor.RED)
 
     def _subscribe_to_metrics_data(self):
         try:
@@ -239,20 +201,6 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
     def on_data(self, data) -> None:
         if isinstance(data, MetricsData):
             self.on_metrics_data(data)
-        elif isinstance(data, LunarData):
-            self.on_lunar_data(data)
-    def on_lunar_data(self, data: LunarData) -> None:
-        instrument_id = data.instrument_id
-        current_instrument = self.instrument_dict.get(instrument_id)
-
-        if current_instrument is not None:
-            # Store raw values first
-            current_instrument["posts_created"] = data.posts_created
-            current_instrument["sentiment"] = data.sentiment
-            current_instrument["interactions"] = data.interactions
-            
-            # Apply scaling
-            self.scale_lunar_data(current_instrument)
 
     def on_metrics_data(self, data: MetricsData) -> None:
         instrument_id = data.instrument_id
@@ -418,57 +366,6 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             else:
                 current_instrument[scaled_key] = 0.0
 
-    def scale_lunar_data(self, current_instrument: Dict[str, Any]) -> None:
-        if not current_instrument.get("scale_lunar_enabled", True):
-            return
-
-        rolling_window = current_instrument.get("rolling_window_bars_lunar", 100)
-        upper_threshold = current_instrument.get("upper_percentile_threshold_lunar", 95)
-        lower_threshold = current_instrument.get("lower_percentile_threshold_lunar", 5)
-
-        metrics = [
-            ("posts_created", "posts_created_history", "posts_created_scaled"),
-            ("sentiment", "sentiment_history", "sentiment_scaled"),
-            ("interactions", "interactions_history", "interactions_scaled")
-        ]
-
-        for metric_key, history_key, scaled_key in metrics:
-            current_value = current_instrument[metric_key]
-            history = current_instrument[history_key]
-            
-            history.append(current_value)
-            
-            if len(history) > rolling_window:
-                history.pop(0)
-            
-            # Calculate percentile-based scaling
-            if len(history) > 1:  # Need at least 2 values for percentiles
-                sorted_values = sorted(history)
-                n = len(sorted_values)
-                
-                lower_pos = (lower_threshold / 100.0) * (n - 1)
-                upper_pos = (upper_threshold / 100.0) * (n - 1)
-                
-                lower_val = sorted_values[int(lower_pos)]
-                upper_val = sorted_values[int(upper_pos)]
-                
-                # Scale current value to -1 to 1 range
-                if current_value <= lower_val:
-                    scaled_value = -1.0
-                elif current_value >= upper_val:
-                    scaled_value = 1.0
-                else:
-                    # Linear interpolation between lower and upper percentiles
-                    if upper_val != lower_val:
-                        scaled_value = -1.0 + 2.0 * (current_value - lower_val) / (upper_val - lower_val)
-                    else:
-                        scaled_value = 0.0
-                
-                # Store scaled value in separate field (keep raw value intact)
-                current_instrument[scaled_key] = scaled_value
-            else:
-                current_instrument[scaled_key] = 0.0
-
     def on_bar(self, bar: Bar) -> None:
         instrument_id = bar.bar_type.instrument_id
         current_instrument = self.instrument_dict.get(instrument_id)
@@ -591,11 +488,6 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_toptrader_ratio", value=current_instrument.get("sum_toptrader_long_short_ratio_scaled", 0.0))
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_count_ratio", value=current_instrument.get("count_long_short_ratio_scaled", 0.0))
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_open_interest", value=current_instrument.get("latest_open_interest_value_scaled", 0.0))
-
-        # Scaled Lunar data visualization (-1 to 1)
-        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_posts_created", value=current_instrument.get("posts_created_scaled", 0.0))
-        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_sentiment", value=current_instrument.get("sentiment_scaled", 0.0))
-        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_interactions", value=current_instrument.get("interactions_scaled", 0.0))
 
         # Aroon Oscillator (position 2)
         if self.config.use_aroon_simple_trend_system.get("enabled", False):
