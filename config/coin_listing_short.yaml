@@ -69,3 +69,14 @@ use_aroon_simple_trend_system:
   aroon_period: 70
   aroon_osc_short_threshold: -40
 
+scale_binance_metrics: # rank based approach
+  enabled: true
+  rolling_window_bars_binance: 100
+  upper_percentile_threshold_binance: 95
+  lower_percentile_threshold_binance: 5
+
+scale_lunar_data: # rank based approach
+  enabled: true
+  rolling_window_bars_lunar: 100
+  upper_percentile_threshold_lunar: 95
+  lower_percentile_threshold_lunar: 5
