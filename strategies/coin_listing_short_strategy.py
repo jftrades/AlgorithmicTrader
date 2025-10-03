@@ -136,6 +136,9 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["bars_since_entry"] = 0
             current_instrument["in_short_position"] = False
 
+            # Aroon crossover detection
+            current_instrument["prev_aroon_osc_value"] = None
+
             # l3 metrics
             current_instrument["sum_toptrader_long_short_ratio"] = 0.0
             current_instrument["count_long_short_ratio"] = 0.0
@@ -264,10 +267,27 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         oi_scaled = current_instrument.get("latest_open_interest_value_scaled", 0.0)
         
         # Check conditions
-        toptrader_condition = toptrader_scaled < toptrader_threshold  # Allow shorts when < -0.7
-        oi_condition = oi_scaled < oi_threshold  # Allow trades when < 0
+        toptrader_condition = toptrader_scaled < toptrader_threshold 
+        oi_condition = oi_scaled < oi_threshold 
         
         return toptrader_condition and oi_condition
+    
+    def detect_aroon_crossover_below(self, current_instrument: Dict[str, Any]) -> bool:
+        aroon = current_instrument["aroon"]
+        if not aroon.initialized:
+            return False
+            
+        current_aroon = float(aroon.value)
+        prev_aroon = current_instrument.get("prev_aroon_osc_value")
+        threshold = current_instrument["aroon_osc_short_threshold"]
+        
+        # First bar - no previous value, no crossover possible
+        if prev_aroon is None:
+            return False
+        
+        crossover_detected = (prev_aroon > threshold) and (current_aroon <= threshold)
+        
+        return crossover_detected
     
     def load_onboard_dates(self):
         import csv
@@ -442,6 +462,12 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         if not self.is_trading_allowed_after_listing(bar):
             return
         self.aroon_simple_trend_setup(bar, current_instrument)
+        
+        # Update previous Aroon value for next bar's crossover detection
+        if self.config.use_aroon_simple_trend_system.get("enabled", False):
+            aroon = current_instrument["aroon"]
+            if aroon.initialized:
+                current_instrument["prev_aroon_osc_value"] = float(aroon.value)
     
     def aroon_simple_trend_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_aroon_simple_trend_system.get("enabled", False):
@@ -451,15 +477,10 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         if not aroon.initialized:
             return
         
-        # Check five day scaling filters first
-        if not self.passes_five_day_scaling_filters(current_instrument):
-            return
-            
-        aroon_osc_value = float(aroon.value)
-        short_threshold = current_instrument["aroon_osc_short_threshold"]
-        
-        if (aroon_osc_value <= short_threshold):
-            self.enter_short_aroon_trend(bar, current_instrument)
+        if self.detect_aroon_crossover_below(current_instrument):
+            # Then check both toptrader and OI filters before executing
+            if self.passes_five_day_scaling_filters(current_instrument):
+                self.enter_short_aroon_trend(bar, current_instrument)
 
     def enter_short_aroon_trend(self, bar: Bar, current_instrument: Dict[str, Any]):   
         instrument_id = bar.bar_type.instrument_id
@@ -481,6 +502,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["bars_since_entry"] = 0
             current_instrument["min_topt_difference_since_entry"] = None
             current_instrument["sl_price"] = stop_loss_price
+            self.log.info("Executing short trade - passed all filters (aroon crossover + toptrader + OI)")
             self.order_types.submit_short_market_order(instrument_id, qty)
     
     def short_exit_logic(self, bar: Bar, current_instrument: Dict[str, Any], position):

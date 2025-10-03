@@ -77,5 +77,5 @@ scale_binance_metrics: # rank based approach
 
 five_day_scaling_filters:
   enabled: true
-  toptrader_short_threshold: -0.7  # Allow shorts when < -0.7
-  oi_trade_threshold: 0            # Allow trades when < 0
+  toptrader_short_threshold: 1.1
+  oi_trade_threshold: 1.1
