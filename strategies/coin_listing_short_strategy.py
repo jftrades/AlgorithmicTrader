@@ -76,8 +76,11 @@ class CoinListingShortConfig(StrategyConfig):
     five_day_scaling_filters: Dict[str, Any] = Field(
         default_factory=lambda: {
             "enabled": True,
-            "toptrader_short_threshold": -0.7,
-            "oi_trade_threshold": 0
+            "amount_change_scaled_values": 100,
+            "toptrader_short_threshold": 0.8,
+            "toptrader_allow_entry_difference": 0.4,
+            "oi_trade_threshold": 0.8,
+            "oi_allow_entry_difference": 0.4
         }
     )
 
@@ -167,8 +170,15 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             # Five day scaling filters configuration
             filter_config = self.config.five_day_scaling_filters
             current_instrument["five_day_filters_enabled"] = filter_config["enabled"]
+            current_instrument["amount_change_scaled_values"] = filter_config["amount_change_scaled_values"]
             current_instrument["toptrader_short_threshold"] = filter_config["toptrader_short_threshold"]
+            current_instrument["toptrader_allow_entry_difference"] = filter_config["toptrader_allow_entry_difference"]
             current_instrument["oi_trade_threshold"] = filter_config["oi_trade_threshold"]
+            current_instrument["oi_allow_entry_difference"] = filter_config["oi_allow_entry_difference"]
+            
+            # Historical tracking for five day scaling filters
+            current_instrument["toptrader_scaled_history"] = []
+            current_instrument["oi_scaled_history"] = []
 
             # visualizer
             if self.config.use_aroon_simple_trend_system.get("enabled", False):
@@ -258,17 +268,31 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         if not current_instrument.get("five_day_filters_enabled", True):
             return True
         
-        # Get thresholds
-        toptrader_threshold = current_instrument.get("toptrader_short_threshold", -0.7)
-        oi_threshold = current_instrument.get("oi_trade_threshold", 0)
+        toptrader_threshold = current_instrument.get("toptrader_short_threshold", 0.8)
+        oi_threshold = current_instrument.get("oi_trade_threshold", 0.8)
+        toptrader_difference = current_instrument.get("toptrader_allow_entry_difference", 0.4)
+        oi_difference = current_instrument.get("oi_allow_entry_difference", 0.4)
         
-        # Get scaled values (these are already calculated by scale_binance_metrics)
-        toptrader_scaled = current_instrument.get("sum_toptrader_long_short_ratio_scaled", 0.0)
-        oi_scaled = current_instrument.get("latest_open_interest_value_scaled", 0.0)
+        toptrader_history = current_instrument.get("toptrader_scaled_history", [])
+        oi_history = current_instrument.get("oi_scaled_history", [])
         
-        # Check conditions
-        toptrader_condition = toptrader_scaled < toptrader_threshold 
-        oi_condition = oi_scaled < oi_threshold 
+        if len(toptrader_history) == 0 or len(oi_history) == 0:
+            return False
+        
+        toptrader_above_threshold = any(val >= toptrader_threshold for val in toptrader_history)
+        oi_above_threshold = any(val >= oi_threshold for val in oi_history)
+        
+        if not (toptrader_above_threshold and oi_above_threshold):
+            return False
+        
+        max_toptrader = max(toptrader_history)
+        max_oi = max(oi_history)
+        
+        current_toptrader = current_instrument.get("sum_toptrader_long_short_ratio_scaled", 0.0)
+        current_oi = current_instrument.get("latest_open_interest_value_scaled", 0.0)
+        
+        toptrader_condition = current_toptrader <= (max_toptrader - toptrader_difference)
+        oi_condition = current_oi <= (max_oi - oi_difference)
         
         return toptrader_condition and oi_condition
     
@@ -417,6 +441,27 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
                 current_instrument[scaled_key] = scaled_value
             else:
                 current_instrument[scaled_key] = 0.0
+        
+        # Update historical tracking for five day filters
+        self.update_five_day_filter_history(current_instrument)
+
+    def update_five_day_filter_history(self, current_instrument: Dict[str, Any]) -> None:
+        if not current_instrument.get("five_day_filters_enabled", True):
+            return
+        
+        lookback_window = current_instrument.get("amount_change_scaled_values", 100)
+        
+        toptrader_scaled = current_instrument.get("sum_toptrader_long_short_ratio_scaled", 0.0)
+        oi_scaled = current_instrument.get("latest_open_interest_value_scaled", 0.0)
+        
+        current_instrument["toptrader_scaled_history"].append(toptrader_scaled)
+        current_instrument["oi_scaled_history"].append(oi_scaled)
+        
+        if len(current_instrument["toptrader_scaled_history"]) > lookback_window:
+            current_instrument["toptrader_scaled_history"].pop(0)
+            
+        if len(current_instrument["oi_scaled_history"]) > lookback_window:
+            current_instrument["oi_scaled_history"].pop(0)
 
     def on_bar(self, bar: Bar) -> None:
         instrument_id = bar.bar_type.instrument_id
