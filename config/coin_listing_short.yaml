@@ -71,15 +71,23 @@ use_aroon_simple_trend_system:
 
 scale_binance_metrics: # rank based approach
   enabled: true
-  rolling_window_bars_binance: 500
+  rolling_window_bars_binance: [300, 500, 800]
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
 five_day_scaling_filters:
   enabled: true
-  amount_change_scaled_values: 100
-  toptrader_short_threshold: 0.8
-  toptrader_allow_entry_difference: 0.4
-  oi_trade_threshold: 0.8
-  oi_allow_entry_difference: 0.4
+  amount_change_scaled_values: 200
+  toptrader_short_threshold: 0.0
+  toptrader_allow_entry_difference: 0.0
+  oi_trade_threshold: 0.0
+  oi_allow_entry_difference: 0.0
+
+exit_l3_metrics_in_profit:
+  enabled: true
+  exit_amount_change_scaled_values: 200
+  exit_toptrader_short_threshold: 0.0
+  exit_toptrader_allow_difference: 0.0
+  exit_oi_threshold: -0.95
+  exit_oi_allow_difference: [0.5, 1.0]
 
