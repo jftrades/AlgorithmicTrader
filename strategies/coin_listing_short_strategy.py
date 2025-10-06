@@ -1,5 +1,5 @@
 # strat for coin_listing_short.yaml
-from datetime import datetime, time, timezone, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional, List, Union
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
@@ -8,10 +8,10 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.enums import PositionSide
 from nautilus_trader.common.enums import LogColor
 from pydantic import Field
-import numpy as np
 
 from nautilus_trader.indicators.aroon import AroonOscillator
 from nautilus_trader.indicators.atr import AverageTrueRange
+from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
@@ -42,6 +42,18 @@ class CoinListingShortConfig(StrategyConfig):
             "atr_period": 14,
             "atr_multiple": 2.0,
             "risk_percent": 0.04
+        }
+    )
+
+    btc_performance_risk_scaling: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": True,
+            "rolling_slope_lookback": 200,
+            "upper_percentile_threshold_ema": 90,
+            "lower_percentile_threshold_ema": 10,
+            "ema_period": 50,
+            "risk_multiplier_upper_threshold": 0.2,
+            "risk_multiplier_lower_threshold": 3
         }
     )
 
@@ -108,6 +120,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         self.order_types = OrderTypes(self) 
         self.onboard_dates = self.load_onboard_dates()
         self.add_instrument_context()
+        self.setup_btc_tracking()
     
     def add_instrument_context(self):
         for current_instrument in self.instrument_dict.values():
@@ -203,6 +216,10 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             # Track entry values for exit logic
             current_instrument["entry_toptrader_scaled"] = None
             current_instrument["entry_oi_scaled"] = None
+            
+            # Separate history arrays for exit logic (independent from five_day_scaling_filters)
+            current_instrument["exit_toptrader_scaled_history"] = []
+            current_instrument["exit_oi_scaled_history"] = []
 
             # visualizer
             if self.config.use_aroon_simple_trend_system.get("enabled", False):
@@ -210,8 +227,38 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             
             # Initialize scaled metrics visualization
             current_instrument["collector"].initialise_logging_indicator("scaled_toptrader_ratio", 1)
-            current_instrument["collector"].initialise_logging_indicator("scaled_count_ratio", 1)
             current_instrument["collector"].initialise_logging_indicator("scaled_open_interest", 1)
+            
+            if self.config.btc_performance_risk_scaling.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("btc_slope_scaled", 1)
+                current_instrument["collector"].initialise_logging_indicator("btc_risk_multiplier", 1)
+                if "BTCUSDT" in str(current_instrument.get("instrument_id", "")):
+                    current_instrument["collector"].initialise_logging_indicator("btc_ema", 1) 
+    
+    def setup_btc_tracking(self):
+        if not self.config.btc_performance_risk_scaling.get("enabled", False):
+            return
+            
+        btc_config = self.config.btc_performance_risk_scaling
+        
+        # BTC tracking dictionary
+        self.btc_context = {
+            "ema_period": btc_config.get("ema_period", 50),
+            "rolling_slope_lookback": btc_config.get("rolling_slope_lookback", 200),
+            "upper_percentile_threshold": btc_config.get("upper_percentile_threshold_ema", 90),
+            "lower_percentile_threshold": btc_config.get("lower_percentile_threshold_ema", 10),
+            "risk_multiplier_upper": btc_config.get("risk_multiplier_upper_threshold", 0.2),
+            "risk_multiplier_lower": btc_config.get("risk_multiplier_lower_threshold", 3.0),
+            
+            "ema": ExponentialMovingAverage(btc_config.get("ema_period", 50)),
+            "ema_history": [],
+            "slope_history": [],
+            "current_slope": 0.0,
+            "slope_scaled": 0.0,
+            "current_risk_multiplier": 1.0,
+            
+            "btc_instrument_id": None  # Will be set when we detect BTC bars
+        }
             
     
     def on_start(self): 
@@ -363,46 +410,73 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         if not is_profitable:
             return False
         
-        entry_toptrader = current_instrument.get("entry_toptrader_scaled")
-        entry_oi = current_instrument.get("entry_oi_scaled")
-        
-        if entry_toptrader is None or entry_oi is None:
-            return False
-        
         current_toptrader = current_instrument.get("sum_toptrader_long_short_ratio_scaled", 0.0)
         current_oi = current_instrument.get("latest_open_interest_value_scaled", 0.0)
         
-        exit_toptrader_threshold = current_instrument.get("exit_toptrader_short_threshold", -0.95)
+        exit_toptrader_threshold = current_instrument.get("exit_toptrader_short_threshold", 0.0)
         exit_oi_threshold = current_instrument.get("exit_oi_threshold", -0.95)
-        exit_toptrader_allow_diff = current_instrument.get("exit_toptrader_allow_difference", [0.4, 0.8])
-        exit_oi_allow_diff = current_instrument.get("exit_oi_allow_difference", [0.4, 0.8])
+        exit_toptrader_allow_diff = current_instrument.get("exit_toptrader_allow_difference", 0.0)
+        exit_oi_allow_diff = current_instrument.get("exit_oi_allow_difference", [0.5, 1.0])
         
         if isinstance(exit_toptrader_allow_diff, list):
             exit_toptrader_allow_diff = exit_toptrader_allow_diff[0]
         if isinstance(exit_oi_allow_diff, list):
             exit_oi_allow_diff = exit_oi_allow_diff[0]
         
-        toptrader_counter_signal = False
-        if exit_toptrader_threshold < 0:
-            toptrader_diff = current_toptrader - entry_toptrader
-            if toptrader_diff >= exit_toptrader_allow_diff:
-                toptrader_counter_signal = True
-        else:
-            toptrader_diff = entry_toptrader - current_toptrader
-            if toptrader_diff >= exit_toptrader_allow_diff:
-                toptrader_counter_signal = True
+        # Get lookback window for exit tracking
+        lookback_window = current_instrument.get("exit_amount_change_scaled_values", 200)
         
-        oi_counter_signal = False
-        if exit_oi_threshold < 0:
-            oi_diff = current_oi - entry_oi
-            if oi_diff >= exit_oi_allow_diff:
-                oi_counter_signal = True
-        else:
-            oi_diff = entry_oi - current_oi
-            if oi_diff >= exit_oi_allow_diff:
-                oi_counter_signal = True
+        # Use separate exit history arrays
+        toptrader_history = current_instrument.get("exit_toptrader_scaled_history", [])
+        oi_history = current_instrument.get("exit_oi_scaled_history", [])
         
-        return toptrader_counter_signal or oi_counter_signal
+        if len(toptrader_history) > lookback_window:
+            toptrader_recent = toptrader_history[-lookback_window:]
+        else:
+            toptrader_recent = toptrader_history
+            
+        if len(oi_history) > lookback_window:
+            oi_recent = oi_history[-lookback_window:]
+        else:
+            oi_recent = oi_history
+        
+        toptrader_exit_signal = False
+        if exit_toptrader_threshold != 0.0 and exit_toptrader_allow_diff > 0.0:
+            if exit_toptrader_threshold >= 0:
+                # Positive threshold: check if we reached the extreme high, then snapped back down
+                toptrader_reached_extreme = any(val >= exit_toptrader_threshold for val in toptrader_recent)
+                if toptrader_reached_extreme:
+                    max_toptrader = max(toptrader_recent)
+                    toptrader_exit_signal = current_toptrader <= (max_toptrader - exit_toptrader_allow_diff)
+            else:
+                # Negative threshold: check if we reached the extreme low, then snapped back up
+                toptrader_reached_extreme = any(val <= exit_toptrader_threshold for val in toptrader_recent)
+                if toptrader_reached_extreme:
+                    min_toptrader = min(toptrader_recent)
+                    required_rebound = min_toptrader + exit_toptrader_allow_diff
+                    toptrader_exit_signal = current_toptrader >= required_rebound
+        
+        oi_exit_signal = False
+        if exit_oi_threshold != 0.0 and exit_oi_allow_diff > 0.0:
+            if exit_oi_threshold >= 0:
+                # Positive threshold: check if we reached the extreme high, then snapped back down
+                oi_reached_extreme = any(val >= exit_oi_threshold for val in oi_recent)
+                if oi_reached_extreme:
+                    max_oi = max(oi_recent)
+                    oi_exit_signal = current_oi <= (max_oi - exit_oi_allow_diff)
+            else:
+                # Negative threshold: check if we reached the extreme low, then snapped back up
+                oi_reached_extreme = any(val <= exit_oi_threshold for val in oi_recent)
+                if oi_reached_extreme:
+                    min_oi = min(oi_recent)
+                    required_oi_rebound = min_oi + exit_oi_allow_diff
+                    oi_exit_signal = current_oi >= required_oi_rebound
+                    
+        final_exit_signal = toptrader_exit_signal or oi_exit_signal
+        if final_exit_signal:
+            self.log.info(f"EXIT SIGNAL TRIGGERED! TopTrader={toptrader_exit_signal}, OI={oi_exit_signal}")
+        
+        return final_exit_signal
     
     def detect_aroon_crossover_below(self, current_instrument: Dict[str, Any]) -> bool:
         aroon = current_instrument["aroon"]
@@ -413,7 +487,6 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         prev_aroon = current_instrument.get("prev_aroon_osc_value")
         threshold = current_instrument["aroon_osc_short_threshold"]
         
-        # First bar - no previous value, no crossover possible
         if prev_aroon is None:
             return False
         
@@ -552,6 +625,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         # Update historical tracking for five day filters
         self.update_five_day_filter_history(current_instrument)
+        
+        self.update_exit_history(current_instrument)
 
     def update_five_day_filter_history(self, current_instrument: Dict[str, Any]) -> None:
         if not current_instrument.get("five_day_filters_enabled", True):
@@ -571,8 +646,173 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         if len(current_instrument["oi_scaled_history"]) > lookback_window:
             current_instrument["oi_scaled_history"].pop(0)
 
+    def update_exit_history(self, current_instrument: Dict[str, Any]) -> None:
+        if not current_instrument.get("exit_l3_enabled", False):
+            return
+        
+        lookback_window = current_instrument.get("exit_amount_change_scaled_values", 200)
+        
+        toptrader_scaled = current_instrument.get("sum_toptrader_long_short_ratio_scaled", 0.0)
+        oi_scaled = current_instrument.get("latest_open_interest_value_scaled", 0.0)
+        
+        # Initialize separate exit history arrays if needed
+        if "exit_toptrader_scaled_history" not in current_instrument:
+            current_instrument["exit_toptrader_scaled_history"] = []
+        if "exit_oi_scaled_history" not in current_instrument:
+            current_instrument["exit_oi_scaled_history"] = []
+        
+        current_instrument["exit_toptrader_scaled_history"].append(toptrader_scaled)
+        current_instrument["exit_oi_scaled_history"].append(oi_scaled)
+        
+        if len(current_instrument["exit_toptrader_scaled_history"]) > lookback_window:
+            current_instrument["exit_toptrader_scaled_history"].pop(0)
+            
+        if len(current_instrument["exit_oi_scaled_history"]) > lookback_window:
+            current_instrument["exit_oi_scaled_history"].pop(0)
+
+    def is_btc_instrument(self, instrument_id) -> bool:
+        return "BTCUSDT" in str(instrument_id)
+    
+    def process_btc_bar(self, bar: Bar) -> None:
+        if not self.config.btc_performance_risk_scaling.get("enabled", False):
+            return
+            
+        if not hasattr(self, 'btc_context'):
+            self.setup_btc_tracking()
+            
+        if self.btc_context["btc_instrument_id"] is None:
+            self.btc_context["btc_instrument_id"] = bar.bar_type.instrument_id
+        
+        self.btc_context["ema"].handle_bar(bar)
+        
+        if not self.btc_context["ema"].initialized:
+            return
+            
+        current_ema = float(self.btc_context["ema"].value)
+        self.btc_context["ema_history"].append(current_ema)
+        
+        if len(self.btc_context["ema_history"]) > self.btc_context["rolling_slope_lookback"]:
+            self.btc_context["ema_history"].pop(0)
+            
+        self.update_btc_risk_metrics()
+        
+
+
+    def update_btc_risk_metrics(self) -> None:
+        ema_history = self.btc_context["ema_history"]
+        
+        if len(ema_history) < 2:
+            return
+            
+        old_ema = ema_history[0]
+        current_ema = ema_history[-1]
+        bars_between = len(ema_history) - 1
+        
+        if bars_between > 0:
+            slope = (current_ema - old_ema) / bars_between
+            self.btc_context["current_slope"] = slope
+            self.btc_context["slope_history"].append(slope)
+            
+            if len(self.btc_context["slope_history"]) > self.btc_context["rolling_slope_lookback"]:
+                self.btc_context["slope_history"].pop(0)
+        
+        # Scale slope using percentiles
+        slope_history = self.btc_context["slope_history"]
+        if len(slope_history) < 2:
+            self.btc_context["slope_scaled"] = 0.0
+            self.btc_context["current_risk_multiplier"] = 1.0
+            return
+
+        current_slope = self.btc_context["current_slope"]
+        sorted_slopes = sorted(slope_history)
+        n = len(sorted_slopes)
+        
+        # Calculate percentile bounds
+        lower_threshold = self.btc_context["lower_percentile_threshold"]
+        upper_threshold = self.btc_context["upper_percentile_threshold"]
+        lower_val = sorted_slopes[int((lower_threshold / 100.0) * (n - 1))]
+        upper_val = sorted_slopes[int((upper_threshold / 100.0) * (n - 1))]
+        
+        # Scale to -1 to 1 range
+        if current_slope <= lower_val:
+            slope_scaled = -1.0
+        elif current_slope >= upper_val:
+            slope_scaled = 1.0
+        else:
+            if upper_val != lower_val:
+                slope_scaled = -1.0 + 2.0 * (current_slope - lower_val) / (upper_val - lower_val)
+            else:
+                slope_scaled = 0.0
+        
+        self.btc_context["slope_scaled"] = slope_scaled
+        
+        # Calculate risk multiplier: -1 (bearish) -> 3.0, +1 (bullish) -> 0.2
+        risk_min = self.btc_context["risk_multiplier_upper"]
+        risk_max = self.btc_context["risk_multiplier_lower"]
+        risk_multiplier = risk_max + (slope_scaled + 1.0) * (risk_min - risk_max) / 2.0
+        risk_multiplier = max(risk_min, min(risk_max, risk_multiplier))
+        
+        self.btc_context["current_risk_multiplier"] = risk_multiplier
+    
+    def update_btc_visualizer_data(self, bar: Bar, btc_instrument: Dict[str, Any]) -> None:
+        if not hasattr(self, 'btc_context'):
+            return
+            
+        # Update BTC-specific indicators
+        if self.btc_context["ema"].initialized:
+            current_ema_value = float(self.btc_context["ema"].value)
+            btc_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_ema", value=current_ema_value)
+            
+        btc_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_slope_scaled", value=self.btc_context.get("slope_scaled", 0.0))
+        btc_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
+    
+    def get_btc_risk_multiplier(self) -> float:
+        if not self.config.btc_performance_risk_scaling.get("enabled", False):
+            return 1.0
+            
+        if not hasattr(self, 'btc_context'):
+            return 1.0
+            
+        return self.btc_context.get("current_risk_multiplier", 1.0)
+    
+    def calculate_risk_based_position_size(self, instrument_id, entry_price: float, stop_loss_price: float) -> int:
+        # SAFETY: Never calculate position size for BTC - return 0 to prevent trading
+        if self.is_btc_instrument(instrument_id):
+            self.log.warning(f"Position sizing blocked for BTC instrument: {instrument_id}")
+            return 0
+            
+        from decimal import Decimal
+        
+        entry_price_decimal = Decimal(str(entry_price))
+        stop_loss_price_decimal = Decimal(str(stop_loss_price))
+        
+        btc_risk_multiplier = self.get_btc_risk_multiplier()
+        
+        if self.config.exp_growth_atr_risk["enabled"]:
+            base_risk_percent = Decimal(str(self.config.exp_growth_atr_risk["risk_percent"]))
+            adjusted_risk_percent = base_risk_percent * Decimal(str(btc_risk_multiplier))
+            exact_contracts = self.risk_manager.exp_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, adjusted_risk_percent)
+            return round(float(exact_contracts))
+        
+        if self.config.log_growth_atr_risk["enabled"]:
+            base_risk_percent = Decimal(str(self.config.log_growth_atr_risk["risk_percent"]))
+            adjusted_risk_percent = base_risk_percent * Decimal(str(btc_risk_multiplier))
+            exact_contracts = self.risk_manager.log_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, adjusted_risk_percent)
+            return round(float(exact_contracts))
+        
+        return self.calculate_fixed_position_size(instrument_id, entry_price)
+
     def on_bar(self, bar: Bar) -> None:
         instrument_id = bar.bar_type.instrument_id
+        
+        if self.is_btc_instrument(instrument_id):
+            self.process_btc_bar(bar)
+            
+            btc_instrument = self.instrument_dict.get(instrument_id)
+            if btc_instrument is not None:
+                self.update_btc_visualizer_data(bar, btc_instrument)
+            return
+            
         current_instrument = self.instrument_dict.get(instrument_id)
 
         if current_instrument is None:
@@ -623,6 +863,9 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
                 current_instrument["prev_aroon_osc_value"] = float(aroon.value)
     
     def aroon_simple_trend_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
+        if self.is_btc_instrument(bar.bar_type.instrument_id):
+            return
+            
         if not self.config.use_aroon_simple_trend_system.get("enabled", False):
             return
         
@@ -637,6 +880,10 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
 
     def enter_short_aroon_trend(self, bar: Bar, current_instrument: Dict[str, Any]):   
         instrument_id = bar.bar_type.instrument_id
+        
+        if self.is_btc_instrument(instrument_id):
+            return
+            
         entry_price = float(bar.close)
         
         atr_value = current_instrument["atr"].value
@@ -710,7 +957,6 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
 
         # Scaled Binance metrics visualization (-1 to 1)
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_toptrader_ratio", value=current_instrument.get("sum_toptrader_long_short_ratio_scaled", 0.0))
-        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_count_ratio", value=current_instrument.get("count_long_short_ratio_scaled", 0.0))
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_open_interest", value=current_instrument.get("latest_open_interest_value_scaled", 0.0))
 
         # Aroon Oscillator (position 2)
@@ -718,6 +964,15 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             aroon = current_instrument["aroon"]
             aroon_osc_value = float(aroon.value) if aroon.value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="aroon_osc", value=aroon_osc_value)
+
+        # BTC Risk Scaling metrics
+        if self.config.btc_performance_risk_scaling.get("enabled", False) and hasattr(self, 'btc_context'):
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_slope_scaled", value=self.btc_context.get("slope_scaled", 0.0))
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
+            
+            if self.is_btc_instrument(bar.bar_type.instrument_id) and self.btc_context["ema"].initialized:
+                current_ema_value = float(self.btc_context["ema"].value)
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_ema", value=current_ema_value)
 
 
     def on_order_filled(self, order_filled) -> None:

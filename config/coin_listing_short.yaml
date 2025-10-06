@@ -4,6 +4,13 @@ config_path: "strategies.coin_listing_short_strategy:CoinListingShortConfig"
 visualize: true
 venue: "BINANCE"
 
+instruments:
+  - instrument_id: "BTCUSDT-PERP.BINANCE"
+    bar_types: 
+      - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
+    trade_size_usdt: "1"  # Minimal size for visualization only - NO TRADING (blocked in code)
+    test: 0
+
 instruments_from_path:
   path: "../data/DATA_STORAGE/project_future_scraper/new_binance_perpetual_futures.csv"
   symbol_column: "symbol"
@@ -25,8 +32,8 @@ data_sources:
     instrument_ids: all
 
 # backtest period
-start_date: "2024-01-01T00:00:00Z"
-end_date: "2025-05-01T00:00:00Z"
+start_date: "2024-12-01T00:00:00Z"
+end_date: "2025-01-01T00:00:00Z"
 
 # account/venue params
 starting_account_balance: "1000 USDT"
@@ -40,13 +47,13 @@ min_account_balance: 1000
 max_leverage: 1
 
 exp_growth_atr_risk:
-  enabled: true
+  enabled: false
   atr_period: 20
   atr_multiple: 2.0
   risk_percent: 0.04
 
 log_growth_atr_risk:
-  enabled: false
+  enabled: true
   atr_period: 20
   atr_multiple: 2
   risk_percent: 0.04
@@ -71,12 +78,12 @@ use_aroon_simple_trend_system:
 
 scale_binance_metrics: # rank based approach
   enabled: true
-  rolling_window_bars_binance: [300, 500, 800]
+  rolling_window_bars_binance: 1200
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
 five_day_scaling_filters:
-  enabled: true
+  enabled: false
   amount_change_scaled_values: 200
   toptrader_short_threshold: 0.0
   toptrader_allow_entry_difference: 0.0
@@ -85,9 +92,19 @@ five_day_scaling_filters:
 
 exit_l3_metrics_in_profit:
   enabled: true
-  exit_amount_change_scaled_values: 200
-  exit_toptrader_short_threshold: 0.0
-  exit_toptrader_allow_difference: 0.0
+  exit_amount_change_scaled_values: 100
+  exit_toptrader_short_threshold: -0.95
+  exit_toptrader_allow_difference: 0.8
   exit_oi_threshold: -0.95
-  exit_oi_allow_difference: [0.5, 1.0]
+  exit_oi_allow_difference: 0.8
+
+btc_performance_risk_scaling:
+  enabled: true
+  rolling_slope_lookback: 250
+  upper_percentile_threshold_ema: 90
+  lower_percentile_threshold_ema: 10
+  ema_period: 30
+  risk_multiplier_upper_threshold: 0.2
+  risk_multiplier_lower_threshold: 2.0
+
 
