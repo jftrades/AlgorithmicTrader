@@ -1,0 +1,130 @@
+mode: "live"
+strategy_path: "strategies.coin_listing_short_strategy:CoinListingShortStrategy"
+config_path: "strategies.coin_listing_short_strategy:CoinListingShortConfig"
+
+# Live trading settings
+trader_id: "TRADER-001"
+instance_id: "coin_listing_short_paper"
+log_level: "INFO"
+environment: "sandbox"  # Paper trading environment
+
+# Cache configuration (optional for paper trading)
+cache:
+  type: "memory"
+
+# Message bus
+message_bus:
+  database: "memory"
+  encoding: "msgpack"
+  timestamps_as_iso8601: true
+
+# Data engine
+data_engine:
+  validate_data_sequence: true
+  debug: false
+
+# Risk engine
+risk_engine:
+  bypass: false
+  max_order_rate: "100/00:00:01"
+  max_notional_per_order:
+    "USD": 1000
+
+# Execution engine
+exec_engine:
+  load_cache: true
+  save_cache: true
+
+# Paper trading data clients (TESTNET)
+data_clients:
+  - client_id: "BINANCE"
+    factory: "nautilus_trader.adapters.binance.factories:BinanceLiveDataClientFactory"
+    config:
+      api_key: ${BINANCE_TESTNET_API_KEY}
+      api_secret: ${BINANCE_TESTNET_API_SECRET}
+      testnet: true
+      us: false
+      base_url_ws: "wss://stream.binancefuture.com"
+
+# Paper trading execution clients (TESTNET)
+exec_clients:
+  - client_id: "BINANCE"
+    factory: "nautilus_trader.adapters.binance.factories:BinanceLiveExecClientFactory"
+    config:
+      api_key: ${BINANCE_TESTNET_API_KEY}
+      api_secret: ${BINANCE_TESTNET_API_SECRET}
+      testnet: true
+      us: false
+      base_url: "https://testnet.binancefuture.com"
+
+# Venues
+venues:
+  - name: "BINANCE"
+    oms_type: "NETTING"
+    account_type: "MARGIN"
+    base_currency: "USDT"
+    starting_balances:
+      - "10000 USDT"  # Testnet provides fake money
+
+# Instruments (start with just BTC for testing)
+instruments:
+  - instrument_id: "BTCUSDT-PERP.BINANCE"
+    bar_types: 
+      - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
+    trade_size_usdt: "50"
+
+# Copy your exact strategy configuration from backtest
+only_execute_short: true
+hold_profit_for_remaining_days: true
+time_after_listing_close: 19
+
+use_min_coin_filters:
+  enabled: false
+  min_price: 0.25
+  min_24h_volume: 50000
+  min_sum_open_interest_value: 1000000
+
+use_aroon_simple_trend_system:
+  enabled: true
+  aroon_period: 70
+  aroon_osc_short_threshold: -40
+
+entry_scale_binance_metrics:
+  enabled: true
+  rolling_window_bars_binance: [100, 200, 500]
+  upper_percentile_threshold_binance: 95
+  lower_percentile_threshold_binance: 5
+
+exit_scale_binance_metrics:
+  enabled: true
+  rolling_window_bars_binance: 1250
+  upper_percentile_threshold_binance: 95
+  lower_percentile_threshold_binance: 5
+
+five_day_scaling_filters:
+  enabled: true
+  amount_change_scaled_values: [100, 250]
+  toptrader_short_threshold: 0.8
+  toptrader_allow_entry_difference: 0.5
+  oi_trade_threshold: 0.8
+  oi_allow_entry_difference: 0.5
+
+exit_l3_metrics_in_profit:
+  enabled: true
+  exit_amount_change_scaled_values: 100
+  exit_toptrader_short_threshold: -0.95
+  exit_toptrader_allow_difference: 0.8
+  exit_oi_threshold: -0.95
+  exit_oi_allow_difference: 0.8
+
+log_growth_atr_risk:
+  enabled: true
+  atr_period: 20
+  atr_multiple: 2
+  risk_percent: 0.04
+
+exp_growth_atr_risk:
+  enabled: false
+
+btc_performance_risk_scaling:
+  enabled: false

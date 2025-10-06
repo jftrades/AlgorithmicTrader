@@ -32,8 +32,8 @@ data_sources:
     instrument_ids: all
 
 # backtest period
-start_date: "2024-12-01T00:00:00Z"
-end_date: "2025-01-01T00:00:00Z"
+start_date: "2024-01-01T00:00:00Z"
+end_date: "2025-03-01T00:00:00Z"
 
 # account/venue params
 starting_account_balance: "1000 USDT"
@@ -76,19 +76,25 @@ use_aroon_simple_trend_system:
   aroon_period: 70
   aroon_osc_short_threshold: -40
 
-scale_binance_metrics: # rank based approach
+entry_scale_binance_metrics: # rank based approach for ENTRY logic
   enabled: true
-  rolling_window_bars_binance: 1200
+  rolling_window_bars_binance: [100, 200, 500]
+  upper_percentile_threshold_binance: 95
+  lower_percentile_threshold_binance: 5
+
+exit_scale_binance_metrics: # rank based approach for EXIT logic  
+  enabled: true
+  rolling_window_bars_binance: 1250
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
 five_day_scaling_filters:
-  enabled: false
-  amount_change_scaled_values: 200
-  toptrader_short_threshold: 0.0
-  toptrader_allow_entry_difference: 0.0
-  oi_trade_threshold: 0.0
-  oi_allow_entry_difference: 0.0
+  enabled: true
+  amount_change_scaled_values: [100, 250]
+  toptrader_short_threshold: 0.8
+  toptrader_allow_entry_difference: 0.5
+  oi_trade_threshold: 0.8
+  oi_allow_entry_difference: 0.5
 
 exit_l3_metrics_in_profit:
   enabled: true
@@ -99,11 +105,11 @@ exit_l3_metrics_in_profit:
   exit_oi_allow_difference: 0.8
 
 btc_performance_risk_scaling:
-  enabled: true
-  rolling_slope_lookback: 250
-  upper_percentile_threshold_ema: 90
-  lower_percentile_threshold_ema: 10
-  ema_period: 30
+  enabled: false
+  rolling_slope_lookback: 200
+  upper_percentile_threshold_ema: 95
+  lower_percentile_threshold_ema: 5
+  ema_period: 50
   risk_multiplier_upper_threshold: 0.2
   risk_multiplier_lower_threshold: 2.0
 
