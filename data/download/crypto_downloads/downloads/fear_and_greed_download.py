@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, date
 from pathlib import Path
 from typing import List, Dict, Any
+import os  # NEU
 
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
@@ -31,6 +32,7 @@ class FearAndGreedDownloader:
         save_in_catalog: bool = True,
         download_if_missing: bool = True,
         remove_processed: bool = True,
+        csv_output_subdir: str | None = None,  # NEU
     ):
         self.start_dt = self._to_date(start_date)
         self.end_dt = self._to_date(end_date)
@@ -43,6 +45,7 @@ class FearAndGreedDownloader:
         self.save_in_catalog = save_in_catalog
         self.download_if_missing = download_if_missing
         self.remove_processed = remove_processed
+        self.csv_output_subdir = csv_output_subdir
 
         # Cache-Struktur wie andere Downloader
         self.cache_dir = self.base_dir / "cache"
@@ -81,8 +84,14 @@ class FearAndGreedDownloader:
             raise ValueError("No FNG data returned from API.")
 
         df = pd.DataFrame(data)
-        # API liefert "timestamp" als YYYY-MM-DD (oder älter evtl epoch?). Robust umwandeln:
-        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
+        # API (date_format=world) liefert DD-MM-YYYY -> explizites Format + dayfirst zur Warnungsunterdrückung
+        df["timestamp"] = pd.to_datetime(
+            df["timestamp"],
+            format="%d-%m-%Y",
+            dayfirst=True,
+            utc=True,
+            errors="coerce",
+        )
         df = df.dropna(subset=["timestamp"])
         # Zu Tages-Start normalisieren
         df["timestamp"] = df["timestamp"].dt.normalize()
@@ -144,7 +153,8 @@ class FearAndGreedDownloader:
             catalog.write_data(records)
 
         if self.save_as_csv:
-            out_dir = self.base_dir / "csv_data" / self.instrument_id_str
+            subdir = self.csv_output_subdir or os.getenv("CSV_OUTPUT_SUBDIR") or "csv_data"  # NEU
+            out_dir = self.base_dir / subdir / self.instrument_id_str
             out_dir.mkdir(parents=True, exist_ok=True)
             out_path = out_dir / "FNG.csv"
             pd.DataFrame(csv_rows).to_csv(out_path, index=False)
@@ -176,12 +186,12 @@ if __name__ == "__main__":
     base_dir = Path(__file__).resolve().parents[3] / "DATA_STORAGE"
     downloader = FearAndGreedDownloader(
         start_date="2023-12-01",
-        end_date="2023-12-31",
+        end_date="2025-09-09",
         base_data_dir=str(base_dir),
         instrument_id_str="FNG-INDEX.BINANCE",
         limit=0,
         save_as_csv=True,
-        save_in_catalog=True,
+        save_in_catalog=False,
         download_if_missing=True,
         remove_processed=False,
     )

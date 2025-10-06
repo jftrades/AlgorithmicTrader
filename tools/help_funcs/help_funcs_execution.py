@@ -372,9 +372,24 @@ def add_trade_metrics(run_ids, results_dir: Path, summary_csv_path: Path, instru
 
         any_file = False
 
+        # NEW: collect all trades across instruments for this run
+        combined_trades_dfs = []
+
         for inst in instrument_ids:
             inst_str = str(inst)
             metrics_csv = run_path / inst_str / "trade_metrics.csv"
+
+            # collect trades.csv regardless of metrics presence
+            trades_csv = run_path / inst_str / "trades.csv"
+            if trades_csv.exists():
+                try:
+                    df_tr = _pd.read_csv(trades_csv)
+                    if not df_tr.empty:
+                        df_tr["instrument"] = inst_str
+                        combined_trades_dfs.append(df_tr)
+                except Exception as e:
+                    print(f"[add_trade_metrics] Failed reading {trades_csv}: {e}")
+
             if not metrics_csv.exists():
                 continue
             try:
@@ -439,6 +454,18 @@ def add_trade_metrics(run_ids, results_dir: Path, summary_csv_path: Path, instru
 
             except Exception as e:
                 print(f"[add_trade_metrics] Failed reading {metrics_csv}: {e}")
+
+        # After instrument loop: write combined trades.csv for this run
+        if combined_trades_dfs:
+            try:
+                combined_trades = _pd.concat(combined_trades_dfs, ignore_index=True, sort=False)
+                if "timestamp" in combined_trades.columns:
+                    combined_trades = combined_trades.sort_values("timestamp")
+                out_path = run_path / "all_trades.csv"  # renamed
+                combined_trades.to_csv(out_path, index=False)
+                print(f"[add_trade_metrics] Combined trades saved: {out_path}")
+            except Exception as e:
+                print(f"[add_trade_metrics] Failed writing combined trades for {run_id}: {e}")
 
         if not any_file:
             continue
