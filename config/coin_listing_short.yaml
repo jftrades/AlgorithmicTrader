@@ -37,11 +37,7 @@ data_sources:
     instrument_ids: all
 
 # backtest period
-<<<<<<< HEAD
 start_date: "2024-08-01T00:00:00Z"
-=======
-start_date: "2024-01-01T00:00:00Z"
->>>>>>> main
 end_date: "2025-08-01T00:00:00Z"
 
 # account/venue params
@@ -64,7 +60,7 @@ exp_growth_atr_risk:
 log_growth_atr_risk:
   enabled: true
   atr_period: 20
-  atr_multiple: [1.5, 2, 2.5, 3, 3.5]
+  atr_multiple: [2, 4, 6, 8, 10]
   risk_percent: 0.04
 
 # ===========================
@@ -82,7 +78,7 @@ use_min_coin_filters:
 
 use_aroon_simple_trend_system:
   enabled: true
-  aroon_period: 70
+  aroon_period: 300
   aroon_osc_short_threshold: [-1, -15, -30, -40]
 
 entry_scale_binance_metrics: # rank based approach for ENTRY logic
@@ -93,7 +89,7 @@ entry_scale_binance_metrics: # rank based approach for ENTRY logic
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
-  rolling_window_bars_binance: 1000
+  rolling_window_bars_binance: 3500
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
