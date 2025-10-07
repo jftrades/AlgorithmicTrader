@@ -1055,7 +1055,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         if self.config.log_growth_atr_risk["enabled"]:
             base_risk_percent = Decimal(str(self.config.log_growth_atr_risk["risk_percent"]))
-            adjusted_risk_percent = base_risk_percent * Decimal(str(btc_risk_multiplier))
+            adjusted_risk_percent = base_risk_percent * Decimal(str(combined_risk_multiplier))
             exact_contracts = self.risk_manager.log_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, adjusted_risk_percent)
             return round(float(exact_contracts))
         
@@ -1246,6 +1246,10 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         # BTC Risk Scaling metrics
         if self.config.btc_performance_risk_scaling.get("enabled", False) and hasattr(self, 'btc_context'):
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
+
+        # SOL Risk Scaling metrics
+        if self.config.sol_performance_risk_scaling.get("enabled", False) and hasattr(self, 'sol_context'):
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_risk_multiplier", value=self.sol_context.get("current_risk_multiplier", 1.0))
 
 
     def on_order_filled(self, order_filled) -> None:

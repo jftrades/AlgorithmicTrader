@@ -37,7 +37,11 @@ data_sources:
     instrument_ids: all
 
 # backtest period
+<<<<<<< HEAD
 start_date: "2024-08-01T00:00:00Z"
+=======
+start_date: "2024-01-01T00:00:00Z"
+>>>>>>> main
 end_date: "2025-08-01T00:00:00Z"
 
 # account/venue params
@@ -116,8 +120,8 @@ btc_performance_risk_scaling:
   stop_executing_above_zscore: 2.8
   max_zscore: 4.0
   min_zscore: -4.0
-  risk_multiplier_max_z_threshold: 0.2
-  risk_multiplier_min_z_threshold: 2.0
+  risk_multiplier_max_z_threshold: 0.4
+  risk_multiplier_min_z_threshold: 3.0
 
 sol_performance_risk_scaling:
   enabled: true
@@ -126,7 +130,7 @@ sol_performance_risk_scaling:
   stop_executing_above_zscore: 2.8
   max_zscore: 4.0
   min_zscore: -4.0
-  risk_multiplier_max_z_threshold: 0.2
-  risk_multiplier_min_z_threshold: 2.0
+  risk_multiplier_max_z_threshold: 0.4
+  risk_multiplier_min_z_threshold: 3.0
 
 
