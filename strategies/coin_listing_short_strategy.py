@@ -48,12 +48,12 @@ class CoinListingShortConfig(StrategyConfig):
     btc_performance_risk_scaling: Dict[str, Any] = Field(
         default_factory=lambda: {
             "enabled": True,
-            "rolling_slope_lookback": 200,
-            "upper_percentile_threshold_ema": 90,
-            "lower_percentile_threshold_ema": 10,
-            "ema_period": 50,
-            "risk_multiplier_upper_threshold": 0.2,
-            "risk_multiplier_lower_threshold": 3
+            "risk_scaling_method": "exponential", 
+            "rolling_zscore": 200,
+            "max_zscore": 3.0,
+            "min_zscore": -3.0,
+            "risk_multiplier_max_z_threshold": 0.2,
+            "risk_multiplier_min_z_threshold": 3
         }
     )
 
@@ -256,10 +256,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["collector"].initialise_logging_indicator("scaled_open_interest_exit", 1)
             
             if self.config.btc_performance_risk_scaling.get("enabled", False):
-                current_instrument["collector"].initialise_logging_indicator("btc_slope_scaled", 1)
+                current_instrument["collector"].initialise_logging_indicator("btc_zscore", 1)
                 current_instrument["collector"].initialise_logging_indicator("btc_risk_multiplier", 1)
-                if "BTCUSDT" in str(current_instrument.get("instrument_id", "")):
-                    current_instrument["collector"].initialise_logging_indicator("btc_ema", 1) 
     
     def setup_btc_tracking(self):
         if not self.config.btc_performance_risk_scaling.get("enabled", False):
@@ -267,25 +265,24 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             
         btc_config = self.config.btc_performance_risk_scaling
         
-        # BTC tracking dictionary
         self.btc_context = {
-            "ema_period": btc_config.get("ema_period", 50),
-            "rolling_slope_lookback": btc_config.get("rolling_slope_lookback", 200),
-            "upper_percentile_threshold": btc_config.get("upper_percentile_threshold_ema", 90),
-            "lower_percentile_threshold": btc_config.get("lower_percentile_threshold_ema", 10),
-            "risk_multiplier_upper": btc_config.get("risk_multiplier_upper_threshold", 0.2),
-            "risk_multiplier_lower": btc_config.get("risk_multiplier_lower_threshold", 3.0),
-            
-            "ema": ExponentialMovingAverage(btc_config.get("ema_period", 50)),
-            "ema_history": [],
-            "slope_history": [],
-            "current_slope": 0.0,
-            "slope_scaled": 0.0,
-            "current_risk_multiplier": 1.0,
-            
-            "btc_instrument_id": None  # Will be set when we detect BTC bars
-        }
-            
+        "rolling_zscore": btc_config.get("rolling_zscore", 200),
+        "risk_scaling_method": btc_config.get("risk_scaling_method", "exponential"),
+        "max_zscore": btc_config.get("max_zscore", 3.0),
+        "min_zscore": btc_config.get("min_zscore", -3.0),
+        "risk_multiplier_max_z_threshold": btc_config.get("risk_multiplier_max_z_threshold", 0.2),
+        "risk_multiplier_min_z_threshold": btc_config.get("risk_multiplier_min_z_threshold", 2.0),
+        "btc_instrument_id": None,
+        
+        # Rolling z-score calculation components
+        "price_history": [],
+        "current_zscore": 0.0,
+        "rolling_mean": 0.0,
+        "rolling_std": 0.0,
+        "current_risk_multiplier": 1.0,
+        "min_periods": max(5, btc_config.get("rolling_zscore", 200) // 2)  
+    
+        }            
     
     def on_start(self): 
         super().on_start()
@@ -762,88 +759,84 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             
         if self.btc_context["btc_instrument_id"] is None:
             self.btc_context["btc_instrument_id"] = bar.bar_type.instrument_id
+
+        current_price = float(bar.close)
+        self.btc_context["price_history"].append(current_price)
         
-        self.btc_context["ema"].handle_bar(bar)
+        window_size = self.btc_context["rolling_zscore"]
+        if len(self.btc_context["price_history"]) > window_size:
+            self.btc_context["price_history"].pop(0)
         
-        if not self.btc_context["ema"].initialized:
-            return
-            
-        current_ema = float(self.btc_context["ema"].value)
-        self.btc_context["ema_history"].append(current_ema)
-        
-        if len(self.btc_context["ema_history"]) > self.btc_context["rolling_slope_lookback"]:
-            self.btc_context["ema_history"].pop(0)
-            
         self.update_btc_risk_metrics()
         
 
-
     def update_btc_risk_metrics(self) -> None:
-        ema_history = self.btc_context["ema_history"]
-        
-        if len(ema_history) < 2:
-            return
-            
-        old_ema = ema_history[0]
-        current_ema = ema_history[-1]
-        bars_between = len(ema_history) - 1
-        
-        if bars_between > 0:
-            slope = (current_ema - old_ema) / bars_between
-            self.btc_context["current_slope"] = slope
-            self.btc_context["slope_history"].append(slope)
-            
-            if len(self.btc_context["slope_history"]) > self.btc_context["rolling_slope_lookback"]:
-                self.btc_context["slope_history"].pop(0)
-        
-        # Scale slope using percentiles
-        slope_history = self.btc_context["slope_history"]
-        if len(slope_history) < 2:
-            self.btc_context["slope_scaled"] = 0.0
+        if not hasattr(self, 'btc_context') or len(self.btc_context["price_history"]) < self.btc_context["min_periods"]:
             self.btc_context["current_risk_multiplier"] = 1.0
             return
 
-        current_slope = self.btc_context["current_slope"]
-        sorted_slopes = sorted(slope_history)
-        n = len(sorted_slopes)
-        
-        # Calculate percentile bounds
-        lower_threshold = self.btc_context["lower_percentile_threshold"]
-        upper_threshold = self.btc_context["upper_percentile_threshold"]
-        lower_val = sorted_slopes[int((lower_threshold / 100.0) * (n - 1))]
-        upper_val = sorted_slopes[int((upper_threshold / 100.0) * (n - 1))]
-        
-        # Scale to -1 to 1 range
-        if current_slope <= lower_val:
-            slope_scaled = -1.0
-        elif current_slope >= upper_val:
-            slope_scaled = 1.0
-        else:
-            if upper_val != lower_val:
-                slope_scaled = -1.0 + 2.0 * (current_slope - lower_val) / (upper_val - lower_val)
+        price_history = self.btc_context["price_history"]
+        window_size = self.btc_context["rolling_zscore"]
+
+        if len(price_history) >= 2:
+            stats_data = price_history[:-1] if len(price_history) > window_size else price_history[:-1]
+            if len(stats_data) >= self.btc_context["min_periods"]:
+                rolling_data = stats_data[-window_size:] if len(stats_data) >= window_size else stats_data
+                
+                self.btc_context["rolling_mean"] = sum(rolling_data) / len(rolling_data)
+
+                variance = sum((x - self.btc_context["rolling_mean"]) ** 2 for x in rolling_data) / (len(rolling_data) - 1)
+                self.btc_context["rolling_std"] = variance ** 0.5
+                
+                # Calculate z-score for current price
+                current_price = price_history[-1]
+                if self.btc_context["rolling_std"] > 0:
+                    self.btc_context["current_zscore"] = (current_price - self.btc_context["rolling_mean"]) / self.btc_context["rolling_std"]
+                else:
+                    self.btc_context["current_zscore"] = 0.0
+                
+                # Clamp z-score to configured bounds
+                zscore = max(self.btc_context["min_zscore"], 
+                            min(self.btc_context["max_zscore"], self.btc_context["current_zscore"]))
+                
+                risk_multiplier = self._zscore_to_risk_multiplier(zscore)
+                self.btc_context["current_risk_multiplier"] = risk_multiplier
             else:
-                slope_scaled = 0.0
+                self.btc_context["current_risk_multiplier"] = 1.0
+        else:
+            self.btc_context["current_risk_multiplier"] = 1.0
+
+    def _zscore_to_risk_multiplier(self, zscore: float) -> float:
+        min_risk = self.btc_context["risk_multiplier_max_z_threshold"]  # 0.2 (low risk when BTC bullish)
+        max_risk = self.btc_context["risk_multiplier_min_z_threshold"]  # 2.0 (high risk when BTC bearish)
         
-        self.btc_context["slope_scaled"] = slope_scaled
+        min_z = self.btc_context["min_zscore"]  # -3.0
+        max_z = self.btc_context["max_zscore"]  # 3.0
         
-        # Calculate risk multiplier: -1 (bearish) -> 3.0, +1 (bullish) -> 0.2
-        risk_min = self.btc_context["risk_multiplier_upper"]
-        risk_max = self.btc_context["risk_multiplier_lower"]
-        risk_multiplier = risk_max + (slope_scaled + 1.0) * (risk_min - risk_max) / 2.0
-        risk_multiplier = max(risk_min, min(risk_max, risk_multiplier))
+        # Normalize z-score to 0-1 range
+        normalized = (zscore - min_z) / (max_z - min_z)
+        normalized = max(0.0, min(1.0, normalized))
         
-        self.btc_context["current_risk_multiplier"] = risk_multiplier
+        inverted_normalized = 1.0 - normalized
+        
+        if self.btc_context["risk_scaling_method"] == "exponential":
+            risk_multiplier = min_risk + (max_risk - min_risk) * (inverted_normalized ** 2)
+        else:
+            risk_multiplier = min_risk + (max_risk - min_risk) * inverted_normalized
+        
+        return risk_multiplier
+
+
+
+
+
+
     
     def update_btc_visualizer_data(self, bar: Bar, btc_instrument: Dict[str, Any]) -> None:
         if not hasattr(self, 'btc_context'):
             return
             
-        # Update BTC-specific indicators
-        if self.btc_context["ema"].initialized:
-            current_ema_value = float(self.btc_context["ema"].value)
-            btc_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_ema", value=current_ema_value)
-            
-        btc_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_slope_scaled", value=self.btc_context.get("slope_scaled", 0.0))
+        btc_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_zscore", value=self.btc_context.get("current_zscore", 0.0))
         btc_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
     
     def get_btc_risk_multiplier(self) -> float:
@@ -1049,12 +1042,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
 
         # BTC Risk Scaling metrics
         if self.config.btc_performance_risk_scaling.get("enabled", False) and hasattr(self, 'btc_context'):
-            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_slope_scaled", value=self.btc_context.get("slope_scaled", 0.0))
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
-            
-            if self.is_btc_instrument(bar.bar_type.instrument_id) and self.btc_context["ema"].initialized:
-                current_ema_value = float(self.btc_context["ema"].value)
-                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_ema", value=current_ema_value)
 
 
     def on_order_filled(self, order_filled) -> None:

@@ -78,19 +78,19 @@ use_aroon_simple_trend_system:
 
 entry_scale_binance_metrics: # rank based approach for ENTRY logic
   enabled: true
-  rolling_window_bars_binance: [100, 200, 500]
+  rolling_window_bars_binance: 200
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
-  rolling_window_bars_binance: 1250
+  rolling_window_bars_binance: 1200
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
 five_day_scaling_filters:
   enabled: true
-  amount_change_scaled_values: [100, 250]
+  amount_change_scaled_values: 250
   toptrader_short_threshold: 0.8
   toptrader_allow_entry_difference: 0.5
   oi_trade_threshold: 0.8
@@ -102,15 +102,15 @@ exit_l3_metrics_in_profit:
   exit_toptrader_short_threshold: -0.95
   exit_toptrader_allow_difference: 0.8
   exit_oi_threshold: -0.95
-  exit_oi_allow_difference: 0.8
+  exit_oi_allow_difference: 0.5
 
 btc_performance_risk_scaling:
   enabled: false
-  rolling_slope_lookback: 200
-  upper_percentile_threshold_ema: 95
-  lower_percentile_threshold_ema: 5
-  ema_period: 50
-  risk_multiplier_upper_threshold: 0.2
-  risk_multiplier_lower_threshold: 2.0
+  risk_scaling_method: "exponential"
+  rolling_zscore: 200
+  max_zscore: 3.0
+  min_zscore: -3.0
+  risk_multiplier_max_z_threshold: 0.2
+  risk_multiplier_min_z_threshold: 2.0
 
 
