@@ -6,7 +6,7 @@ from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.backtest.config import BacktestDataConfig, BacktestVenueConfig, BacktestEngineConfig, BacktestRunConfig
 from nautilus_trader.trading.config import ImportableStrategyConfig
 from tools.help_funcs.help_funcs_execution import (_clear_directory, run_backtest, extract_metrics, load_qs, add_trade_metrics, build_data_configs)
-from tools.help_funcs.yaml_loader import load_and_split_params
+from tools.help_funcs.yaml_loader import load_and_split_params, set_nested_parameter
 import shutil
 import yaml
 import copy
@@ -78,8 +78,18 @@ for i, combination in enumerate(itertools.product(*values)):
 
     # Grid-Parameter für diesen Lauf
     run_params = dict(zip(keys, combination))
-    # Config-Parameter (Grid + statische)
-    config_params = {**run_params, **static_params}
+    # Config-Parameter (Grid + statische) - start with static params
+    config_params = copy.deepcopy(static_params)
+    
+    # Apply grid parameters using proper nested parameter setting
+    for param_key, param_value in run_params.items():
+        if "." in param_key:
+            # Handle nested parameters like "btc_performance_risk_scaling.risk_scaling_method"
+            set_nested_parameter(config_params, param_key, param_value)
+        else:
+            # Handle top-level parameters
+            config_params[param_key] = param_value
+    
     # run_id als zusätzlicher Parameter in die Strategy-Config reinschreiben
     config_params["run_id"] = run_id
 

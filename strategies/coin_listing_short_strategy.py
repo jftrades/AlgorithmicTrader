@@ -1247,6 +1247,10 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         if self.config.btc_performance_risk_scaling.get("enabled", False) and hasattr(self, 'btc_context'):
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
 
+        # SOL Risk Scaling metrics
+        if self.config.sol_performance_risk_scaling.get("enabled", False) and hasattr(self, 'sol_context'):
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_risk_multiplier", value=self.sol_context.get("current_risk_multiplier", 1.0))
+
 
     def on_order_filled(self, order_filled) -> None:
         return self.base_on_order_filled(order_filled)

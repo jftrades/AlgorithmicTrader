@@ -60,7 +60,7 @@ exp_growth_atr_risk:
 log_growth_atr_risk:
   enabled: true
   atr_period: 20
-  atr_multiple: 2
+  atr_multiple: 3.0
   risk_percent: 0.04
 
 # ===========================
@@ -78,8 +78,8 @@ use_min_coin_filters:
 
 use_aroon_simple_trend_system:
   enabled: true
-  aroon_period: 70
-  aroon_osc_short_threshold: -40
+  aroon_period: [50, 100, 200]
+  aroon_osc_short_threshold: -50
 
 entry_scale_binance_metrics: # rank based approach for ENTRY logic
   enabled: false
@@ -89,7 +89,7 @@ entry_scale_binance_metrics: # rank based approach for ENTRY logic
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
-  rolling_window_bars_binance: 1200
+  rolling_window_bars_binance: [100, 200, 700, 1500]
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
@@ -113,20 +113,20 @@ btc_performance_risk_scaling:
   enabled: true
   risk_scaling_method: "linear"
   rolling_zscore: 500
-  stop_executing_above_zscore: 2.8
+  stop_executing_above_zscore: 3.0
   max_zscore: 4.0
   min_zscore: -4.0
-  risk_multiplier_max_z_threshold: 0.2
-  risk_multiplier_min_z_threshold: 2.0
+  risk_multiplier_max_z_threshold: 0.4
+  risk_multiplier_min_z_threshold: 3.0
 
 sol_performance_risk_scaling:
   enabled: true
   risk_scaling_method: "linear"
   rolling_zscore: 500
-  stop_executing_above_zscore: 2.8
+  stop_executing_above_zscore: 3.0
   max_zscore: 4.0
   min_zscore: -4.0
-  risk_multiplier_max_z_threshold: 0.2
-  risk_multiplier_min_z_threshold: 2.0
+  risk_multiplier_max_z_threshold: 0.4
+  risk_multiplier_min_z_threshold: 3.0
 
 

@@ -20,7 +20,7 @@ import os
 
 
 # Parameter hier anpassen
-symbol = "SOLUSDT-PERP"
+symbol = "BTCUSDT-PERP"
 start_date = "2023-01-01"
 end_date = "2025-10-01"
 base_data_dir = str(Path(__file__).resolve().parents[3] / "DATA_STORAGE")
