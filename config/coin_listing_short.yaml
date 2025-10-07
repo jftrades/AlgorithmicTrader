@@ -8,7 +8,12 @@ instruments:
   - instrument_id: "BTCUSDT-PERP.BINANCE"
     bar_types: 
       - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
-    trade_size_usdt: "1"  # Minimal size for visualization only - NO TRADING (blocked in code)
+    trade_size_usdt: "1"  
+    test: 0
+  - instrument_id: "SOLUSDT-PERP.BINANCE"
+    bar_types: 
+      - "SOLUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
+    trade_size_usdt: "1"  
     test: 0
 
 instruments_from_path:
@@ -77,7 +82,7 @@ use_aroon_simple_trend_system:
   aroon_osc_short_threshold: -40
 
 entry_scale_binance_metrics: # rank based approach for ENTRY logic
-  enabled: true
+  enabled: false
   rolling_window_bars_binance: 200
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
@@ -89,7 +94,7 @@ exit_scale_binance_metrics: # rank based approach for EXIT logic
   lower_percentile_threshold_binance: 5
 
 five_day_scaling_filters:
-  enabled: true
+  enabled: false
   amount_change_scaled_values: 250
   toptrader_short_threshold: 0.8
   toptrader_allow_entry_difference: 0.5
@@ -105,11 +110,22 @@ exit_l3_metrics_in_profit:
   exit_oi_allow_difference: 0.5
 
 btc_performance_risk_scaling:
-  enabled: false
-  risk_scaling_method: "exponential"
-  rolling_zscore: 200
-  max_zscore: 3.0
-  min_zscore: -3.0
+  enabled: true
+  risk_scaling_method: "linear"
+  rolling_zscore: 500
+  stop_executing_above_zscore: 2.8
+  max_zscore: 4.0
+  min_zscore: -4.0
+  risk_multiplier_max_z_threshold: 0.2
+  risk_multiplier_min_z_threshold: 2.0
+
+sol_performance_risk_scaling:
+  enabled: true
+  risk_scaling_method: "linear"
+  rolling_zscore: 500
+  stop_executing_above_zscore: 2.8
+  max_zscore: 4.0
+  min_zscore: -4.0
   risk_multiplier_max_z_threshold: 0.2
   risk_multiplier_min_z_threshold: 2.0
 

@@ -50,10 +50,24 @@ class CoinListingShortConfig(StrategyConfig):
             "enabled": True,
             "risk_scaling_method": "exponential", 
             "rolling_zscore": 200,
+            "stop_executing_above_zscore": 4.0,
             "max_zscore": 3.0,
             "min_zscore": -3.0,
             "risk_multiplier_max_z_threshold": 0.2,
             "risk_multiplier_min_z_threshold": 3
+        }
+    )
+
+    sol_performance_risk_scaling: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": True,
+            "risk_scaling_method": "linear", 
+            "rolling_zscore": 500,
+            "stop_executing_above_zscore": 2.8,
+            "max_zscore": 4.0,
+            "min_zscore": -4.0,
+            "risk_multiplier_max_z_threshold": 0.2,
+            "risk_multiplier_min_z_threshold": 4.0
         }
     )
 
@@ -130,6 +144,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         self.onboard_dates = self.load_onboard_dates()
         self.add_instrument_context()
         self.setup_btc_tracking()
+        self.setup_sol_tracking()
     
     def add_instrument_context(self):
         for current_instrument in self.instrument_dict.values():
@@ -258,6 +273,10 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             if self.config.btc_performance_risk_scaling.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("btc_zscore", 1)
                 current_instrument["collector"].initialise_logging_indicator("btc_risk_multiplier", 1)
+            
+            if self.config.sol_performance_risk_scaling.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("sol_zscore", 1)
+                current_instrument["collector"].initialise_logging_indicator("sol_risk_multiplier", 1)
     
     def setup_btc_tracking(self):
         if not self.config.btc_performance_risk_scaling.get("enabled", False):
@@ -268,6 +287,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         self.btc_context = {
         "rolling_zscore": btc_config.get("rolling_zscore", 200),
         "risk_scaling_method": btc_config.get("risk_scaling_method", "exponential"),
+        "stop_executing_above_zscore": btc_config.get("stop_executing_above_zscore", 4.0),
         "max_zscore": btc_config.get("max_zscore", 3.0),
         "min_zscore": btc_config.get("min_zscore", -3.0),
         "risk_multiplier_max_z_threshold": btc_config.get("risk_multiplier_max_z_threshold", 0.2),
@@ -279,9 +299,31 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         "current_zscore": 0.0,
         "rolling_mean": 0.0,
         "rolling_std": 0.0,
-        "current_risk_multiplier": 1.0,
-        "min_periods": max(5, btc_config.get("rolling_zscore", 200) // 2)  
+        "current_risk_multiplier": 1.0
+        }
     
+    def setup_sol_tracking(self):
+        if not self.config.sol_performance_risk_scaling.get("enabled", False):
+            return
+            
+        sol_config = self.config.sol_performance_risk_scaling
+        
+        self.sol_context = {
+        "rolling_zscore": sol_config.get("rolling_zscore", 500),
+        "risk_scaling_method": sol_config.get("risk_scaling_method", "linear"),
+        "stop_executing_above_zscore": sol_config.get("stop_executing_above_zscore", 2.8),
+        "max_zscore": sol_config.get("max_zscore", 4.0),
+        "min_zscore": sol_config.get("min_zscore", -4.0),
+        "risk_multiplier_max_z_threshold": sol_config.get("risk_multiplier_max_z_threshold", 0.2),
+        "risk_multiplier_min_z_threshold": sol_config.get("risk_multiplier_min_z_threshold", 4.0),
+        "sol_instrument_id": None,
+        
+        # Rolling z-score calculation components
+        "price_history": [],
+        "current_zscore": 0.0,
+        "rolling_mean": 0.0,
+        "rolling_std": 0.0,
+        "current_risk_multiplier": 1.0
         }            
     
     def on_start(self): 
@@ -750,6 +792,9 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
     def is_btc_instrument(self, instrument_id) -> bool:
         return "BTCUSDT" in str(instrument_id)
     
+    def is_sol_instrument(self, instrument_id) -> bool:
+        return "SOLUSDT" in str(instrument_id)
+    
     def process_btc_bar(self, bar: Bar) -> None:
         if not self.config.btc_performance_risk_scaling.get("enabled", False):
             return
@@ -768,45 +813,114 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             self.btc_context["price_history"].pop(0)
         
         self.update_btc_risk_metrics()
+    
+    def process_sol_bar(self, bar: Bar) -> None:
+        if not self.config.sol_performance_risk_scaling.get("enabled", False):
+            return
+            
+        if not hasattr(self, 'sol_context'):
+            self.setup_sol_tracking()
+            
+        if self.sol_context["sol_instrument_id"] is None:
+            self.sol_context["sol_instrument_id"] = bar.bar_type.instrument_id
+
+        current_price = float(bar.close)
+        self.sol_context["price_history"].append(current_price)
+        
+        window_size = self.sol_context["rolling_zscore"]
+        if len(self.sol_context["price_history"]) > window_size:
+            self.sol_context["price_history"].pop(0)
+        
+        self.update_sol_risk_metrics()
         
 
     def update_btc_risk_metrics(self) -> None:
-        if not hasattr(self, 'btc_context') or len(self.btc_context["price_history"]) < self.btc_context["min_periods"]:
-            self.btc_context["current_risk_multiplier"] = 1.0
+        if not hasattr(self, 'btc_context') or len(self.btc_context["price_history"]) < 2:
+            if hasattr(self, 'btc_context'):
+                self.btc_context["current_risk_multiplier"] = 1.0
             return
 
         price_history = self.btc_context["price_history"]
         window_size = self.btc_context["rolling_zscore"]
 
         if len(price_history) >= 2:
-            stats_data = price_history[:-1] if len(price_history) > window_size else price_history[:-1]
-            if len(stats_data) >= self.btc_context["min_periods"]:
-                rolling_data = stats_data[-window_size:] if len(stats_data) >= window_size else stats_data
+            # Use leak-safe approach: exclude current price from statistics calculation
+            stats_data = price_history[:-1]
+            
+            # Apply the window size properly
+            if len(stats_data) > window_size:
+                rolling_data = stats_data[-window_size:]  # Take last window_size points
+            else:
+                rolling_data = stats_data  # Use all available data if less than window
                 
-                self.btc_context["rolling_mean"] = sum(rolling_data) / len(rolling_data)
+            self.btc_context["rolling_mean"] = sum(rolling_data) / len(rolling_data)
 
+            if len(rolling_data) > 1:
                 variance = sum((x - self.btc_context["rolling_mean"]) ** 2 for x in rolling_data) / (len(rolling_data) - 1)
                 self.btc_context["rolling_std"] = variance ** 0.5
-                
-                # Calculate z-score for current price
-                current_price = price_history[-1]
-                if self.btc_context["rolling_std"] > 0:
-                    self.btc_context["current_zscore"] = (current_price - self.btc_context["rolling_mean"]) / self.btc_context["rolling_std"]
-                else:
-                    self.btc_context["current_zscore"] = 0.0
-                
-                # Clamp z-score to configured bounds
-                zscore = max(self.btc_context["min_zscore"], 
-                            min(self.btc_context["max_zscore"], self.btc_context["current_zscore"]))
-                
-                risk_multiplier = self._zscore_to_risk_multiplier(zscore)
-                self.btc_context["current_risk_multiplier"] = risk_multiplier
             else:
-                self.btc_context["current_risk_multiplier"] = 1.0
+                self.btc_context["rolling_std"] = 0.0
+            
+            # Calculate z-score for current price
+            current_price = price_history[-1]
+            if self.btc_context["rolling_std"] > 0:
+                self.btc_context["current_zscore"] = (current_price - self.btc_context["rolling_mean"]) / self.btc_context["rolling_std"]
+            else:
+                self.btc_context["current_zscore"] = 0.0
+            
+            # Clamp z-score to configured bounds
+            zscore = max(self.btc_context["min_zscore"], 
+                        min(self.btc_context["max_zscore"], self.btc_context["current_zscore"]))
+            
+            risk_multiplier = self._zscore_to_risk_multiplier_btc(zscore)
+            self.btc_context["current_risk_multiplier"] = risk_multiplier
         else:
             self.btc_context["current_risk_multiplier"] = 1.0
 
-    def _zscore_to_risk_multiplier(self, zscore: float) -> float:
+    def update_sol_risk_metrics(self) -> None:
+        if not hasattr(self, 'sol_context') or len(self.sol_context["price_history"]) < 2:
+            if hasattr(self, 'sol_context'):
+                self.sol_context["current_risk_multiplier"] = 1.0
+            return
+
+        price_history = self.sol_context["price_history"]
+        window_size = self.sol_context["rolling_zscore"]
+
+        if len(price_history) >= 2:
+            # Use leak-safe approach: exclude current price from statistics calculation
+            stats_data = price_history[:-1]
+            
+            # Apply the window size properly
+            if len(stats_data) > window_size:
+                rolling_data = stats_data[-window_size:]  # Take last window_size points
+            else:
+                rolling_data = stats_data  # Use all available data if less than window
+                
+            self.sol_context["rolling_mean"] = sum(rolling_data) / len(rolling_data)
+
+            if len(rolling_data) > 1:
+                variance = sum((x - self.sol_context["rolling_mean"]) ** 2 for x in rolling_data) / (len(rolling_data) - 1)
+                self.sol_context["rolling_std"] = variance ** 0.5
+            else:
+                self.sol_context["rolling_std"] = 0.0
+            
+            # Calculate z-score for current price
+            current_price = price_history[-1]
+            if self.sol_context["rolling_std"] > 0:
+                self.sol_context["current_zscore"] = (current_price - self.sol_context["rolling_mean"]) / self.sol_context["rolling_std"]
+            else:
+                self.sol_context["current_zscore"] = 0.0
+            
+            # Clamp z-score to configured bounds
+            zscore = max(self.sol_context["min_zscore"], 
+                        min(self.sol_context["max_zscore"], self.sol_context["current_zscore"]))
+            
+            risk_multiplier = self._zscore_to_risk_multiplier_sol(zscore)
+            self.sol_context["current_risk_multiplier"] = risk_multiplier
+        else:
+            self.sol_context["current_risk_multiplier"] = 1.0
+
+    def _zscore_to_risk_multiplier_btc(self, zscore: float) -> float:
         min_risk = self.btc_context["risk_multiplier_max_z_threshold"]  # 0.2 (low risk when BTC bullish)
         max_risk = self.btc_context["risk_multiplier_min_z_threshold"]  # 2.0 (high risk when BTC bearish)
         
@@ -826,6 +940,26 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         return risk_multiplier
 
+    def _zscore_to_risk_multiplier_sol(self, zscore: float) -> float:
+        min_risk = self.sol_context["risk_multiplier_max_z_threshold"]  # 0.2 (low risk when SOL bullish)
+        max_risk = self.sol_context["risk_multiplier_min_z_threshold"]  # 4.0 (high risk when SOL bearish)
+        
+        min_z = self.sol_context["min_zscore"]  # -4.0
+        max_z = self.sol_context["max_zscore"]  # 4.0
+        
+        # Normalize z-score to 0-1 range
+        normalized = (zscore - min_z) / (max_z - min_z)
+        normalized = max(0.0, min(1.0, normalized))
+        
+        inverted_normalized = 1.0 - normalized
+        
+        if self.sol_context["risk_scaling_method"] == "exponential":
+            risk_multiplier = min_risk + (max_risk - min_risk) * (inverted_normalized ** 2)
+        else:
+            risk_multiplier = min_risk + (max_risk - min_risk) * inverted_normalized
+        
+        return risk_multiplier
+
 
 
 
@@ -839,6 +973,13 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         btc_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_zscore", value=self.btc_context.get("current_zscore", 0.0))
         btc_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
     
+    def update_sol_visualizer_data(self, bar: Bar, sol_instrument: Dict[str, Any]) -> None:
+        if not hasattr(self, 'sol_context'):
+            return
+            
+        sol_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_zscore", value=self.sol_context.get("current_zscore", 0.0))
+        sol_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_risk_multiplier", value=self.sol_context.get("current_risk_multiplier", 1.0))
+    
     def get_btc_risk_multiplier(self) -> float:
         if not self.config.btc_performance_risk_scaling.get("enabled", False):
             return 1.0
@@ -848,10 +989,51 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             
         return self.btc_context.get("current_risk_multiplier", 1.0)
     
+    def get_sol_risk_multiplier(self) -> float:
+        if not self.config.sol_performance_risk_scaling.get("enabled", False):
+            return 1.0
+            
+        if not hasattr(self, 'sol_context'):
+            return 1.0
+            
+        return self.sol_context.get("current_risk_multiplier", 1.0)
+    
+    def should_stop_executing_due_to_btc_zscore(self) -> bool:
+        if not self.config.btc_performance_risk_scaling.get("enabled", False):
+            return False
+            
+        if not hasattr(self, 'btc_context'):
+            return False
+            
+        current_zscore = self.btc_context.get("current_zscore", 0.0)
+        stop_threshold = self.btc_context.get("stop_executing_above_zscore", 4.0)
+        
+        should_stop = current_zscore > stop_threshold
+
+        return should_stop
+    
+    def should_stop_executing_due_to_sol_zscore(self) -> bool:
+        if not self.config.sol_performance_risk_scaling.get("enabled", False):
+            return False
+            
+        if not hasattr(self, 'sol_context'):
+            return False
+            
+        current_zscore = self.sol_context.get("current_zscore", 0.0)
+        stop_threshold = self.sol_context.get("stop_executing_above_zscore", 2.8)
+        
+        should_stop = current_zscore > stop_threshold
+
+        return should_stop
+    
     def calculate_risk_based_position_size(self, instrument_id, entry_price: float, stop_loss_price: float) -> int:
-        # SAFETY: Never calculate position size for BTC - return 0 to prevent trading
+        # SAFETY: Never calculate position size for BTC or SOL - return 0 to prevent trading
         if self.is_btc_instrument(instrument_id):
             self.log.warning(f"Position sizing blocked for BTC instrument: {instrument_id}")
+            return 0
+        
+        if self.is_sol_instrument(instrument_id):
+            self.log.warning(f"Position sizing blocked for SOL instrument: {instrument_id}")
             return 0
             
         from decimal import Decimal
@@ -860,10 +1042,14 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         stop_loss_price_decimal = Decimal(str(stop_loss_price))
         
         btc_risk_multiplier = self.get_btc_risk_multiplier()
+        sol_risk_multiplier = self.get_sol_risk_multiplier()
+        
+        # Combine both risk multipliers (multiply them together)
+        combined_risk_multiplier = btc_risk_multiplier * sol_risk_multiplier
         
         if self.config.exp_growth_atr_risk["enabled"]:
             base_risk_percent = Decimal(str(self.config.exp_growth_atr_risk["risk_percent"]))
-            adjusted_risk_percent = base_risk_percent * Decimal(str(btc_risk_multiplier))
+            adjusted_risk_percent = base_risk_percent * Decimal(str(combined_risk_multiplier))
             exact_contracts = self.risk_manager.exp_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, adjusted_risk_percent)
             return round(float(exact_contracts))
         
@@ -884,6 +1070,14 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             btc_instrument = self.instrument_dict.get(instrument_id)
             if btc_instrument is not None:
                 self.update_btc_visualizer_data(bar, btc_instrument)
+            return
+        
+        if self.is_sol_instrument(instrument_id):
+            self.process_sol_bar(bar)
+            
+            sol_instrument = self.instrument_dict.get(instrument_id)
+            if sol_instrument is not None:
+                self.update_sol_visualizer_data(bar, sol_instrument)
             return
             
         current_instrument = self.instrument_dict.get(instrument_id)
@@ -927,6 +1121,15 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         # Block new trades after listing deadline
         if not self.is_trading_allowed_after_listing(bar):
             return
+            
+        # Block new trades when BTC z-score is too high (extremely bullish)
+        if self.should_stop_executing_due_to_btc_zscore():
+            return
+        
+        # Block new trades when SOL z-score is too high (extremely bullish)
+        if self.should_stop_executing_due_to_sol_zscore():
+            return
+            
         self.aroon_simple_trend_setup(bar, current_instrument)
         
         # Update previous Aroon value for next bar's crossover detection
