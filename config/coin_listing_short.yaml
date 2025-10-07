@@ -38,7 +38,7 @@ data_sources:
 
 # backtest period
 start_date: "2024-01-01T00:00:00Z"
-end_date: "2025-03-01T00:00:00Z"
+end_date: "2025-08-01T00:00:00Z"
 
 # account/venue params
 starting_account_balance: "1000 USDT"
@@ -111,7 +111,7 @@ exit_l3_metrics_in_profit:
 
 btc_performance_risk_scaling:
   enabled: true
-  risk_scaling_method: "linear"
+  risk_scaling_method: "linear" # "linear" or "exponential"
   rolling_zscore: 500
   stop_executing_above_zscore: 3.0
   max_zscore: 4.0
