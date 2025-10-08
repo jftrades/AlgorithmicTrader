@@ -1185,6 +1185,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             
             self.log.info("Executing short trade - passed all filters (aroon crossover + toptrader + OI)")
             self.order_types.submit_short_market_order(instrument_id, qty)
+            #self.order_types.submit_short_bracket_order(instrument_id, qty, entry_price, stop_loss_price, 0.000001)
     
     def short_exit_logic(self, bar: Bar, current_instrument: Dict[str, Any], position):
         current_instrument["bars_since_entry"] += 1
@@ -1195,7 +1196,9 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         if sl_price is not None and float(bar.close) >= sl_price:
             close_qty = min(int(abs(position.quantity)), abs(position.quantity))
             if close_qty > 0:
-                self.order_types.submit_long_market_order(instrument_id, int(close_qty))
+                #self.order_types.submit_long_market_order(instrument_id, int(close_qty))
+                self.order_types.close_position_by_market_order(instrument_id)
+
             self.reset_position_tracking(current_instrument)
             return
 
@@ -1203,14 +1206,16 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         if self.check_exit_l3_metrics_signal(current_instrument, position):
             close_qty = min(int(abs(position.quantity)), abs(position.quantity))
             if close_qty > 0:
-                self.order_types.submit_long_market_order(instrument_id, int(close_qty))
+                #self.order_types.submit_long_market_order(instrument_id, int(close_qty))
+                self.order_types.close_position_by_market_order(instrument_id)
             self.reset_position_tracking(current_instrument)
             return
 
         if self.check_time_based_exit(bar, current_instrument, position):
             close_qty = min(int(abs(position.quantity)), abs(position.quantity))
             if close_qty > 0:
-                self.order_types.submit_long_market_order(instrument_id, int(close_qty))
+                #self.order_types.submit_long_market_order(instrument_id, int(close_qty))
+                self.order_types.close_position_by_market_order(instrument_id)
             self.reset_position_tracking(current_instrument)
             return
         
