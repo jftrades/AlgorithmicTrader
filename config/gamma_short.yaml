@@ -1,5 +1,5 @@
-strategy_path: "strategies.coin_listing_short_strategy:CoinListingShortStrategy"
-config_path: "strategies.coin_listing_short_strategy:CoinListingShortConfig"
+strategy_path: "strategies.gamma_short_strategy:GammaShortStrategy"
+config_path: "strategies.gamma_short_strategy:GammaShortConfig"
 
 visualize: true
 venue: "BINANCE"
@@ -7,12 +7,12 @@ venue: "BINANCE"
 instruments:
   - instrument_id: "BTCUSDT-PERP.BINANCE"
     bar_types: 
-      - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
+      - "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
     trade_size_usdt: "1"  
     test: 0
   - instrument_id: "SOLUSDT-PERP.BINANCE"
     bar_types: 
-      - "SOLUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
+      - "SOLUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
     trade_size_usdt: "1"  
     test: 0
 
@@ -21,7 +21,7 @@ instruments_from_path:
   symbol_column: "symbol"
   instrument_suffix: "-PERP"
   bar_type_endings:
-    - "-15-MINUTE-LAST-EXTERNAL"
+    - "-5-MINUTE-LAST-EXTERNAL"
   trade_size_usdt: "150"
   test: 2
 
@@ -37,8 +37,8 @@ data_sources:
     instrument_ids: all
 
 # backtest period
-start_date: "2024-01-01T00:00:00Z"
-end_date: "2025-08-01T00:00:00Z"
+start_date: "2024-08-01T00:00:00Z"
+end_date: "2024-08-02T00:00:00Z"
 
 # account/venue params
 starting_account_balance: "1000 USDT"
@@ -60,7 +60,7 @@ exp_growth_atr_risk:
 log_growth_atr_risk:
   enabled: true
   atr_period: 20
-  atr_multiple: 3.0
+  atr_multiple: [2, 4, 6, 8, 10]
   risk_percent: 0.04
 
 # ===========================
@@ -68,7 +68,7 @@ log_growth_atr_risk:
 # ===========================
 only_execute_short: true
 hold_profit_for_remaining_days: true
-time_after_listing_close: 19
+time_after_listing_close: 20
 
 use_min_coin_filters:
   enabled: false
@@ -89,7 +89,7 @@ entry_scale_binance_metrics: # rank based approach for ENTRY logic
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
-  rolling_window_bars_binance: 1200
+  rolling_window_bars_binance: 3500
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
@@ -103,7 +103,7 @@ five_day_scaling_filters:
 
 exit_l3_metrics_in_profit:
   enabled: true
-  exit_amount_change_scaled_values: 100
+  exit_amount_change_scaled_values: 300
   exit_toptrader_short_threshold: -0.95
   exit_toptrader_allow_difference: 0.8
   exit_oi_threshold: -0.95
@@ -111,9 +111,9 @@ exit_l3_metrics_in_profit:
 
 btc_performance_risk_scaling:
   enabled: true
-  risk_scaling_method: "linear" # "linear" or "exponential"
-  rolling_zscore: 500
-  stop_executing_above_zscore: 3.0
+  risk_scaling_method: "linear"
+  rolling_zscore: 300
+  stop_executing_above_zscore: 2.8
   max_zscore: 4.0
   min_zscore: -4.0
   risk_multiplier_max_z_threshold: 0.4
@@ -122,8 +122,8 @@ btc_performance_risk_scaling:
 sol_performance_risk_scaling:
   enabled: true
   risk_scaling_method: "linear"
-  rolling_zscore: 500
-  stop_executing_above_zscore: 3.0
+  rolling_zscore: 300
+  stop_executing_above_zscore: 2.8
   max_zscore: 4.0
   min_zscore: -4.0
   risk_multiplier_max_z_threshold: 0.4

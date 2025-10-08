@@ -45,9 +45,11 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
     def __init__(self, config: RSISimpleStrategyConfig):
         self.instrument_dict: Dict[InstrumentId, Dict[str, Any]] = {}
         super().__init__(config)
+        self.risk_manager = RiskManager(config)
+        self.risk_manager.set_strategy(self)
     
         # Entfernt: primäre Instrument-Ableitungen (self.instrument_id, self.bar_type, etc.)
-        self.risk_manager = None
+        #self.risk_manager = None
         self.order_types = None
         self.add_instrument_context()
 
@@ -73,12 +75,6 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
                 #else:
                     #raise ValueError(f"BarType (String) muss vorher in BarType konvertiert werden: {bar_type}")
         self.log.info(f"Strategy started. Instruments: {', '.join(str(i) for i in self.instrument_ids())}")
-        self.risk_manager = RiskManager(
-            self,
-            Decimal(str(self.config.risk_percent)),
-            Decimal(str(self.config.max_leverage)),
-            Decimal(str(self.config.min_account_balance)),
-        )
         self.order_types = OrderTypes(self)
 
     # -------------------------------------------------

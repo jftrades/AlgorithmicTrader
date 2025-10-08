@@ -12,7 +12,7 @@ from fear_and_greed_download import FearAndGreedDownloader  # NEU
 # ========================
 # Konfiguration
 # ========================
-BASE_DATA_DIR = Path(__file__).resolve().parents[3] / "DATA_STORAGE"
+BASE_DATA_DIR = Path(__file__).resolve().parents[3] / "DATA_STORAGE" 
 FUTURES_CSV = BASE_DATA_DIR / "project_future_scraper" / "new_binance_perpetual_futures.csv"
 
 # NEU: Konfigurierbarer Zielordner (statt fest 'csv_data')

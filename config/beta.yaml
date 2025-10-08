@@ -5,7 +5,7 @@ strategy_path: "strategies.beta_strat:RSISimpleStrategy"
 config_path: "strategies.beta_strat:RSISimpleStrategyConfig"
 
 visualize: true
-load_qs: true
+load_qs: false
 qs_bench: "BTC-USD"
 venue: "BINANCE"
 
