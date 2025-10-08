@@ -21,7 +21,7 @@ instruments_from_path:
   symbol_column: "symbol"
   instrument_suffix: "-PERP"
   bar_type_endings:
-    - "-5-MINUTE-LAST-EXTERNAL"
+    - "-15-MINUTE-LAST-EXTERNAL"
   trade_size_usdt: "150"
   test: 2
 
@@ -31,9 +31,6 @@ data_sources:
     bar_types: from_instruments
 
   - data_cls: "data.download.crypto_downloads.custom_class.metrics_data:MetricsData"
-    instrument_ids: all
-
-  - data_cls: "data.download.crypto_downloads.custom_class.lunar_data:LunarData"
     instrument_ids: all
 
 # backtest period
@@ -60,7 +57,7 @@ exp_growth_atr_risk:
 log_growth_atr_risk:
   enabled: true
   atr_period: 20
-  atr_multiple: [2.5, 4]
+  atr_multiple: 3.0
   risk_percent: 0.04
 
 # ===========================
@@ -79,7 +76,7 @@ use_min_coin_filters:
 use_aroon_simple_trend_system:
   enabled: true
   aroon_period: 70
-  aroon_osc_short_threshold: [-5, -15, -40]
+  aroon_osc_short_threshold: 40
 
 entry_scale_binance_metrics: # rank based approach for ENTRY logic
   enabled: false
@@ -89,7 +86,7 @@ entry_scale_binance_metrics: # rank based approach for ENTRY logic
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
-  rolling_window_bars_binance: 1000
+  rolling_window_bars_binance: [500, 1000, 1500, 2000, 3000, 4000]
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
