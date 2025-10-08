@@ -1,0 +1,132 @@
+strategy_path: "strategies.coin_listing_short_strategy:CoinListingShortStrategy"
+config_path: "strategies.coin_listing_short_strategy:CoinListingShortConfig"
+
+visualize: true
+venue: "BINANCE"
+
+instruments:
+  - instrument_id: "BTCUSDT-PERP.BINANCE"
+    bar_types: 
+      - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
+    trade_size_usdt: "1"  
+    test: 0
+  - instrument_id: "SOLUSDT-PERP.BINANCE"
+    bar_types: 
+      - "SOLUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
+    trade_size_usdt: "1"  
+    test: 0
+
+instruments_from_path:
+  path: "../data/DATA_STORAGE/project_future_scraper/new_binance_perpetual_futures.csv"
+  symbol_column: "symbol"
+  instrument_suffix: "-PERP"
+  bar_type_endings:
+    - "-15-MINUTE-LAST-EXTERNAL"
+  trade_size_usdt: "150"
+  test: 2
+
+data_sources:
+  - data_cls: "nautilus_trader.model.data:Bar"
+    instrument_ids: all
+    bar_types: from_instruments
+
+  - data_cls: "data.download.crypto_downloads.custom_class.metrics_data:MetricsData"
+    instrument_ids: all
+
+  - data_cls: "data.download.crypto_downloads.custom_class.lunar_data:LunarData"
+    instrument_ids: all
+
+# backtest period
+start_date: "2024-01-01T00:00:00Z"
+end_date: "2025-08-01T00:00:00Z"
+
+# account/venue params
+starting_account_balance: "1000 USDT"
+base_currency: "USDT"
+account_type: "MARGIN"
+oms_type: "NETTING"
+
+# risk params
+close_positions_on_stop: true
+min_account_balance: 1000
+max_leverage: 1
+
+exp_growth_atr_risk:
+  enabled: false
+  atr_period: 20
+  atr_multiple: 2.0
+  risk_percent: 0.04
+
+log_growth_atr_risk:
+  enabled: true
+  atr_period: 20
+  atr_multiple: 3.0
+  risk_percent: 0.04
+
+# ===========================
+# Strategy-specific params
+# ===========================
+only_execute_short: true
+hold_profit_for_remaining_days: true
+time_after_listing_close: 19
+
+use_min_coin_filters:
+  enabled: false
+  min_price: 0.25
+  min_24h_volume: 50000
+  min_sum_open_interest_value: 1000000
+
+use_aroon_simple_trend_system:
+  enabled: true
+  aroon_period: 300
+  aroon_osc_short_threshold: [-1, -15, -30, -40]
+
+entry_scale_binance_metrics: # rank based approach for ENTRY logic
+  enabled: false
+  rolling_window_bars_binance: 200
+  upper_percentile_threshold_binance: 95
+  lower_percentile_threshold_binance: 5
+
+exit_scale_binance_metrics: # rank based approach for EXIT logic  
+  enabled: true
+  rolling_window_bars_binance: 1200
+  upper_percentile_threshold_binance: 95
+  lower_percentile_threshold_binance: 5
+
+five_day_scaling_filters:
+  enabled: false
+  amount_change_scaled_values: 250
+  toptrader_short_threshold: 0.8
+  toptrader_allow_entry_difference: 0.5
+  oi_trade_threshold: 0.8
+  oi_allow_entry_difference: 0.5
+
+exit_l3_metrics_in_profit:
+  enabled: true
+  exit_amount_change_scaled_values: 100
+  exit_toptrader_short_threshold: -0.95
+  exit_toptrader_allow_difference: 0.8
+  exit_oi_threshold: -0.95
+  exit_oi_allow_difference: 0.5
+
+btc_performance_risk_scaling:
+  enabled: true
+  risk_scaling_method: "linear" # "linear" or "exponential"
+  rolling_zscore: 500
+  stop_executing_above_zscore: 3.0
+  max_zscore: 4.0
+  min_zscore: -4.0
+  risk_multiplier_max_z_threshold: 0.4
+  risk_multiplier_min_z_threshold: 3.0
+
+sol_performance_risk_scaling:
+  enabled: true
+  risk_scaling_method: "linear"
+  rolling_zscore: 500
+  stop_executing_above_zscore: 3.0
+  max_zscore: 4.0
+  min_zscore: -4.0
+  risk_multiplier_max_z_threshold: 0.4
+  risk_multiplier_min_z_threshold: 3.0
+
+

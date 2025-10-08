@@ -21,11 +21,11 @@ class FibRetracement:
     
     def get_level_price(self, ratio: float) -> float:
         if self.direction == "bullish":
-            # Bullish: measuring retracement from low to high
-            return self.swing_low.price + (self.price_range * ratio)
-        else:
-            # Bearish: measuring retracement from high to low  
+            # Bullish retracement: measuring pullback from high toward low
             return self.swing_high.price - (self.price_range * ratio)
+        else:
+            # Bearish retracement: measuring bounce from low toward high  
+            return self.swing_low.price + (self.price_range * ratio)
 
 
 class FibRetracementTool:

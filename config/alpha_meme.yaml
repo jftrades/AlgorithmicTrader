@@ -29,6 +29,25 @@ instruments_from_path:
   trade_size_usdt: "150"
   test: 2
 
+# Datenquellen (Standard + Custom)
+data_sources:
+  # Standard Bar-Daten: nutzt automatisch alle bar_types aus den Instrumenten
+  - data_cls: "nautilus_trader.model.data:Bar"
+    instrument_ids: all
+    bar_types: from_instruments
+
+  # Custom MetricsData für alle Instrumente (client_id wird automatisch gesetzt)
+  - data_cls: "data.download.crypto_downloads.custom_class.metrics_data:MetricsData"
+    instrument_ids: all
+
+  - data_cls: "data.download.crypto_downloads.custom_class.lunar_data:LunarData"
+    instrument_ids: all
+
+  # Custom AggTradeData nur für BTCUSDT-PERP.BINANCE (client_id wird automatisch gesetzt)
+  - data_cls: "data.download.crypto_downloads.custom_class.aggTrades_data:AggTradeData"
+    instrument_ids:
+      - "BTCUSDT-PERP.BINANCE"
+
 # Backtest-Zeitraum
 start_date: "2024-10-01T00:00:00Z"
 end_date: "2024-10-31T00:00:00Z"

@@ -27,6 +27,7 @@ class LunarMetricsDownloader:
         save_in_catalog: bool = True,
         download_if_missing: bool = True,
         remove_processed: bool = True,  # NEU
+        csv_output_subdir: str | None = None,  # NEU
     ):
         self.symbol = symbol.upper()
         self.start_dt = self._to_date(start_date)
@@ -47,6 +48,7 @@ class LunarMetricsDownloader:
         self.save_in_catalog = save_in_catalog
         self.download_if_missing = download_if_missing
         self.remove_processed = remove_processed  # NEU
+        self.csv_output_subdir = csv_output_subdir  # NEU
 
         # Instrument-ID (Default: <BASE>USDT-PERP)
         self.instrument_id_str = instrument_id_str or f"{self.symbol}USDT-PERP"
@@ -224,7 +226,8 @@ class LunarMetricsDownloader:
             catalog.write_data(catalog_records)
 
         if self.save_as_csv:
-            out_dir = self.base_dir / "csv_data" / self.instrument_id_str
+            subdir = self.csv_output_subdir or os.getenv("CSV_OUTPUT_SUBDIR") or "csv_data"  # NEU
+            out_dir = self.base_dir / subdir / self.instrument_id_str
             out_dir.mkdir(parents=True, exist_ok=True)
             out_path = out_dir / "LUNAR.csv"
             try:

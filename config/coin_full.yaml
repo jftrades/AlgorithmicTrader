@@ -1,0 +1,159 @@
+# in here will be the yaml for the 14 day listing short strategy
+strategy_path: "strategies.coin_full_strategy:CoinFullStrategy"
+config_path: "strategies.coin_full_strategy:CoinFullConfig"
+
+visualize: true
+venue: "BINANCE"
+
+# automatic import from csv:
+instruments_from_path:
+  path: "../data/DATA_STORAGE/project_future_scraper/new_binance_perpetual_futures.csv"
+  symbol_column: "symbol"
+  instrument_suffix: "-PERP"
+  bar_type_endings:
+    - "-15-MINUTE-LAST-EXTERNAL"
+  trade_size_usdt: "150"
+  test: 2
+
+data_sources:
+  # Standard Bar-Daten: nutzt automatisch alle bar_types aus den Instrumenten
+  - data_cls: "nautilus_trader.model.data:Bar"
+    instrument_ids: all
+    bar_types: from_instruments
+
+  # Custom MetricsData für alle Instrumente (client_id wird automatisch gesetzt)
+  - data_cls: "data.download.crypto_downloads.custom_class.metrics_data:MetricsData"
+    instrument_ids: all
+
+# Backtest-Zeitraum
+start_date: "2024-01-01T00:00:00Z"
+end_date: "2025-05-01T00:00:00Z"
+
+# Account/Venue-Parameter
+starting_account_balance: "1000 USDT"
+base_currency: "USDT"
+account_type: "MARGIN"
+oms_type: "NETTING"
+
+# Risk Params
+close_positions_on_stop: true
+min_account_balance: 1000
+max_leverage: 1
+
+exp_growth_atr_risk:
+  enabled: false
+  atr_period: 20
+  atr_multiple: 2.0
+  risk_percent: 0.04
+
+log_growth_atr_risk:
+  enabled: true
+  atr_period: 20
+  atr_multiple: 3.0
+  risk_percent: 0.01
+
+exp_fixed_trade_risk:
+  enabled: false
+  invest_percent: 0.05 # percent of current account balance per trade (no sl calculation)
+
+log_fixed_trade_risk:
+  enabled: false
+  investment_size: 50 # fixed USDT amount per trade
+
+# ===========================
+# Strategie-spezifische Parameter
+# ===========================
+
+# ----------------------------------------------------------------
+# base filters
+# ----------------------------------------------------------------
+only_trade_rth: false
+only_execute_short: true
+hold_profit_for_remaining_days: true
+
+use_min_coin_filters:
+  enabled: false
+  min_price: 0.25
+  min_24h_volume: 50000 # $50k minimum 24h volume
+  min_sum_open_interest_value: 1000000  # $1M minimum open interest value 
+
+use_directional_movement_filter:
+  enabled: false
+  period: 14
+  min_di_diff: 0.02
+
+use_htf_ema_bias_filter:
+  enabled: false
+  ema_period: 300
+
+# ----------------------------------------------------------------
+# exit methods
+# ----------------------------------------------------------------
+use_close_ema:
+  enabled: false
+  exit_trend_ema_period: 200
+  min_bars_over_ema: 25
+  min_bars_under_ema: 25
+
+use_fixed_rr:
+  enabled: false
+  rr_tp_ratio: 3.0 # in relation to "stop loss settings"
+
+use_rsi_as_exit:
+  enabled: false
+  rsi_period: 100
+  rsi_long_exit_threshold: 0.6
+  rsi_short_exit_threshold: 0.4
+
+use_macd_exit_system:
+  enabled: false
+  macd_fast_exit_period: 30
+  macd_slow_exit_period: 70
+  macd_signal_exit_period: 25
+
+use_topt_ratio_as_exit:
+  enabled: false
+  short_min_extreme_reversal_topt_longshortratio: 0.3 # Do professionally after base strat runs
+  long_min_extreme_reversal_topt_longshortratio: 0.3
+
+# ----------------------------------------------------------------
+# entry methods
+# ----------------------------------------------------------------
+use_trend_following_setup:
+  enabled: false
+  entry_trend_ema_period: 40
+  min_bars_under_ema: 20
+  min_bars_over_ema: 20
+
+use_spike_reversion_system:
+  enabled: false
+  reversion_ema_period: 25
+  spike_atr_threshold: 0.4
+  spike_atr_period: 10
+  min_bars_spike_over_ema: 12
+  min_bars_spike_under_ema: 12
+
+use_rsi_simple_reversion_system:
+  enabled: false
+  usage_method: "condition" # or execution
+  rsi_period: 20
+  rsi_overbought: 0.6
+  rsi_oversold: 0.3
+
+use_macd_simple_reversion_system:
+  enabled: false
+  macd_fast_period: 20
+  macd_slow_period: 32
+  macd_signal_period: 16
+
+use_aroon_simple_trend_system:
+  enabled: true
+  aroon_period: 70
+  aroon_osc_long_threshold: 50
+  aroon_osc_short_threshold: -50
+
+use_donchian_breakout_system:
+  enabled: false
+  donchian_period: 50
+  min_breakout_strength: 0.01
+

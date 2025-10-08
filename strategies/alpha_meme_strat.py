@@ -13,8 +13,8 @@ from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.common.enums import LogColor
 
 # Nautilus Strategie spezifische Importe
-from tools.help_funcs.base_strategy import BaseStrategy
 from tools.structure.TTTbreakout import TTTBreakout_Analyser
+from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector

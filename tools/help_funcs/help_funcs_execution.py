@@ -292,6 +292,105 @@ def load_qs(run_dirs, run_ids, benchmark_symbol=None, open_browser=False):
         except Exception as e:
             print(f"[QuantStats] Failed for {run_id}: {e}")
 
+def compute_missing_trade_metrics(run_ids, results_dir: Path, instrument_ids):
+    """
+    Create trade_metrics.csv for each run/instrument if it does not exist,
+    derived purely from trades.csv.
+    """
+    import pandas as _pd
+    import re
+
+    def _parse_number(val):
+        if val is None:
+            return 0.0
+        if isinstance(val, (int, float)):
+            return float(val)
+        s = str(val)
+        m = re.search(r'[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?', s)
+        return float(m.group(0)) if m else 0.0
+
+    def _max_streak(mask_iterable):
+        mx = cur = 0
+        for v in mask_iterable:
+            if v:
+                cur += 1
+                mx = cur if cur > mx else mx
+            else:
+                cur = 0
+        return mx
+
+    def _compute_metrics(df_tr: _pd.DataFrame) -> dict:
+        if df_tr.empty:
+            return {}
+        for col in ["realized_pnl", "fee", "tradesize"]:
+            if col in df_tr.columns:
+                df_tr[col] = df_tr[col].apply(_parse_number)
+            else:
+                df_tr[col] = 0.0
+        if "action" in df_tr.columns:
+            act = df_tr["action"].astype(str).str.upper()
+            is_long = act.eq("BUY")
+            is_short = act.eq("SHORT")
+        else:
+            is_long = df_tr["tradesize"] > 0
+            is_short = df_tr["tradesize"] < 0
+        sort_col = "closed_timestamp" if "closed_timestamp" in df_tr.columns else "timestamp"
+        if sort_col in df_tr.columns:
+            df_tr = df_tr.sort_values(sort_col)
+        realized = df_tr["realized_pnl"].astype(float)
+        fees = df_tr["fee"].astype(float)
+        wins = realized > 0
+        losses = realized < 0
+        n_trades = len(df_tr)
+        n_long = int(is_long.sum())
+        n_short = int(is_short.sum())
+        long_realized = realized[is_long]
+        short_realized = realized[is_short]
+        long_wins = (long_realized > 0).sum()
+        short_wins = (short_realized > 0).sum()
+        return {
+            "final_realized_pnl": float(realized.sum()),
+            "winrate": float(wins.sum() / n_trades) if n_trades else 0.0,
+            "winrate_long": float(long_wins / n_long) if n_long else 0.0,
+            "winrate_short": float(short_wins / n_short) if n_short else 0.0,
+            "pnl_long": float(long_realized.sum()),
+            "pnl_short": float(short_realized.sum()),
+            "n_trades": int(n_trades),
+            "n_long_trades": int(n_long),
+            "n_short_trades": int(n_short),
+            "avg_win": float(realized[wins].mean() if wins.any() else 0.0),
+            "avg_loss": float(realized[losses].mean() if losses.any() else 0.0),
+            "max_win": float(realized.max() if not realized.empty else 0.0),
+            "max_loss": float(realized.min() if not realized.empty else 0.0),
+            "max_consecutive_wins": int(_max_streak(wins)),
+            "max_consecutive_losses": int(_max_streak(losses)),
+            "commissions": float(fees.sum()),
+        }
+
+    for run_id in run_ids:
+        run_path = results_dir / run_id
+        if not run_path.exists():
+            continue
+        for inst in instrument_ids:
+            inst_dir = run_path / str(inst)
+            trades_csv = inst_dir / "trades.csv"
+            metrics_csv = inst_dir / "trade_metrics.csv"
+            if metrics_csv.exists():
+                continue
+            if not trades_csv.exists():
+                continue
+            try:
+                df_tr = _pd.read_csv(trades_csv)
+                if df_tr.empty:
+                    continue
+                metrics = _compute_metrics(df_tr)
+                if metrics:
+                    inst_dir.mkdir(parents=True, exist_ok=True)
+                    _pd.DataFrame([metrics]).to_csv(metrics_csv, index=False)
+                    print(f"[compute_missing_trade_metrics] Created {metrics_csv}")
+            except Exception as e:
+                print(f"[compute_missing_trade_metrics] Failed for {trades_csv}: {e}")
+
 def add_trade_metrics(run_ids, results_dir: Path, summary_csv_path: Path, instrument_ids):
     """
     Aggregates per-instrument trade_metrics.csv files into global per-run metrics
@@ -306,6 +405,10 @@ def add_trade_metrics(run_ids, results_dir: Path, summary_csv_path: Path, instru
       commissions
     """
     import pandas as _pd
+    import re  # NEW
+
+    # NEW: proactively create missing trade_metrics.csv first
+    compute_missing_trade_metrics(run_ids, results_dir, instrument_ids)
 
     if not summary_csv_path.exists():
         print("[add_trade_metrics] summary CSV not found -> skipped")
@@ -342,6 +445,86 @@ def add_trade_metrics(run_ids, results_dir: Path, summary_csv_path: Path, instru
         if c not in df_all.columns:
             df_all[c] = None
 
+    def _parse_number(val):
+        if val is None:
+            return 0.0
+        if isinstance(val, (int, float)):
+            return float(val)
+        s = str(val)
+        m = re.search(r'[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?', s)
+        return float(m.group(0)) if m else 0.0
+
+    def _max_streak(mask_iterable):
+        mx = cur = 0
+        for v in mask_iterable:
+            if v:
+                cur += 1
+                if cur > mx:
+                    mx = cur
+            else:
+                cur = 0
+        return mx
+
+    def _compute_trade_metrics_from_trades(df_tr: _pd.DataFrame) -> dict:
+        if df_tr.empty:
+            return {}
+        # Normalize numeric columns
+        for col in ["realized_pnl", "fee", "tradesize"]:
+            if col in df_tr.columns:
+                df_tr[col] = df_tr[col].apply(_parse_number)
+            else:
+                df_tr[col] = 0.0
+
+        # Direction detection: prefer 'action' (LONG/SHORT); fallback to tradesize sign
+        if "action" in df_tr.columns:
+            actions = df_tr["action"].astype(str).str.upper()
+            is_long = actions.eq("LONG")
+            is_short = actions.eq("SHORT")
+        else:
+            is_long = df_tr["tradesize"] > 0
+            is_short = df_tr["tradesize"] < 0
+
+        # Sort for streak calculation (prefer closed_timestamp)
+        sort_col = "closed_timestamp" if "closed_timestamp" in df_tr.columns else "timestamp"
+        if sort_col in df_tr.columns:
+            df_tr = df_tr.sort_values(sort_col)
+
+        realized = df_tr["realized_pnl"].astype(float)
+        fees = df_tr["fee"].astype(float)
+
+        wins = realized > 0
+        losses = realized < 0
+
+        n_trades = len(df_tr)
+        n_long = int(is_long.sum())
+        n_short = int(is_short.sum())
+
+        long_realized = realized[is_long]
+        short_realized = realized[is_short]
+
+        long_wins = (long_realized > 0).sum()
+        short_wins = (short_realized > 0).sum()
+
+        metrics = {
+            "final_realized_pnl": float(realized.sum()),
+            "winrate": float((wins.sum() / n_trades) if n_trades else 0.0),
+            "winrate_long": float((long_wins / n_long) if n_long else 0.0),
+            "winrate_short": float((short_wins / n_short) if n_short else 0.0),
+            "pnl_long": float(long_realized.sum()),
+            "pnl_short": float(short_realized.sum()),
+            "n_trades": int(n_trades),
+            "n_long_trades": int(n_long),
+            "n_short_trades": int(n_short),
+            "avg_win": float(realized[wins].mean() if wins.any() else 0.0),
+            "avg_loss": float(realized[losses].mean() if losses.any() else 0.0),
+            "max_win": float(realized.max() if not realized.empty else 0.0),
+            "max_loss": float(realized.min() if not realized.empty else 0.0),
+            "max_consecutive_wins": int(_max_streak(wins)),
+            "max_consecutive_losses": int(_max_streak(losses)),
+            "commissions": float(fees.sum()),
+        }
+        return metrics
+
     for run_id in run_ids:
         run_path = results_dir / run_id
         if not run_path.exists():
@@ -372,11 +555,34 @@ def add_trade_metrics(run_ids, results_dir: Path, summary_csv_path: Path, instru
 
         any_file = False
 
+        # NEW: collect all trades across instruments for this run
+        combined_trades_dfs = []
+
         for inst in instrument_ids:
             inst_str = str(inst)
-            metrics_csv = run_path / inst_str / "trade_metrics.csv"
+            inst_dir = run_path / inst_str
+            metrics_csv = inst_dir / "trade_metrics.csv"
+            trades_csv = inst_dir / "trades.csv"
+
+            # Collect trades for combined file & create metrics if missing
+            df_tr = None
+            if trades_csv.exists():
+                try:
+                    df_tr = _pd.read_csv(trades_csv)
+                    if not df_tr.empty:
+                        df_tr["instrument"] = inst_str
+                        combined_trades_dfs.append(df_tr.copy())
+                        if not metrics_csv.exists():
+                            metrics_dict = _compute_trade_metrics_from_trades(df_tr.copy())
+                            if metrics_dict:
+                                _pd.DataFrame([metrics_dict]).to_csv(metrics_csv, index=False)
+                                print(f"[add_trade_metrics] Created {metrics_csv}")
+                except Exception as e:
+                    print(f"[add_trade_metrics] Failed reading {trades_csv}: {e}")
+
             if not metrics_csv.exists():
-                continue
+                continue  # still no metrics -> skip
+
             try:
                 dfm = _pd.read_csv(metrics_csv)
                 if dfm.empty:
@@ -439,6 +645,18 @@ def add_trade_metrics(run_ids, results_dir: Path, summary_csv_path: Path, instru
 
             except Exception as e:
                 print(f"[add_trade_metrics] Failed reading {metrics_csv}: {e}")
+
+        # After instrument loop: write combined trades.csv for this run
+        if combined_trades_dfs:
+            try:
+                combined_trades = _pd.concat(combined_trades_dfs, ignore_index=True, sort=False)
+                if "timestamp" in combined_trades.columns:
+                    combined_trades = combined_trades.sort_values("timestamp")
+                out_path = run_path / "all_trades.csv"  # renamed
+                combined_trades.to_csv(out_path, index=False)
+                print(f"[add_trade_metrics] Combined trades saved: {out_path}")
+            except Exception as e:
+                print(f"[add_trade_metrics] Failed writing combined trades for {run_id}: {e}")
 
         if not any_file:
             continue

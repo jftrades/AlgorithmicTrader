@@ -14,6 +14,12 @@ instruments:
       - "SPY.ARCA-5-MINUTE-LAST-EXTERNAL"
     test: 1
 
+data_sources:
+  # Standard Bar-Daten: nutzt automatisch alle bar_types aus den Instrumenten
+  - data_cls: "nautilus_trader.model.data:Bar"
+    instrument_ids: all
+    bar_types: from_instruments
+
 # Backtest_Zeitraum
 start_date: "2024-01-01T00:00:00Z"
 end_date: "2024-12-29T23:59:59Z"

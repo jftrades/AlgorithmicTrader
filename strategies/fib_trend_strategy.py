@@ -25,14 +25,13 @@ from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
 # Multi-Instrument Configuration
 # -------------------------------------------------
 class FibTrendStrategyConfig(StrategyConfig):
-    instruments: List[dict]  # Each entry: {"instrument_id": <InstrumentId>, "bar_types": List of <BarType>, "trade_size_usdt": <Decimal|int|float>}
+    instruments: List[dict]  # Each entry: {"instrument_id": <InstrumentId>, "bar_types": List of <BarType>, "trade_size_usd": <Decimal|int|float>}
     risk_percent: float
     max_leverage: float
     min_account_balance: float
     run_id: str
 
     ema_lookback: int = 14
-    min_bars_after_ema_cross: int = 5
     
     # Fibonacci Parameters
     fib_entry_level: float = 0.618
@@ -40,7 +39,7 @@ class FibTrendStrategyConfig(StrategyConfig):
     fib_only_tp_level: float = -0.62
     
     # Entry tolerances
-    fib_entry_tolerance: float = 0.002
+    fib_entry_tolerance: float = 0.01   # Increased default tolerance
     fib_sl_buffer: float = 0.001
 
     close_positions_on_stop: bool = True
@@ -50,7 +49,8 @@ class FibTrendStrategy(BaseStrategy, Strategy):
     def __init__(self, config: FibTrendStrategyConfig):
         self.instrument_dict: Dict[InstrumentId, Dict[str, Any]] = {}
         super().__init__(config) 
-    
+
+
         # Remove: primary instrument derivations (self.instrument_id, self.bar_type, etc.)
         self.risk_manager = None
         self.order_types = None
@@ -76,7 +76,6 @@ class FibTrendStrategy(BaseStrategy, Strategy):
 
             # Strategy-specific indicators
             current_instrument["bar_counter"] = 0
-            current_instrument["min_bars_after_ema_cross"] = self.config.min_bars_after_ema_cross
             current_instrument["only_trade_rth"] = self.config.only_trade_rth
             current_instrument["rth_start_hour"] = 14
             current_instrument["rth_start_minute"] = 30
@@ -97,11 +96,6 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             # Initialize Pivot Archive and Fibonacci Tool
             current_instrument["pivot_archive"] = PivotArchive(strength=2)
             current_instrument["fib_tool"] = FibRetracementTool(current_instrument["pivot_archive"])
-            
-            # EMA crossover tracking
-            current_instrument["prev_price_above_ema"] = None
-            current_instrument["bars_since_ema_cross"] = 0
-            current_instrument["last_ema_cross_direction"] = None  # 'bullish' or 'bearish'
 
     def is_rth_time(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
         if not current_instrument["only_trade_rth"]:
@@ -148,8 +142,8 @@ class FibTrendStrategy(BaseStrategy, Strategy):
             current_instrument["pivot_archive"].set_ema_reset(current_instrument["ema_reset"].value)
 
         # Update Pivot Archive and Fibonacci Tool
-        pivot_changed = current_instrument["pivot_archive"].update(bar)
-        fib_changed = current_instrument["fib_tool"].update(bar)
+        current_instrument["pivot_archive"].update(bar)
+        current_instrument["fib_tool"].update(bar)
 
         
         # Check for pending orders to avoid endless order loops
@@ -170,39 +164,16 @@ class FibTrendStrategy(BaseStrategy, Strategy):
         if not self.is_rth_time(bar, current_instrument):
             return
             
-        instrument_id = bar.bar_type.instrument_id
-        current_instrument = self.instrument_dict.get(instrument_id)
-        if current_instrument is None:
-            return
         if not current_instrument["ema"].initialized:
             self.log.info(f"EMA not ready yet for {instrument_id}, bars needed: {self.config.ema_lookback}")
             return
             
         # Get current EMA value and price
-        current_ema = current_instrument["ema"].value
+        current_ema = current_instrument["ema"].value   
         current_price = float(bar.close)
         
-        # Determine if price is above or below EMA
+        # Determine if price is above or below EMA (simplified logic)
         price_above_ema = current_price > current_ema
-        
-        # Check for EMA crossover and update tracking
-        if current_instrument["prev_price_above_ema"] is not None:
-            if not current_instrument["prev_price_above_ema"] and price_above_ema:
-                current_instrument["last_ema_cross_direction"] = "bullish"
-                current_instrument["bars_since_ema_cross"] = 0
-            
-            elif current_instrument["prev_price_above_ema"] and not price_above_ema:
-                current_instrument["last_ema_cross_direction"] = "bearish"
-                current_instrument["bars_since_ema_cross"] = 0
-        
-        # Increment bars since last crossover
-        if current_instrument["last_ema_cross_direction"] is not None:
-            current_instrument["bars_since_ema_cross"] += 1
-        
-        current_instrument["prev_price_above_ema"] = price_above_ema
-        
-        if current_instrument["bars_since_ema_cross"] < current_instrument["min_bars_after_ema_cross"]:
-            return
             
         net_position = self.portfolio.net_position(instrument_id)
         if net_position and net_position != 0:
@@ -242,17 +213,15 @@ class FibTrendStrategy(BaseStrategy, Strategy):
         if price_diff_percent > entry_tolerance:
             return
             
-        # LONG ENTRY LOGIC: Above EMA + price near 61.8% fib level
-        if price_above_ema and current_instrument["last_ema_cross_direction"] == "bullish":
-            if fib_retracement.direction == "bearish":  # FIXED: Should be bearish for LONG entries
-                if abs(current_price - fib_entry_price) <= (fib_entry_price * entry_tolerance):
-                    self._execute_long_entry(bar, current_instrument, fib_entry_price, fib_sl_price, fib_tp_price)
+        # LONG ENTRY LOGIC: Above EMA + bullish Fibonacci retracement
+        if price_above_ema:
+            if fib_retracement.direction == "bullish":  # FIXED: Uptrend retracement for LONG entries
+                self._execute_long_entry(bar, current_instrument, fib_entry_price, fib_sl_price, fib_tp_price)
         
-        # SHORT ENTRY LOGIC: Below EMA + price near 61.8% fib level  
-        elif not price_above_ema and current_instrument["last_ema_cross_direction"] == "bearish":
-            if fib_retracement.direction == "bullish":  # FIXED: Should be bullish for SHORT entries
-                if abs(current_price - fib_entry_price) <= (fib_entry_price * entry_tolerance):
-                    self._execute_short_entry(bar, current_instrument, fib_entry_price, fib_sl_price, fib_tp_price)
+        # SHORT ENTRY LOGIC: Below EMA + bearish Fibonacci retracement  
+        elif not price_above_ema:
+            if fib_retracement.direction == "bearish":  # FIXED: Downtrend retracement for SHORT entries
+                self._execute_short_entry(bar, current_instrument, fib_entry_price, fib_sl_price, fib_tp_price)
     
     def _is_safe_entry(self, current_price: float, entry_price: float, sl_price: float, is_long: bool) -> bool:
         sl_distance = abs(current_price - sl_price) / current_price
@@ -271,8 +240,8 @@ class FibTrendStrategy(BaseStrategy, Strategy):
         instrument_id = bar.bar_type.instrument_id
         
         sl_with_buffer = sl_price - (sl_price * current_instrument["fib_sl_buffer"])
-        trade_size_usdt = float(current_instrument["trade_size_usdt"])
-        qty = max(1, int(trade_size_usdt / entry_price))
+        trade_size_usd = float(current_instrument["trade_size_usd"])
+        qty = max(1, int(trade_size_usd / entry_price))
         
         self.log.info(f"LONG FIBONACCI ENTRY - {instrument_id} | Entry: {entry_price:.2f} | SL: {sl_with_buffer:.2f} | TP: {tp_price:.2f}", color=LogColor.GREEN)
         
@@ -285,8 +254,8 @@ class FibTrendStrategy(BaseStrategy, Strategy):
         instrument_id = bar.bar_type.instrument_id
         
         sl_with_buffer = sl_price + (sl_price * current_instrument["fib_sl_buffer"])
-        trade_size_usdt = float(current_instrument["trade_size_usdt"])
-        qty = max(1, int(trade_size_usdt / entry_price))
+        trade_size_usd = float(current_instrument["trade_size_usd"])
+        qty = max(1, int(trade_size_usd / entry_price))
         
         self.log.info(f"SHORT FIBONACCI ENTRY - {instrument_id} | Entry: {entry_price:.2f} | SL: {sl_with_buffer:.2f} | TP: {tp_price:.2f}", color=LogColor.RED)
         

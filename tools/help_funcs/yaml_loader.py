@@ -267,57 +267,126 @@ def _normalize_data_sources(params: Dict[str, Any], instruments_normalized: List
     return out
 
 
+def _find_nested_grid_params(obj: Any, prefix: str = "") -> Dict[str, List[Any]]:
+    """Recursively finds grid parameters (lists with len > 1) within nested dictionaries."""
+    grid_params = {}
+    
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            current_path = f"{prefix}.{key}" if prefix else key
+            
+            if isinstance(value, list) and len(value) > 1:
+                grid_params[current_path] = value
+            elif isinstance(value, dict):
+                nested_params = _find_nested_grid_params(value, current_path)
+                grid_params.update(nested_params)
+    
+    return grid_params
+
+
+def set_nested_parameter(config_params: Dict[str, Any], param_key: str, param_value: Any) -> None:
+    """
+    Helper function to set nested parameters using dotted notation.
+    Example: set_nested_parameter(config, "use_trend_following_setup.entry_trend_ema_period", 30)
+    """
+    keys = param_key.split(".")
+    current = config_params
+    
+    for key in keys[:-1]:
+        if key not in current:
+            current[key] = {}
+        elif not isinstance(current[key], dict):
+            current[key] = {}
+        current = current[key]
+    
+    current[keys[-1]] = param_value
+
+
 def load_and_split_params(yaml_path: str) -> Tuple[
-    Dict[str, Any],                # params (inkl. normalisiertem 'instruments')
-    Dict[str, List[Any]],          # param_grid
-    List[str],                     # keys
-    List[List[Any]],               # values
-    Dict[str, Any],                # static_params
-    List[str],                     # all_instrument_ids
-    List[str],                     # all_bar_types
-    List[Dict[str, Any]],          # data_sources_normalized
+    Dict[str, Any],
+    Dict[str, List[Any]], 
+    List[str],
+    List[List[Any]],
+    Dict[str, Any],
+    List[str],
+    List[str],
+    List[Dict[str, Any]],
 ]:
-    """
-    Lädt YAML, expandiert instruments_from_path, normalisiert instruments
-    und splittet restliche Parameter in Grid- und Static-Teile.
-    """
+    """Loads YAML, expands instruments, normalizes them and splits parameters into grid and static parts. Now supports nested grid parameters."""
     params = load_params(yaml_path)
 
-    # CSV-basierte Instrumente zuerst hinzufügen (falls definiert)
     _expand_instruments_from_path_entries(params, yaml_path)
 
-    # instruments normalisieren
     instruments_normalized = _normalize_instruments(params)
     params["instruments"] = instruments_normalized
 
-    # param_grid bestimmen (nur Keys mit Liste Länge >1, exkl. instruments und data_sources)
     param_grid: Dict[str, List[Any]] = {}
+    
+    # Find top-level grid parameters
     for k, v in params.items():
         if k in ("instruments", "data_sources"):
             continue
         if isinstance(v, list) and len(v) > 1:
             param_grid[k] = v
+    
+    # Find nested grid parameters
+    for k, v in params.items():
+        if k in ("instruments", "data_sources"):
+            continue
+        if isinstance(v, dict):
+            nested_params = _find_nested_grid_params(v, k)
+            param_grid.update(nested_params)
 
-    # static_params: immer instruments einschließen, dann restliche Keys (exkl. data_sources)
+    # Create static_params with proper handling of nested parameters
     static_params: Dict[str, Any] = {
         "instruments": instruments_normalized
     }
-    for k, v in params.items():
-        if k in param_grid or k in ("instruments", "data_sources"):
+    
+    import copy
+    temp_params = copy.deepcopy(params)
+    
+    for k, v in temp_params.items():
+        if k in ("instruments", "data_sources"):
             continue
-        if isinstance(v, list) and len(v) == 1:
-            static_params[k] = v[0]
+        
+        if k in param_grid:
+            continue
+        
+        is_parent_of_grid = False
+        if isinstance(v, dict):
+            for grid_key in param_grid.keys():
+                if grid_key.startswith(f"{k}."):
+                    is_parent_of_grid = True
+                    break
+        
+        if is_parent_of_grid:
+            static_dict = copy.deepcopy(v)
+            for grid_key in param_grid.keys():
+                if grid_key.startswith(f"{k}."):
+                    nested_key = grid_key[len(k)+1:]
+                    try:
+                        keys = nested_key.split(".")
+                        current = static_dict
+                        for key in keys[:-1]:
+                            current = current[key]
+                        if keys[-1] in current:
+                            grid_values = param_grid[grid_key]
+                            current[keys[-1]] = grid_values[0] if grid_values else None
+                    except (KeyError, TypeError):
+                        pass
+            static_params[k] = static_dict
         else:
-            static_params[k] = v
+            if isinstance(v, list) and len(v) == 1:
+                static_params[k] = v[0]
+            else:
+                static_params[k] = v
 
-    # keys / values für Grid
     if param_grid:
         keys, values = zip(*param_grid.items())
         keys, values = list(keys), list(values)
     else:
         keys, values = [], []
 
-    # Aggregation Instrument-IDs & BarTypes (stabil, duplikatfrei)
     seen_ids, all_instrument_ids = set(), []
     seen_bt, all_bar_types = set(), []
     for instr in instruments_normalized:
@@ -331,7 +400,6 @@ def load_and_split_params(yaml_path: str) -> Tuple[
                 seen_bt.add(bt)
                 all_bar_types.append(bt)
 
-    # data_sources normalisieren
     data_sources_normalized = _normalize_data_sources(params, instruments_normalized)
 
     return (
