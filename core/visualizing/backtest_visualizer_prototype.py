@@ -58,17 +58,17 @@ class IndicatorInstance:
 
 
 class BacktestDataCollector:
-    def __init__(self, name, run_id): 
+    def __init__(self, name, run_id, batch_size=5000): 
         self.name = name
         # Bars pro Timeframe
         self.bars = {}              # timeframe -> List[bar_dict]
-        # Entfernt: _all_bars_flat / _global_bar_index
         self.trades = []
         self.run_id = run_id
         self.indicators = {}
         self.indicator_plot_number = {}
         self.initialise_result_path()
         self.plots_at_minus_one = 0
+        self.batch_size = batch_size  # NEU: Schwelle für Batch-Flush
         
 
     def initialise_result_path(self):
@@ -102,6 +102,9 @@ class BacktestDataCollector:
             'volume': volume,
         }
         self.bars[timeframe].append(bar_dict)
+        # NEU: Flush wenn Batch voll
+        if len(self.bars[timeframe]) >= self.batch_size:
+            self.flush_bars(timeframe)
 
     def add_indicator(self, name, timestamp, value):
         plot_number = self.indicator_plot_number.get(name, 0)
@@ -112,6 +115,82 @@ class BacktestDataCollector:
             'value': value,
             'plot_id': plot_number,
         })
+        # NEU: Flush beim Erreichen der Batchgröße
+        if len(self.indicators[name]) >= self.batch_size:
+            self.flush_indicators(name)
+
+    # -------------------------
+    # NEU: Batch Flush Helpers
+    # -------------------------
+    def _append_df(self, file_path, df):
+        header = not file_path.exists()
+        df.to_csv(file_path, mode='a', header=header, index=False)
+
+    def flush_bars(self, timeframe, force=False):
+        """
+        Schreibt einen Batch Bars für ein Timeframe in CSV.
+        Bei force=True werden alle restlichen Bars geschrieben.
+        """
+        if timeframe not in self.bars or not self.bars[timeframe]:
+            return
+        entries = self.bars[timeframe]
+        if not force and len(entries) < self.batch_size:
+            return
+        batch_size = len(entries) if force else self.batch_size
+        batch = entries[:batch_size]
+        # DataFrame mit konsistenter Reihenfolge
+        df = pd.DataFrame(batch)
+        cols = ["timestamp", "open", "high", "low", "close", "volume"]
+        for c in cols:
+            if c not in df.columns:
+                df[c] = None
+        df = df[cols]
+        file_path = self.path / f"bars-{timeframe}.csv"
+        self._append_df(file_path, df)
+        # Entfernte Elemente aus Speicher löschen
+        del entries[:batch_size]
+
+    def flush_all_bars(self, force=False):
+        for tf in list(self.bars.keys()):
+            while True:
+                before = len(self.bars[tf])
+                self.flush_bars(tf, force=force)
+                # Wenn force: nur einmal ausführen
+                if force or len(self.bars[tf]) == before or len(self.bars[tf]) < self.batch_size:
+                    break
+
+    def flush_indicators(self, name, force=False):
+        if name not in self.indicators or not self.indicators[name]:
+            return
+        entries = self.indicators[name]
+        if not force and len(entries) < self.batch_size:
+            return
+        batch_size = len(entries) if force else self.batch_size
+        batch = entries[:batch_size]
+        df = pd.DataFrame(batch)
+        if "plot_id" not in df.columns:
+            plot_number = self.indicator_plot_number.get(name, 0)
+            df["plot_id"] = int(plot_number)
+        indicators_dir = self.path / "indicators"
+        indicators_dir.mkdir(exist_ok=True)
+        file_path = indicators_dir / f"{name}.csv"
+        self._append_df(file_path, df)
+        del entries[:batch_size]
+
+    def flush_all_indicators(self, force=False):
+        for name in list(self.indicators.keys()):
+            while True:
+                before = len(self.indicators[name])
+                self.flush_indicators(name, force=force)
+                if force or len(self.indicators[name]) == before or len(self.indicators[name]) < self.batch_size:
+                    break
+
+    def flush_all(self, force=False):
+        """
+        Flusht Bars & Indikatoren. Trades werden nicht gebatcht (wegen Metriken).
+        """
+        self.flush_all_bars(force=force)
+        self.flush_all_indicators(force=force)
 
     def add_trade_details(self, order_filled, parent_id):
         """
@@ -169,40 +248,27 @@ class BacktestDataCollector:
         # order.type              -> OrderType (MARKET, LIMIT, etc.)
         
     def bars_to_csv(self):
-        if not self.bars:
-            return []
+        """
+        Restliche (nicht geflushte) Bars schreiben (Force-Flush).
+        """
+        self.flush_all_bars(force=True)
+        # Dateien wurden bereits im Append-Modus erstellt -> nur Rückgabe der Dateinamen
         saved = []
-        for tf, bar_list in self.bars.items():
-            if not bar_list:
-                continue
-            df = pd.DataFrame(bar_list)
-            # ensure volume is present and enforce column order
-            cols = ["timestamp", "open", "high", "low", "close", "volume"]
-            for c in cols:
-                if c not in df.columns:
-                    df[c] = None
-            df = df[cols]
+        for tf in self.bars.keys():
             file_path = self.path / f"bars-{tf}.csv"
-            df.to_csv(file_path, index=False)
-            saved.append(file_path.name)
+            if file_path.exists():
+                saved.append(file_path.name)
         return saved
 
     def indicators_to_csv(self):
+        self.flush_all_indicators(force=True)
         saved = []
-        if not self.indicators:
-            return saved
         indicators_dir = self.path / "indicators"
-        indicators_dir.mkdir(exist_ok=True)
-        for name, data in self.indicators.items():
-            if not data:
-                continue
-            df = pd.DataFrame(data)
-            if "plot_id" not in df.columns:
-                plot_number = self.indicator_plot_number.get(name, 0)
-                df["plot_id"] = int(plot_number)
-            file_path = indicators_dir / f"{name}.csv"
-            df.to_csv(file_path, index=False)
-            saved.append(f"indicators/{file_path.name}")
+        if indicators_dir.exists():
+            for name in self.indicators.keys():
+                file_path = indicators_dir / f"{name}.csv"
+                if file_path.exists():
+                    saved.append(f"indicators/{file_path.name}")
         return saved
 
     def analyse_trades(self):
@@ -286,6 +352,7 @@ class BacktestDataCollector:
             max_consec_wins = max(max_consec_wins, curr_wins)
             max_consec_losses = max(max_consec_losses, curr_losses)
 
+        final_realized_pnl = sum(to_float(t.realized_pnl) for t in self.trades)  # NEU: Bugfix
         # final_realized_pnl ganz oben im dict
         result = {
             "final_realized_pnl": final_realized_pnl,
@@ -327,12 +394,31 @@ class BacktestDataCollector:
         pd.DataFrame([analysis]).to_csv(metrics_path, index=False)
         return analysis
 
+    def _clear_memory(self):
+        """
+        Leert nach Persistierung alle gesammelten In-Memory-Daten
+        (Bars, Indicatorwerte, Trades). Plot-Mapping bleibt erhalten.
+        """
+        self.bars = {}
+        # Nur Werte leeren, Mapping behalten
+        for k in list(self.indicators.keys()):
+            self.indicators[k].clear()
+        self.indicators = {}
+        self.trades = []
+
     def save_data(self):
+        """
+        Force-Flush + finale Trade- & Metrik-Dateien, danach Speicher leeren.
+        """
         logging_message = ""
         try:
+            # NEU: restliche Batches flushen
+            self.flush_all(force=True)
             bars_files = self.bars_to_csv()
             ind_files = self.indicators_to_csv()
-            trades_file = self.trades_to_csv()
+            trades_file = self.trades_to_csv()  # Trades nicht gebatcht
+            # Speicher jetzt leeren
+            self._clear_memory()
             parts = []
             if bars_files:
                 parts.append(f"bars={bars_files}")
