@@ -12,7 +12,7 @@ from fear_and_greed_download import FearAndGreedDownloader  # NEU
 # ========================
 # Konfiguration
 # ========================
-BASE_DATA_DIR = Path(__file__).resolve().parents[3] / "DATA_STORAGE" / "csv_data_catalog"
+BASE_DATA_DIR = Path(__file__).resolve().parents[3] / "DATA_STORAGE"
 FUTURES_CSV = BASE_DATA_DIR / "project_future_scraper" / "new_binance_perpetual_futures.csv"
 
 # NEU: Konfigurierbarer Zielordner (statt fest 'csv_data')
@@ -21,25 +21,25 @@ os.environ["CSV_OUTPUT_SUBDIR"] = CSV_OUTPUT_SUBDIR  # für Downloader verfügba
 
 RUN_DISCOVERY = True                 # NEU: führe Discovery vor Iteration aus
 DISCOVERY_WINDOW_START = "2024-01-01"
-DISCOVERY_WINDOW_END = "2025-09-24"
+DISCOVERY_WINDOW_END = "2025-10-01"
 DISCOVERY_ONLY_USDT = True
 
 RANGE_DAYS = 28
 MAX_SYMBOLS = None
-SLEEP_SECONDS = 2
+SLEEP_SECONDS = 1
 
-RUN_LUNAR = True
+RUN_LUNAR = False
 RUN_VENUE = True
 RUN_BINANCE = True
 
-RUN_FNG = True  # NEU
+RUN_FNG = False  # NEU
 FNG_INSTRUMENT_ID = "FNG-INDEX.BINANCE"  # NEU
 
 LUNAR_BUCKET = "hour"
 BINANCE_DATATYPE = "bar"
 BINANCE_INTERVAL = "5m"
 SAVE_AS_CSV = True
-SAVE_IN_CATALOG = False
+SAVE_IN_CATALOG = True
 DOWNLOAD_IF_MISSING = True
 # Entfernt: RUN_NEW_FUTURES und Fenster in Orchestrator
 # ========================

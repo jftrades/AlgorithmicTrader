@@ -89,7 +89,7 @@ entry_scale_binance_metrics: # rank based approach for ENTRY logic
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
-  rolling_window_bars_binance: [100, 200, 700, 1500]
+  rolling_window_bars_binance: 1200
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
