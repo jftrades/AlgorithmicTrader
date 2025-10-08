@@ -8,6 +8,7 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.enums import PositionSide
 from nautilus_trader.common.enums import LogColor
 from pydantic import Field
+from decimal import Decimal
 
 from nautilus_trader.indicators.aroon import AroonOscillator
 from nautilus_trader.indicators.atr import AverageTrueRange
@@ -18,9 +19,9 @@ from tools.order_management.risk_manager import RiskManager
 from nautilus_trader.model.data import DataType
 from data.download.crypto_downloads.custom_class.metrics_data import MetricsData
 
+
 class CoinListingShortConfig(StrategyConfig):
     instruments: List[dict]  
-    max_leverage: float
     min_account_balance: float
     run_id: str
     sl_atr_multiple: float = 2.0
@@ -42,6 +43,19 @@ class CoinListingShortConfig(StrategyConfig):
             "atr_period": 14,
             "atr_multiple": 2.0,
             "risk_percent": 0.04
+        }
+    )
+    exp_fixed_trade_risk: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "invest_percent": 0.05
+        }
+    )
+
+    log_fixed_trade_risk: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "investment_size": 50
         }
     )
 
@@ -133,6 +147,7 @@ class CoinListingShortConfig(StrategyConfig):
     only_execute_short: bool = False
     hold_profit_for_remaining_days: bool = False
     close_positions_on_stop: bool = True
+    max_leverage: Decimal = 10.0
 
 class CoinListingShortStrategy(BaseStrategy, Strategy):
 
@@ -140,6 +155,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         super().__init__(config)
         self.risk_manager = RiskManager(config)
         self.risk_manager.set_strategy(self)
+        self.risk_manager.set_max_leverage(Decimal(str(config.max_leverage)))
         self.order_types = OrderTypes(self) 
         self.onboard_dates = self.load_onboard_dates()
         self.add_instrument_context()
@@ -581,11 +597,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             
         return onboard_dates
     
-    def check_time_based_exit(self, bar: Bar, current_instrument: Dict[str, Any], position) -> bool:
-        time_after_listing_close = self.config.time_after_listing_close
-        if not self.config.hold_profit_for_remaining_days:
-            return False
-            
+    def check_time_based_exit(self, bar: Bar, current_instrument: Dict[str, Any], position, time_after_listing_close) -> bool:
+
         # Handle both single value and array for optimization
         if isinstance(time_after_listing_close, list):
             time_after_listing_close = time_after_listing_close[0]  # Use first value
@@ -605,17 +618,18 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         current_time = datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=timezone.utc).replace(tzinfo=None)
         
         if current_time >= deadline:
-            entry_price = position.avg_px_open
-            current_price = float(bar.close)
-            
-            if position.side == PositionSide.LONG:
-                is_profitable = current_price > entry_price
-            else:
-                is_profitable = current_price < entry_price
+            return True
+        #    entry_price = position.avg_px_open
+        #    current_price = float(bar.close)
+        #    
+        #    if position.side == PositionSide.LONG:
+        #        is_profitable = current_price > entry_price
+        #    else:
+        #        is_profitable = current_price < entry_price
                 
-            return is_profitable
+        #    return is_profitable
             
-        return False    
+        #return False    
     
     def is_trading_allowed_after_listing(self, bar: Bar) -> bool:
         if not self.config.hold_profit_for_remaining_days:
@@ -639,7 +653,12 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         current_time = datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=timezone.utc).replace(tzinfo=None)
         
         # Block all new trades after deadline
-        return current_time < deadline
+        if current_time < deadline:
+            return True
+        else:
+            self.order_types.close_position_by_market_order(bar.bar_type.instrument_id)
+            self.unsubscribe_bars(bar.bar_type)
+            return False
 
     def entry_scale_binance_metrics(self, current_instrument: Dict[str, Any]) -> None:
         if not current_instrument.get("entry_scale_binance_enabled", True):
@@ -1137,6 +1156,11 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             aroon = current_instrument["aroon"]
             if aroon.initialized:
                 current_instrument["prev_aroon_osc_value"] = float(aroon.value)
+
+
+
+                
+
     
     def aroon_simple_trend_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if self.is_btc_instrument(bar.bar_type.instrument_id):
@@ -1211,7 +1235,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             self.reset_position_tracking(current_instrument)
             return
 
-        if self.check_time_based_exit(bar, current_instrument, position):
+        if self.check_time_based_exit(bar, current_instrument, position, self.config.time_after_listing_close):
             close_qty = min(int(abs(position.quantity)), abs(position.quantity))
             if close_qty > 0:
                 #self.order_types.submit_long_market_order(instrument_id, int(close_qty))

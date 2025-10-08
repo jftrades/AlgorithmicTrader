@@ -7,9 +7,13 @@ class RiskManager:
         self.config = config
         self.strategy = None
         self.starting_balance = None
+        self.max_leverage = None
 
     def set_strategy(self, strategy):
         self.strategy = strategy
+
+    def set_max_leverage(self, leverage: Decimal):
+        self.max_leverage = leverage
 
     def get_starting_balance(self):
         if self.starting_balance is None:
@@ -31,7 +35,12 @@ class RiskManager:
         sl_distance = abs(entry_price - stop_loss_price)
         
         contracts_needed = risk_amount / sl_distance
-        
+
+        if self.max_leverage is not None:
+            max_contracts_allowed = (risk_amount * self.max_leverage) / entry_price
+            if contracts_needed > max_contracts_allowed:
+                contracts_needed = max_contracts_allowed
+
         return contracts_needed
 
     def log_growth_atr_risk(self, entry_price: Decimal, stop_loss_price: Decimal, risk_percent: Decimal) -> Decimal:
@@ -42,7 +51,12 @@ class RiskManager:
         sl_distance = abs(entry_price - stop_loss_price)
         
         contracts_needed = risk_amount / sl_distance
-        
+
+        if self.max_leverage is not None:
+            max_contracts_allowed = (risk_amount * self.max_leverage) / entry_price
+            if contracts_needed > max_contracts_allowed:
+                contracts_needed = max_contracts_allowed
+
         return contracts_needed
 
     def exp_fixed_trade_risk(self, entry_price: Decimal, invest_percent: Decimal) -> Decimal:
