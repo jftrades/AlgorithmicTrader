@@ -86,7 +86,7 @@ entry_scale_binance_metrics: # rank based approach for ENTRY logic
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
-  rolling_window_bars_binance: [500, 1000, 1500, 2000, 3000, 4000]
+  rolling_window_bars_binance: 3000
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
@@ -100,11 +100,11 @@ five_day_scaling_filters:
 
 exit_l3_metrics_in_profit:
   enabled: true
-  exit_amount_change_scaled_values: 120
+  exit_amount_change_scaled_values: 75
   exit_toptrader_short_threshold: -0.95
   exit_toptrader_allow_difference: 0.8
   exit_oi_threshold: -0.95
-  exit_oi_allow_difference: 0.5
+  exit_oi_allow_difference: 0.8
 
 btc_performance_risk_scaling:
   enabled: true
