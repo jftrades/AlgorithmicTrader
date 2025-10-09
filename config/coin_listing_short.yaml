@@ -46,7 +46,7 @@ oms_type: "NETTING"
 # risk params
 close_positions_on_stop: true
 min_account_balance: 1000
-max_leverage: 1
+#max_leverage: 1
 
 exp_growth_atr_risk:
   enabled: false
@@ -57,15 +57,24 @@ exp_growth_atr_risk:
 log_growth_atr_risk:
   enabled: true
   atr_period: 20
-  atr_multiple: 3.0
+  atr_multiple: 2.0
   risk_percent: 0.04
+
+exp_fixed_trade_risk:
+  enabled: false
+  invest_percent: 0.05 # percent of current account balance per trade (no sl calculation)
+
+log_fixed_trade_risk:
+  enabled: false
+  investment_size: 50 # fixed USDT amount per trade
 
 # ===========================
 # Strategy-specific params
 # ===========================
 only_execute_short: true
-hold_profit_for_remaining_days: true
-time_after_listing_close: 20
+hold_profit_for_remaining_days: false
+time_after_listing_close: 19
+max_leverage: 10
 
 use_min_coin_filters:
   enabled: false
@@ -117,7 +126,7 @@ btc_performance_risk_scaling:
   risk_multiplier_min_z_threshold: 3.0
 
 sol_performance_risk_scaling:
-  enabled: true
+  enabled: false
   risk_scaling_method: "linear"
   rolling_zscore: 200
   stop_executing_above_zscore: 2.8

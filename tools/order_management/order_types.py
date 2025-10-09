@@ -60,7 +60,7 @@ class OrderTypes:
             sl_trigger_price=Price(stop_loss, inst.price_precision),
             tp_price=Price(take_profit, inst.price_precision),
             time_in_force=TimeInForce.GTC,
-            entry_tags=create_tags(action="BUY", type="OPEN"),
+            entry_tags=create_tags(action="BUY", type="OPEN", sl=stop_loss, tp=take_profit),
         )
         self.strategy.submit_order_list(bracket_order)
         self._collector(instrument_id).add_trade(bracket_order.orders[0])
@@ -78,7 +78,7 @@ class OrderTypes:
             sl_trigger_price=Price(stop_loss, inst.price_precision),
             tp_price=Price(take_profit, inst.price_precision),
             time_in_force=TimeInForce.GTC,
-            entry_tags=create_tags(action="SHORT", type="OPEN"),
+            entry_tags=create_tags(action="SHORT", type="OPEN", sl=stop_loss, tp=take_profit),
         )
         self.strategy.submit_order_list(bracket_order)
         self._collector(instrument_id).add_trade(bracket_order.orders[0])
@@ -124,10 +124,10 @@ class OrderTypes:
     # Close Position
     # -------------------------------------------------
     def close_position_by_market_order(self, instrument_id):
-        position = self.strategy.get_position(instrument_id)
+        position = self.strategy.base_get_position(instrument_id)
         if position is None or position.quantity == 0:
             self.strategy.log.info(f"[{instrument_id}] No open position to close.")
             return None
         # Engine Close
-        self.strategy.base_close_position(instrument_id)
+        self.strategy.base_close_position(position)
         return position
