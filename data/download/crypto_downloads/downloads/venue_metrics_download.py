@@ -184,9 +184,9 @@ class VenueMetricsDownloader:
 if __name__ == "__main__":
     base_dir = Path(__file__).resolve().parents[3] / "DATA_STORAGE"
     downloader = VenueMetricsDownloader(
-        symbol="SOLUSDT-PERP",
-        start_date="2025-01-01",
-        end_date="2025-01-02",
+        symbol="ETHUSDT-PERP",
+        start_date="2023-01-01",
+        end_date="2025-10-01",
         base_data_dir=str(base_dir),
         save_as_csv=True,
         save_in_catalog=True,

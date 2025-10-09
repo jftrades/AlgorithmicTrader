@@ -262,11 +262,11 @@ class LunarMetricsDownloader:
 if __name__ == "__main__":
     base_dir = Path(__file__).resolve().parents[3] / "DATA_STORAGE"
     dl = LunarMetricsDownloader(
-        symbol="SOL",
-        start_date="2024-09-20",
-        end_date="2024-09-30",
+        symbol="BTC",
+        start_date="2023-01-01",
+        end_date="2025-10-01",
         base_data_dir=str(base_dir),
-        instrument_id_str="SOLUSDT-PERP",
+        instrument_id_str="BTCUSDT-PERP",
         save_as_csv=True,
         save_in_catalog=True,
     )

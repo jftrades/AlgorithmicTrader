@@ -57,7 +57,7 @@ exp_growth_atr_risk:
 log_growth_atr_risk:
   enabled: true
   atr_period: 20
-  atr_multiple: 2.0
+  atr_multiple: [3, 3.5, 4, 4.5, 5]
   risk_percent: 0.04
 
 exp_fixed_trade_risk:
@@ -110,8 +110,8 @@ five_day_scaling_filters:
 exit_l3_metrics_in_profit:
   enabled: true
   exit_amount_change_scaled_values: 75
-  exit_toptrader_short_threshold: -0.95
-  exit_toptrader_allow_difference: 0.8
+  exit_toptrader_short_threshold: -1.1  # das disabled das
+  exit_toptrader_allow_difference: 2.1 # das disabled das
   exit_oi_threshold: -0.95
   exit_oi_allow_difference: 0.8
 
@@ -126,7 +126,7 @@ btc_performance_risk_scaling:
   risk_multiplier_min_z_threshold: 3.0
 
 sol_performance_risk_scaling:
-  enabled: false
+  enabled: true
   risk_scaling_method: "linear"
   rolling_zscore: 200
   stop_executing_above_zscore: 2.8

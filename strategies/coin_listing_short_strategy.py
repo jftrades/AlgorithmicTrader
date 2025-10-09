@@ -863,31 +863,37 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         window_size = self.btc_context["rolling_zscore"]
 
         if len(price_history) >= 2:
-            # Use leak-safe approach: exclude current price from statistics calculation
             stats_data = price_history[:-1]
             
-            # Apply the window size properly
             if len(stats_data) > window_size:
-                rolling_data = stats_data[-window_size:]  # Take last window_size points
+                rolling_data = stats_data[-window_size:]
             else:
-                rolling_data = stats_data  # Use all available data if less than window
+                rolling_data = stats_data
+
+            if any(x is None or x != x for x in rolling_data):
+                self.btc_context["current_risk_multiplier"] = 1.0
+                return
                 
             self.btc_context["rolling_mean"] = sum(rolling_data) / len(rolling_data)
 
             if len(rolling_data) > 1:
                 variance = sum((x - self.btc_context["rolling_mean"]) ** 2 for x in rolling_data) / (len(rolling_data) - 1)
-                self.btc_context["rolling_std"] = variance ** 0.5
+                raw_std = variance ** 0.5
+                min_std_threshold = abs(self.btc_context["rolling_mean"]) * 0.001
+                self.btc_context["rolling_std"] = max(raw_std, min_std_threshold)
             else:
-                self.btc_context["rolling_std"] = 0.0
+                self.btc_context["rolling_std"] = abs(self.btc_context["rolling_mean"]) * 0.001
             
-            # Calculate z-score for current price
             current_price = price_history[-1]
+            if current_price is None or current_price != current_price:
+                self.btc_context["current_risk_multiplier"] = 1.0
+                return
+
             if self.btc_context["rolling_std"] > 0:
                 self.btc_context["current_zscore"] = (current_price - self.btc_context["rolling_mean"]) / self.btc_context["rolling_std"]
             else:
                 self.btc_context["current_zscore"] = 0.0
             
-            # Clamp z-score to configured bounds
             zscore = max(self.btc_context["min_zscore"], 
                         min(self.btc_context["max_zscore"], self.btc_context["current_zscore"]))
             
@@ -906,31 +912,37 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         window_size = self.sol_context["rolling_zscore"]
 
         if len(price_history) >= 2:
-            # Use leak-safe approach: exclude current price from statistics calculation
             stats_data = price_history[:-1]
             
-            # Apply the window size properly
             if len(stats_data) > window_size:
-                rolling_data = stats_data[-window_size:]  # Take last window_size points
+                rolling_data = stats_data[-window_size:]
             else:
-                rolling_data = stats_data  # Use all available data if less than window
+                rolling_data = stats_data
+
+            if any(x is None or x != x for x in rolling_data):
+                self.sol_context["current_risk_multiplier"] = 1.0
+                return
                 
             self.sol_context["rolling_mean"] = sum(rolling_data) / len(rolling_data)
 
             if len(rolling_data) > 1:
                 variance = sum((x - self.sol_context["rolling_mean"]) ** 2 for x in rolling_data) / (len(rolling_data) - 1)
-                self.sol_context["rolling_std"] = variance ** 0.5
+                raw_std = variance ** 0.5
+                min_std_threshold = abs(self.sol_context["rolling_mean"]) * 0.001
+                self.sol_context["rolling_std"] = max(raw_std, min_std_threshold)
             else:
-                self.sol_context["rolling_std"] = 0.0
+                self.sol_context["rolling_std"] = abs(self.sol_context["rolling_mean"]) * 0.001
             
-            # Calculate z-score for current price
             current_price = price_history[-1]
+            if current_price is None or current_price != current_price:
+                self.sol_context["current_risk_multiplier"] = 1.0
+                return
+
             if self.sol_context["rolling_std"] > 0:
                 self.sol_context["current_zscore"] = (current_price - self.sol_context["rolling_mean"]) / self.sol_context["rolling_std"]
             else:
                 self.sol_context["current_zscore"] = 0.0
             
-            # Clamp z-score to configured bounds
             zscore = max(self.sol_context["min_zscore"], 
                         min(self.sol_context["max_zscore"], self.sol_context["current_zscore"]))
             
@@ -1272,13 +1284,15 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             aroon_osc_value = float(aroon.value) if aroon.value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="aroon_osc", value=aroon_osc_value)
 
-        # BTC Risk Scaling metrics
+        # BTC Risk Scaling metrics (only for non-BTC instruments)
         if self.config.btc_performance_risk_scaling.get("enabled", False) and hasattr(self, 'btc_context'):
-            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
+            if not self.is_btc_instrument(inst_id):
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
 
-        # SOL Risk Scaling metrics
+        # SOL Risk Scaling metrics (only for non-SOL instruments)
         if self.config.sol_performance_risk_scaling.get("enabled", False) and hasattr(self, 'sol_context'):
-            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_risk_multiplier", value=self.sol_context.get("current_risk_multiplier", 1.0))
+            if not self.is_sol_instrument(inst_id):
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_risk_multiplier", value=self.sol_context.get("current_risk_multiplier", 1.0))
 
 
     def on_order_filled(self, order_filled) -> None:
