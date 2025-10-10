@@ -57,7 +57,7 @@ exp_growth_atr_risk:
 log_growth_atr_risk:
   enabled: true
   atr_period: 20
-  atr_multiple: [3, 3.5, 4, 4.5, 5]
+  atr_multiple: 3
   risk_percent: 0.04
 
 exp_fixed_trade_risk:
@@ -95,7 +95,7 @@ entry_scale_binance_metrics: # rank based approach for ENTRY logic
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
-  rolling_window_bars_binance: 3000
+  rolling_window_bars_binance: 2500
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
@@ -113,7 +113,7 @@ exit_l3_metrics_in_profit:
   exit_toptrader_short_threshold: -1.1  # das disabled das
   exit_toptrader_allow_difference: 2.1 # das disabled das
   exit_oi_threshold: -0.95
-  exit_oi_allow_difference: 0.8
+  exit_oi_allow_difference: 1.0
 
 btc_performance_risk_scaling:
   enabled: true
