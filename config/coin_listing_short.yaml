@@ -103,11 +103,7 @@ entry_scale_binance_metrics: # rank based approach for ENTRY logic
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
-<<<<<<< HEAD
-  rolling_window_bars_binance: 2500
-=======
-  rolling_window_bars_binance: 600
->>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
+  rolling_window_bars_binance: 1800
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
@@ -121,15 +117,9 @@ five_day_scaling_filters:
 
 exit_l3_metrics_in_profit:
   enabled: true
-<<<<<<< HEAD
-  exit_amount_change_scaled_values: 75
-  exit_toptrader_short_threshold: -1.1  # das disabled das
-  exit_toptrader_allow_difference: 2.1 # das disabled das
-=======
   exit_amount_change_scaled_values: [50, 100, 200]
   exit_toptrader_short_threshold: [-0.95, -0.9, -0.85]
   exit_toptrader_allow_difference: [0.95, 0.8, 0.65]
->>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
   exit_oi_threshold: -0.95
   exit_oi_allow_difference: 1.0
 
