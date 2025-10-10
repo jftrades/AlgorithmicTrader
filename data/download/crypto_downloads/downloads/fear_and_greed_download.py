@@ -8,6 +8,8 @@ import os  # NEU
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.core.datetime import dt_to_unix_nanos, unix_nanos_to_iso8601
+from nautilus_trader.test_kit.providers import TestInstrumentProvider  # NEW
+from nautilus_trader.model.identifiers import Symbol, Venue  # NEW
 
 from data.download.crypto_downloads.custom_class.fear_and_greed_data import FearAndGreedData
 
@@ -119,6 +121,39 @@ class FearAndGreedDownloader:
         df["classification"] = df["classification"].fillna("UNKNOWN")
         return df
 
+    # NEW: Build a lightweight synthetic instrument for FNG to write into the catalog
+    def _build_fng_instrument(self):
+        # Prefer a perpetual template (has settlement_currency and margin fields)
+        template = TestInstrumentProvider.btcusdt_perp_binance()
+
+        symbol_str = self.instrument_id_str.split(".")[0]  # e.g. "FNG-INDEX"
+        inst_id = InstrumentId(Symbol(symbol_str), Venue("BINANCE"))
+
+        # Build constructor kwargs dynamically to avoid attribute errors across instrument classes
+        kwargs = {
+            "instrument_id": inst_id,
+            "raw_symbol": Symbol(symbol_str),
+            "base_currency": getattr(template, "base_currency", None),
+            "quote_currency": getattr(template, "quote_currency", None),
+            "settlement_currency": getattr(template, "settlement_currency", None),
+            "is_inverse": getattr(template, "is_inverse", False),
+            "price_precision": getattr(template, "price_precision", None),
+            "size_precision": getattr(template, "size_precision", None),
+            "price_increment": getattr(template, "price_increment", None),
+            "size_increment": getattr(template, "size_increment", None),
+            "margin_init": getattr(template, "margin_init", None),
+            "margin_maint": getattr(template, "margin_maint", None),
+            "maker_fee": getattr(template, "maker_fee", None),
+            "taker_fee": getattr(template, "taker_fee", None),
+            "ts_event": getattr(template, "ts_event", None),
+            "ts_init": getattr(template, "ts_init", None),
+        }
+        # Strip None to match the constructor signature of the specific instrument class
+        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+
+        instrument = template.__class__(**kwargs)
+        return instrument
+
     def run(self) -> Dict[str, Any]:
         raw_file = self._download_raw_if_needed()
         df = self._load_raw(raw_file)
@@ -150,6 +185,8 @@ class FearAndGreedDownloader:
         if self.save_in_catalog:
             self.catalog_path.mkdir(parents=True, exist_ok=True)
             catalog = ParquetDataCatalog(str(self.catalog_path))
+            instrument_for_meta = self._build_fng_instrument()  # NEW
+            catalog.write_data([instrument_for_meta])           # NEW
             catalog.write_data(records)
 
         if self.save_as_csv:
@@ -185,12 +222,17 @@ class FearAndGreedDownloader:
 if __name__ == "__main__":
     base_dir = Path(__file__).resolve().parents[3] / "DATA_STORAGE"
     downloader = FearAndGreedDownloader(
+<<<<<<< HEAD
         start_date="2023-01-01",
         end_date="2025-10-01",
+=======
+        start_date="2024-01-01",
+        end_date="2025-10-07",
+>>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
         base_data_dir=str(base_dir),
         instrument_id_str="FNG-INDEX.BINANCE",
         limit=0,
-        save_as_csv=True,
+        save_as_csv=False,
         save_in_catalog=True,
         download_if_missing=True,
         remove_processed=False,

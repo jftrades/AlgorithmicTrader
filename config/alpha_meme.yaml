@@ -36,24 +36,13 @@ data_sources:
     instrument_ids: all
     bar_types: from_instruments
 
-  # Custom MetricsData für alle Instrumente (client_id wird automatisch gesetzt)
-  - data_cls: "data.download.crypto_downloads.custom_class.metrics_data:MetricsData"
-    instrument_ids: all
-
-  - data_cls: "data.download.crypto_downloads.custom_class.lunar_data:LunarData"
-    instrument_ids: all
-
-  # Custom AggTradeData nur für BTCUSDT-PERP.BINANCE (client_id wird automatisch gesetzt)
-  - data_cls: "data.download.crypto_downloads.custom_class.aggTrades_data:AggTradeData"
-    instrument_ids:
-      - "BTCUSDT-PERP.BINANCE"
 
 # Backtest-Zeitraum
-start_date: "2024-10-01T00:00:00Z"
-end_date: "2024-10-31T00:00:00Z"
+start_date: "2025-07-01T00:00:00Z"
+end_date: "2025-10-01T00:00:00Z"
 
 # Account/Venue-Parameter
-starting_account_balance: "10000 USDT"
+starting_account_balance: "1000 USDT"
 base_currency: "USDT"
 account_type: "MARGIN"
 oms_type: "NETTING"

@@ -7,14 +7,13 @@ venue: "BINANCE"
 instruments:
   - instrument_id: "BTCUSDT-PERP.BINANCE"
     bar_types: 
-      - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
+      - "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
     trade_size_usdt: "1"  
-    test: 0
   - instrument_id: "SOLUSDT-PERP.BINANCE"
     bar_types: 
-      - "SOLUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
+      - "SOLUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
     trade_size_usdt: "1"  
-    test: 0
+ 
 
 instruments_from_path:
   path: "../data/DATA_STORAGE/project_future_scraper/new_binance_perpetual_futures.csv"
@@ -33,9 +32,13 @@ data_sources:
   - data_cls: "data.download.crypto_downloads.custom_class.metrics_data:MetricsData"
     instrument_ids: all
 
+  - data_cls: "data.download.crypto_downloads.custom_class.fear_and_greed_data:FearAndGreedData"
+    instrument_ids: 
+      - "FNG-INDEX.BINANCE"
+
 # backtest period
-start_date: "2024-08-01T00:00:00Z"
-end_date: "2025-08-01T00:00:00Z"
+start_date: "2025-01-01T00:00:00Z"
+end_date: "2025-10-01T00:00:00Z"
 
 # account/venue params
 starting_account_balance: "1000 USDT"
@@ -46,7 +49,6 @@ oms_type: "NETTING"
 # risk params
 close_positions_on_stop: true
 min_account_balance: 1000
-#max_leverage: 1
 
 exp_growth_atr_risk:
   enabled: false
@@ -56,9 +58,15 @@ exp_growth_atr_risk:
 
 log_growth_atr_risk:
   enabled: true
+<<<<<<< HEAD
   atr_period: 20
   atr_multiple: 3
   risk_percent: 0.04
+=======
+  atr_period: 50
+  atr_multiple: 1.5
+  risk_percent: 0.05
+>>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
 
 exp_fixed_trade_risk:
   enabled: false
@@ -74,7 +82,7 @@ log_fixed_trade_risk:
 only_execute_short: true
 hold_profit_for_remaining_days: false
 time_after_listing_close: 19
-max_leverage: 10
+max_leverage: 1
 
 use_min_coin_filters:
   enabled: false
@@ -84,8 +92,8 @@ use_min_coin_filters:
 
 use_aroon_simple_trend_system:
   enabled: true
-  aroon_period: 70
-  aroon_osc_short_threshold: 40
+  aroon_period: 250
+  aroon_osc_short_threshold: -60
 
 entry_scale_binance_metrics: # rank based approach for ENTRY logic
   enabled: false
@@ -95,7 +103,11 @@ entry_scale_binance_metrics: # rank based approach for ENTRY logic
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
+<<<<<<< HEAD
   rolling_window_bars_binance: 2500
+=======
+  rolling_window_bars_binance: 600
+>>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
@@ -109,9 +121,15 @@ five_day_scaling_filters:
 
 exit_l3_metrics_in_profit:
   enabled: true
+<<<<<<< HEAD
   exit_amount_change_scaled_values: 75
   exit_toptrader_short_threshold: -1.1  # das disabled das
   exit_toptrader_allow_difference: 2.1 # das disabled das
+=======
+  exit_amount_change_scaled_values: [50, 100, 200]
+  exit_toptrader_short_threshold: [-0.95, -0.9, -0.85]
+  exit_toptrader_allow_difference: [0.95, 0.8, 0.65]
+>>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
   exit_oi_threshold: -0.95
   exit_oi_allow_difference: 1.0
 
@@ -122,8 +140,8 @@ btc_performance_risk_scaling:
   stop_executing_above_zscore: 2.8
   max_zscore: 4.0
   min_zscore: -4.0
-  risk_multiplier_max_z_threshold: 0.4
-  risk_multiplier_min_z_threshold: 3.0
+  risk_multiplier_max_z_threshold: 1.0 # 0.4
+  risk_multiplier_min_z_threshold: 1.0 # 3.0
 
 sol_performance_risk_scaling:
   enabled: true
@@ -132,7 +150,7 @@ sol_performance_risk_scaling:
   stop_executing_above_zscore: 2.8
   max_zscore: 4.0
   min_zscore: -4.0
-  risk_multiplier_max_z_threshold: 0.4
-  risk_multiplier_min_z_threshold: 3.0
+  risk_multiplier_max_z_threshold: 1.0 # 0.4
+  risk_multiplier_min_z_threshold: 1.0 # 3.0
 
 

@@ -18,6 +18,7 @@ from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 from nautilus_trader.model.data import DataType
 from data.download.crypto_downloads.custom_class.metrics_data import MetricsData
+from data.download.crypto_downloads.custom_class.fear_and_greed_data import FearAndGreedData
 
 
 class CoinListingShortConfig(StrategyConfig):
@@ -31,7 +32,7 @@ class CoinListingShortConfig(StrategyConfig):
     # Risk Management Configuration
     exp_growth_atr_risk: Dict[str, Any] = Field(
         default_factory=lambda: {
-            "enabled": True,
+            "enabled": False,
             "atr_period": 14,
             "atr_multiple": 2.0,
             "risk_percent": 0.04
@@ -54,7 +55,7 @@ class CoinListingShortConfig(StrategyConfig):
 
     log_fixed_trade_risk: Dict[str, Any] = Field(
         default_factory=lambda: {
-            "enabled": False,
+            "enabled": True,
             "investment_size": 50
         }
     )
@@ -161,6 +162,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         self.add_instrument_context()
         self.setup_btc_tracking()
         self.setup_sol_tracking()
+        self.current_fng = 0
+        self.fng_classification = "UNKNOWN"  # ensure default classification
     
     def add_instrument_context(self):
         for current_instrument in self.instrument_dict.values():
@@ -271,6 +274,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             # Track entry values for exit logic
             current_instrument["entry_toptrader_scaled"] = None
             current_instrument["entry_oi_scaled"] = None
+
+            current_instrument["fng"] = None
             
             # Separate history arrays for exit logic (independent from five_day_scaling_filters)
             current_instrument["exit_toptrader_scaled_history"] = []
@@ -285,6 +290,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["collector"].initialise_logging_indicator("scaled_open_interest_entry", 1)
             current_instrument["collector"].initialise_logging_indicator("scaled_toptrader_ratio_exit", 1)
             current_instrument["collector"].initialise_logging_indicator("scaled_open_interest_exit", 1)
+            #current_instrument["collector"].initialise_logging_indicator("fng", 1)
             
             if self.config.btc_performance_risk_scaling.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("btc_zscore", 1)
@@ -302,6 +308,11 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         self.btc_context = {
         "rolling_zscore": btc_config.get("rolling_zscore", 200),
+        "rolling_zscore_1": btc_config.get("rolling_zscore_1", 200),
+        "rolling_zscore_2": btc_config.get("rolling_zscore_2", 200),
+        "rolling_zscore_3": btc_config.get("rolling_zscore_3", 200),
+        "rolling_zscore_4": btc_config.get("rolling_zscore_4", 200),
+        "rolling_zscore_5": btc_config.get("rolling_zscore_5", 200),
         "risk_scaling_method": btc_config.get("risk_scaling_method", "exponential"),
         "stop_executing_above_zscore": btc_config.get("stop_executing_above_zscore", 4.0),
         "max_zscore": btc_config.get("max_zscore", 3.0),
@@ -313,6 +324,12 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         # Rolling z-score calculation components
         "price_history": [],
         "current_zscore": 0.0,
+        "current_zscore_1": 0.0,
+        "current_zscore_2": 0.0,
+        "current_zscore_3": 0.0,
+        "current_zscore_4": 0.0,
+        "current_zscore_5": 0.0,
+        "current_zscores": {},  # map: {"rolling_zscore": z, "rolling_zscore_1": z1, ...}
         "rolling_mean": 0.0,
         "rolling_std": 0.0,
         "current_risk_multiplier": 1.0
@@ -325,7 +342,13 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         sol_config = self.config.sol_performance_risk_scaling
         
         self.sol_context = {
-        "rolling_zscore": sol_config.get("rolling_zscore", 500),
+        #"rolling_zscore": sol_config.get("rolling_zscore", 500),
+        "rolling_zscore": sol_config.get("rolling_zscore", 200),
+        "rolling_zscore_1": sol_config.get("rolling_zscore_1", 200),
+        "rolling_zscore_2": sol_config.get("rolling_zscore_2", 200),
+        "rolling_zscore_3": sol_config.get("rolling_zscore_3", 200),
+        "rolling_zscore_4": sol_config.get("rolling_zscore_4", 200),
+        "rolling_zscore_5": sol_config.get("rolling_zscore_5", 200),
         "risk_scaling_method": sol_config.get("risk_scaling_method", "linear"),
         "stop_executing_above_zscore": sol_config.get("stop_executing_above_zscore", 2.8),
         "max_zscore": sol_config.get("max_zscore", 4.0),
@@ -337,6 +360,12 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         # Rolling z-score calculation components
         "price_history": [],
         "current_zscore": 0.0,
+        "current_zscore_1": 0.0,
+        "current_zscore_2": 0.0,
+        "current_zscore_3": 0.0,
+        "current_zscore_4": 0.0,
+        "current_zscore_5": 0.0,
+        "current_zscores": {},  # map: {"rolling_zscore": z, "rolling_zscore_1": z1, ...}
         "rolling_mean": 0.0,
         "rolling_std": 0.0,
         "current_risk_multiplier": 1.0
@@ -345,6 +374,14 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
     def on_start(self): 
         super().on_start()
         self._subscribe_to_metrics_data()
+        self._subscribe_to_fear_and_greed_data()
+
+    def _subscribe_to_fear_and_greed_data(self):
+        try:
+            fear_greed_data_type = DataType(FearAndGreedData)
+            self.subscribe_data(data_type=fear_greed_data_type)
+        except Exception as e:
+            self.log.error(f"Failed to subscribe to FNG Data: {e}", LogColor.RED)
 
     def _subscribe_to_metrics_data(self):
         try:
@@ -380,6 +417,14 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
     def on_data(self, data) -> None:
         if isinstance(data, MetricsData):
             self.on_metrics_data(data)
+        if isinstance(data, FearAndGreedData):
+            self.on_fear_and_greed_data(data)
+
+    def on_fear_and_greed_data(self, data: FearAndGreedData) -> None:
+        # FIX: FearAndGreedData has 'fear_greed', not 'value'
+        self.current_fng = int(data.fear_greed)
+        self.fng_classification = data.classification
+        self.log.info(f"Fear and Greed Index updated: {self.current_fng} ({self.fng_classification})", LogColor.CYAN)
 
     def on_metrics_data(self, data: MetricsData) -> None:
         instrument_id = data.instrument_id
@@ -394,28 +439,6 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             # Apply BOTH entry and exit scaling
             self.entry_scale_binance_metrics(current_instrument)
             self.exit_scale_binance_metrics(current_instrument)
-
-    def passes_coin_filters(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
-        if not current_instrument.get("use_min_coin_filters", True):
-            return True
-        
-        min_price = current_instrument["min_price"]
-        if min_price > 0 and float(bar.close) < min_price:
-            return False
-        
-        min_24h_volume = current_instrument["min_24h_volume"]
-        if min_24h_volume > 0:
-            rolling_24h_dollar_volume = current_instrument.get("rolling_24h_dollar_volume", 0.0)
-            if rolling_24h_dollar_volume < min_24h_volume:
-                return False
-        
-        min_open_interest_value = current_instrument["min_sum_open_interest_value"]
-        if min_open_interest_value > 0:
-            latest_open_interest_value = current_instrument.get("latest_open_interest_value", 0.0)
-            if latest_open_interest_value < min_open_interest_value:
-                return False
-        
-        return True
     
     def passes_five_day_scaling_filters(self, current_instrument: Dict[str, Any]) -> bool:
         if not current_instrument.get("five_day_filters_enabled", True):
@@ -852,6 +875,29 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         self.update_sol_risk_metrics()
         
+    # Helper: leak-safe rolling z-score with clamping
+    def _compute_rolling_zscore(self, prices: List[float], window: int, min_z: float, max_z: float) -> float:
+        if len(prices) < 2:
+            return 0.0
+        stats_data = prices[:-1]
+        if len(stats_data) < 2:
+            return 0.0
+        if len(stats_data) > window:
+            rolling_data = stats_data[-window:]
+        else:
+            rolling_data = stats_data
+
+        mean = sum(rolling_data) / len(rolling_data)
+        if len(rolling_data) > 1:
+            variance = sum((x - mean) ** 2 for x in rolling_data) / (len(rolling_data) - 1)
+            std = variance ** 0.5
+        else:
+            std = 0.0
+
+        current_price = prices[-1]
+        z = (current_price - mean) / std if std > 0 else 0.0
+        # Clamp
+        return max(min_z, min(max_z, z))
 
     def update_btc_risk_metrics(self) -> None:
         if not hasattr(self, 'btc_context') or len(self.btc_context["price_history"]) < 2:
@@ -884,20 +930,50 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             else:
                 self.btc_context["rolling_std"] = abs(self.btc_context["rolling_mean"]) * 0.001
             
+<<<<<<< HEAD
+=======
+            # Calculate main z-score (clamped)
+>>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
             current_price = price_history[-1]
             if current_price is None or current_price != current_price:
                 self.btc_context["current_risk_multiplier"] = 1.0
                 return
 
             if self.btc_context["rolling_std"] > 0:
-                self.btc_context["current_zscore"] = (current_price - self.btc_context["rolling_mean"]) / self.btc_context["rolling_std"]
+                raw_z = (current_price - self.btc_context["rolling_mean"]) / self.btc_context["rolling_std"]
             else:
+<<<<<<< HEAD
                 self.btc_context["current_zscore"] = 0.0
             
             zscore = max(self.btc_context["min_zscore"], 
                         min(self.btc_context["max_zscore"], self.btc_context["current_zscore"]))
+=======
+                raw_z = 0.0
+
+            # Clamp z-score to configured bounds
+            zscore_main = max(self.btc_context["min_zscore"], 
+                              min(self.btc_context["max_zscore"], raw_z))
+            self.btc_context["current_zscore"] = zscore_main
+
+            # Compute additional window z-scores and store them
+            min_z = self.btc_context["min_zscore"]
+            max_z = self.btc_context["max_zscore"]
+            current_zscores = {"rolling_zscore": zscore_main}
+
+            for i in range(1, 6):
+                key = f"rolling_zscore_{i}"
+                win = self.btc_context.get(key)
+                if win is None:
+                    continue
+                z_i = self._compute_rolling_zscore(price_history, int(win), min_z, max_z)
+                self.btc_context[f"current_zscore_{i}"] = z_i
+                current_zscores[key] = z_i
+
+            self.btc_context["current_zscores"] = current_zscores
+>>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
             
-            risk_multiplier = self._zscore_to_risk_multiplier_btc(zscore)
+            # Risk multiplier still derived from main window
+            risk_multiplier = self._zscore_to_risk_multiplier_btc(zscore_main)
             self.btc_context["current_risk_multiplier"] = risk_multiplier
         else:
             self.btc_context["current_risk_multiplier"] = 1.0
@@ -933,20 +1009,52 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             else:
                 self.sol_context["rolling_std"] = abs(self.sol_context["rolling_mean"]) * 0.001
             
+<<<<<<< HEAD
+=======
+            # Calculate main z-score (clamped)
+>>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
             current_price = price_history[-1]
             if current_price is None or current_price != current_price:
                 self.sol_context["current_risk_multiplier"] = 1.0
                 return
 
             if self.sol_context["rolling_std"] > 0:
-                self.sol_context["current_zscore"] = (current_price - self.sol_context["rolling_mean"]) / self.sol_context["rolling_std"]
+                raw_z = (current_price - self.sol_context["rolling_mean"]) / self.sol_context["rolling_std"]
             else:
+<<<<<<< HEAD
                 self.sol_context["current_zscore"] = 0.0
             
             zscore = max(self.sol_context["min_zscore"], 
                         min(self.sol_context["max_zscore"], self.sol_context["current_zscore"]))
             
             risk_multiplier = self._zscore_to_risk_multiplier_sol(zscore)
+=======
+                raw_z = 0.0
+
+            # Clamp z-score to configured bounds
+            zscore_main = max(self.sol_context["min_zscore"], 
+                              min(self.sol_context["max_zscore"], raw_z))
+            self.sol_context["current_zscore"] = zscore_main
+
+            # Compute additional window z-scores and store them
+            min_z = self.sol_context["min_zscore"]
+            max_z = self.sol_context["max_zscore"]
+            current_zscores = {"rolling_zscore": zscore_main}
+
+            for i in range(1, 6):
+                key = f"rolling_zscore_{i}"
+                win = self.sol_context.get(key)
+                if win is None:
+                    continue
+                z_i = self._compute_rolling_zscore(price_history, int(win), min_z, max_z)
+                self.sol_context[f"current_zscore_{i}"] = z_i
+                current_zscores[key] = z_i
+
+            self.sol_context["current_zscores"] = current_zscores
+
+            # Risk multiplier still derived from main window
+            risk_multiplier = self._zscore_to_risk_multiplier_sol(zscore_main)
+>>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
             self.sol_context["current_risk_multiplier"] = risk_multiplier
         else:
             self.sol_context["current_risk_multiplier"] = 1.0
@@ -1002,8 +1110,9 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             return
             
         btc_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_zscore", value=self.btc_context.get("current_zscore", 0.0))
+
         btc_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
-    
+        
     def update_sol_visualizer_data(self, bar: Bar, sol_instrument: Dict[str, Any]) -> None:
         if not hasattr(self, 'sol_context'):
             return
@@ -1120,6 +1229,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             self.add_instrument_context()
         
         self.update_rolling_24h_volume(bar, current_instrument)
+        current_instrument["fng"] = self.current_fng
 
         # Always handle ATR (needed for stop loss)
         current_instrument["atr"].handle_bar(bar)
@@ -1138,9 +1248,6 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
         if open_orders:
-            return
-                
-        if not self.passes_coin_filters(bar, current_instrument):
             return
         
         position = self.base_get_position(instrument_id)
@@ -1241,6 +1348,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         # Check for L3 metrics exit signal (counter-signals)
         if self.check_exit_l3_metrics_signal(current_instrument, position):
             close_qty = min(int(abs(position.quantity)), abs(position.quantity))
+        #return self.base_on_position_closed(position_closed)
             if close_qty > 0:
                 #self.order_types.submit_long_market_order(instrument_id, int(close_qty))
                 self.order_types.close_position_by_market_order(instrument_id)
@@ -1277,6 +1385,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_open_interest_entry", value=current_instrument.get("latest_open_interest_value_scaled_entry", 0.0))
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_toptrader_ratio_exit", value=current_instrument.get("sum_toptrader_long_short_ratio_scaled_exit", 0.0))
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_open_interest_exit", value=current_instrument.get("latest_open_interest_value_scaled_exit", 0.0))
+        #current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="fng", value=current_instrument.get("fng", 0.0))
 
         # Aroon Oscillator (position 2)
         if self.config.use_aroon_simple_trend_system.get("enabled", False):
@@ -1291,8 +1400,13 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
 
         # SOL Risk Scaling metrics (only for non-SOL instruments)
         if self.config.sol_performance_risk_scaling.get("enabled", False) and hasattr(self, 'sol_context'):
+<<<<<<< HEAD
             if not self.is_sol_instrument(inst_id):
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_risk_multiplier", value=self.sol_context.get("current_risk_multiplier", 1.0))
+=======
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_zscore", value=self.sol_context.get("current_zscore", 0.0))
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_risk_multiplier", value=self.sol_context.get("current_risk_multiplier", 1.0))
+>>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
 
 
     def on_order_filled(self, order_filled) -> None:
@@ -1305,6 +1419,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         if current_instrument is not None:
             self.reset_position_tracking(current_instrument)
         return self.base_on_position_closed(position_closed)
+    
+
     
     def on_error(self, error: Exception) -> None:
         return self.base_on_error(error)
