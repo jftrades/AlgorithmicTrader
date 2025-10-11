@@ -133,7 +133,7 @@ class AlphaMemeStrategy(BaseStrategy, Strategy):
             self.order_types.submit_short_market_order(instrument_id, qty)
         current_instrument["seen"] = True
         current_instrument["count"] += 1
-        if current_instrument["count"] > 1700:
+        if current_instrument["count"] > 4*30:
             self.close_position(instrument_id)
 
 

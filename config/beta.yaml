@@ -13,8 +13,13 @@ venue: "BINANCE"
 instruments:
   - instrument_id: "BTCUSDT-PERP.BINANCE"
     bar_types: 
-      - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
+     # - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
       - "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
+    trade_size_usdt: "100"
+  - instrument_id: "SOLUSDT-PERP.BINANCE"
+    bar_types: 
+     # - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
+      - "SOLUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
     trade_size_usdt: "100"
     test: 1
 
@@ -34,8 +39,8 @@ data_sources:
 
 
 # Backtest-Zeitraum
-start_date: "2024-10-01T00:00:00Z"
-end_date: "2024-10-31T00:00:00Z"
+start_date: "2025-01-10T00:00:00Z"
+end_date: "2025-10-01T00:00:00Z"
 
 # Account/Venue-Parameter
 starting_account_balance: "100000 USDT"
