@@ -141,7 +141,9 @@ class CoinListingShortConfig(StrategyConfig):
             "exit_toptrader_short_threshold": -0.95,
             "exit_toptrader_allow_difference": [0.4, 0.8],
             "exit_oi_threshold": -0.95,
-            "exit_oi_allow_difference": [0.4, 0.8]
+            "exit_oi_allow_difference": [0.4, 0.8],
+            "only_check_thresholds_after_entry": False,
+            "exit_signal_mode": "both_or"  # "toptrader_only", "oi_only", "both_or", "both_and"
         }
     )
 
@@ -270,12 +272,14 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["exit_toptrader_allow_difference"] = exit_config["exit_toptrader_allow_difference"]
             current_instrument["exit_oi_threshold"] = exit_config["exit_oi_threshold"]
             current_instrument["exit_oi_allow_difference"] = exit_config["exit_oi_allow_difference"]
+            current_instrument["only_check_thresholds_after_entry"] = exit_config.get("only_check_thresholds_after_entry", False)
+            current_instrument["exit_signal_mode"] = exit_config.get("exit_signal_mode", "both_or")
             
             # Track entry values for exit logic
             current_instrument["entry_toptrader_scaled"] = None
             current_instrument["entry_oi_scaled"] = None
-
-            current_instrument["fng"] = None
+            current_instrument["trade_entry_timestamp"] = None
+            current_instrument["entry_history_position"] = None
             
             # Separate history arrays for exit logic (independent from five_day_scaling_filters)
             current_instrument["exit_toptrader_scaled_history"] = []
@@ -525,6 +529,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         exit_oi_threshold = current_instrument.get("exit_oi_threshold", -0.95)
         exit_toptrader_allow_diff = current_instrument.get("exit_toptrader_allow_difference", 0.0)
         exit_oi_allow_diff = current_instrument.get("exit_oi_allow_difference", [0.5, 1.0])
+        exit_signal_mode = current_instrument.get("exit_signal_mode", "both_or")
         
         if isinstance(exit_toptrader_allow_diff, list):
             exit_toptrader_allow_diff = exit_toptrader_allow_diff[0]
@@ -538,6 +543,14 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         toptrader_history = current_instrument.get("exit_toptrader_scaled_history", [])
         oi_history = current_instrument.get("exit_oi_scaled_history", [])
         
+        # Filter history based on trade entry if enabled
+        if current_instrument.get("only_check_thresholds_after_entry", False):
+            entry_position = current_instrument.get("entry_history_position")
+            if entry_position is not None:
+                # Only use data from entry position onwards
+                toptrader_history = toptrader_history[entry_position:]
+                oi_history = oi_history[entry_position:]
+        
         if len(toptrader_history) > lookback_window:
             toptrader_recent = toptrader_history[-lookback_window:]
         else:
@@ -548,39 +561,54 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         else:
             oi_recent = oi_history
         
+        # Calculate toptrader exit signal
         toptrader_exit_signal = False
-        if exit_toptrader_threshold != 0.0 and exit_toptrader_allow_diff > 0.0:
-            if exit_toptrader_threshold >= 0:
-                # Positive threshold: check if we reached the extreme high, then snapped back down
-                toptrader_reached_extreme = any(val >= exit_toptrader_threshold for val in toptrader_recent)
-                if toptrader_reached_extreme:
-                    max_toptrader = max(toptrader_recent)
-                    toptrader_exit_signal = current_toptrader <= (max_toptrader - exit_toptrader_allow_diff)
-            else:
-                # Negative threshold: check if we reached the extreme low, then snapped back up
-                toptrader_reached_extreme = any(val <= exit_toptrader_threshold for val in toptrader_recent)
-                if toptrader_reached_extreme:
-                    min_toptrader = min(toptrader_recent)
-                    required_rebound = min_toptrader + exit_toptrader_allow_diff
-                    toptrader_exit_signal = current_toptrader >= required_rebound
+        if exit_signal_mode in ["toptrader_only", "both_or", "both_and"]:
+            if exit_toptrader_threshold != 0.0 and exit_toptrader_allow_diff > 0.0:
+                if exit_toptrader_threshold >= 0:
+                    # Positive threshold: check if we reached the extreme high, then snapped back down
+                    toptrader_reached_extreme = any(val >= exit_toptrader_threshold for val in toptrader_recent)
+                    if toptrader_reached_extreme:
+                        max_toptrader = max(toptrader_recent)
+                        toptrader_exit_signal = current_toptrader <= (max_toptrader - exit_toptrader_allow_diff)
+                else:
+                    # Negative threshold: check if we reached the extreme low, then snapped back up
+                    toptrader_reached_extreme = any(val <= exit_toptrader_threshold for val in toptrader_recent)
+                    if toptrader_reached_extreme:
+                        min_toptrader = min(toptrader_recent)
+                        required_rebound = min_toptrader + exit_toptrader_allow_diff
+                        toptrader_exit_signal = current_toptrader >= required_rebound
         
+        # Calculate OI exit signal
         oi_exit_signal = False
-        if exit_oi_threshold != 0.0 and exit_oi_allow_diff > 0.0:
-            if exit_oi_threshold >= 0:
-                # Positive threshold: check if we reached the extreme high, then snapped back down
-                oi_reached_extreme = any(val >= exit_oi_threshold for val in oi_recent)
-                if oi_reached_extreme:
-                    max_oi = max(oi_recent)
-                    oi_exit_signal = current_oi <= (max_oi - exit_oi_allow_diff)
-            else:
-                # Negative threshold: check if we reached the extreme low, then snapped back up
-                oi_reached_extreme = any(val <= exit_oi_threshold for val in oi_recent)
-                if oi_reached_extreme:
-                    min_oi = min(oi_recent)
-                    required_oi_rebound = min_oi + exit_oi_allow_diff
-                    oi_exit_signal = current_oi >= required_oi_rebound
-                    
-        final_exit_signal = toptrader_exit_signal or oi_exit_signal
+        if exit_signal_mode in ["oi_only", "both_or", "both_and"]:
+            if exit_oi_threshold != 0.0 and exit_oi_allow_diff > 0.0:
+                if exit_oi_threshold >= 0:
+                    # Positive threshold: check if we reached the extreme high, then snapped back down
+                    oi_reached_extreme = any(val >= exit_oi_threshold for val in oi_recent)
+                    if oi_reached_extreme:
+                        max_oi = max(oi_recent)
+                        oi_exit_signal = current_oi <= (max_oi - exit_oi_allow_diff)
+                else:
+                    # Negative threshold: check if we reached the extreme low, then snapped back up
+                    oi_reached_extreme = any(val <= exit_oi_threshold for val in oi_recent)
+                    if oi_reached_extreme:
+                        min_oi = min(oi_recent)
+                        required_oi_rebound = min_oi + exit_oi_allow_diff
+                        oi_exit_signal = current_oi >= required_oi_rebound
+        
+        # Combine signals based on exit signal mode
+        if exit_signal_mode == "toptrader_only":
+            final_exit_signal = toptrader_exit_signal
+        elif exit_signal_mode == "oi_only":
+            final_exit_signal = oi_exit_signal
+        elif exit_signal_mode == "both_or":
+            final_exit_signal = toptrader_exit_signal or oi_exit_signal
+        elif exit_signal_mode == "both_and":
+            final_exit_signal = toptrader_exit_signal and oi_exit_signal
+        else:
+            # Default to OR logic
+            final_exit_signal = toptrader_exit_signal or oi_exit_signal
         
         return final_exit_signal
     
@@ -1283,6 +1311,10 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["bars_since_entry"] = 0
             current_instrument["min_topt_difference_since_entry"] = None
             current_instrument["sl_price"] = stop_loss_price
+            current_instrument["trade_entry_timestamp"] = bar.ts_event
+            
+            # Store current position in exit history for filtering
+            current_instrument["entry_history_position"] = len(current_instrument.get("exit_toptrader_scaled_history", []))
             
             # Store entry metric values for exit logic (using ENTRY scaled values)
             current_instrument["entry_toptrader_scaled"] = current_instrument.get("sum_toptrader_long_short_ratio_scaled_entry", 0.0)
@@ -1290,15 +1322,14 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             
             self.log.info("Executing short trade - passed all filters (aroon crossover + toptrader + OI)")
             self.order_types.submit_short_market_order(instrument_id, qty)
-            #self.order_types.submit_short_bracket_order(instrument_id, qty, entry_price, stop_loss_price, 0.000001)
-    
+
     def short_exit_logic(self, bar: Bar, current_instrument: Dict[str, Any], position):
         current_instrument["bars_since_entry"] += 1
         sl_price = current_instrument.get("sl_price")
         instrument_id = bar.bar_type.instrument_id
         current_instrument["prev_bar_close"] = float(bar.close)
         
-        if sl_price is not None and float(bar.close) >= sl_price:
+        if sl_price is not None and float(bar.close) > sl_price:
             close_qty = min(int(abs(position.quantity)), abs(position.quantity))
             if close_qty > 0:
                 #self.order_types.submit_long_market_order(instrument_id, int(close_qty))
@@ -1334,9 +1365,9 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         current_instrument["sl_price"] = None
         current_instrument["in_short_position"] = False
         current_instrument["entry_toptrader_scaled"] = None
-        current_instrument["entry_oi_scaled"] = None     
-
-
+        current_instrument["entry_oi_scaled"] = None
+        current_instrument["trade_entry_timestamp"] = None
+        current_instrument["entry_history_position"] = None
 
     def update_visualizer_data(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         inst_id = bar.bar_type.instrument_id

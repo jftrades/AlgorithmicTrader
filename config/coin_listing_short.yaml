@@ -111,11 +111,13 @@ five_day_scaling_filters:
 
 exit_l3_metrics_in_profit:
   enabled: true
-  exit_amount_change_scaled_values: [50, 100, 200]
-  exit_toptrader_short_threshold: [-0.95, -0.9, -0.85]
-  exit_toptrader_allow_difference: [0.95, 0.8, 0.65]
-  exit_oi_threshold: -0.95
-  exit_oi_allow_difference: 0.5
+  exit_amount_change_scaled_values: 150
+  exit_toptrader_short_threshold: -0.93
+  exit_toptrader_allow_difference: 0.7
+  exit_oi_threshold: -0.93
+  exit_oi_allow_difference: 0.93
+  only_check_thresholds_after_entry: true  # New parameter
+  exit_signal_mode: "oi_only"  # Options: "toptrader_only", "oi_only", "both_or", "both_and"
 
 btc_performance_risk_scaling:
   enabled: false
