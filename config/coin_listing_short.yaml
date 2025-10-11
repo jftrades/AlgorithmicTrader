@@ -7,11 +7,11 @@ venue: "BINANCE"
 instruments:
   - instrument_id: "BTCUSDT-PERP.BINANCE"
     bar_types: 
-      - "BTCUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
+      - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
     trade_size_usdt: "1"  
   - instrument_id: "SOLUSDT-PERP.BINANCE"
     bar_types: 
-      - "SOLUSDT-PERP.BINANCE-5-MINUTE-LAST-EXTERNAL"
+      - "SOLUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
     trade_size_usdt: "1"  
  
 
@@ -32,15 +32,15 @@ data_sources:
   - data_cls: "data.download.crypto_downloads.custom_class.metrics_data:MetricsData"
     instrument_ids: all
 
-  - data_cls: "data.download.crypto_downloads.custom_class.fear_and_greed_data:FearAndGreedData"
-    instrument_ids: 
-      - "FNG-INDEX.BINANCE"
+  #- data_cls: "data.download.crypto_downloads.custom_class.fear_and_greed_data:FearAndGreedData"
+  #  instrument_ids: 
+  #    - "FNG-INDEX.BINANCE"
 
 # backtest period
-start_date: "2025-01-01T00:00:00Z"
-end_date: "2025-10-01T00:00:00Z"
+start_date: "2024-08-01T00:00:00Z"
+end_date: "2025-09-01T00:00:00Z"
 
-# account/venue params
+# account/venue params  
 starting_account_balance: "1000 USDT"
 base_currency: "USDT"
 account_type: "MARGIN"
@@ -58,15 +58,9 @@ exp_growth_atr_risk:
 
 log_growth_atr_risk:
   enabled: true
-<<<<<<< HEAD
-  atr_period: 20
-  atr_multiple: 3
-  risk_percent: 0.04
-=======
   atr_period: 50
   atr_multiple: 1.5
   risk_percent: 0.05
->>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
 
 exp_fixed_trade_risk:
   enabled: false
@@ -103,7 +97,7 @@ entry_scale_binance_metrics: # rank based approach for ENTRY logic
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
-  rolling_window_bars_binance: 1800
+  rolling_window_bars_binance: 600
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
@@ -117,14 +111,14 @@ five_day_scaling_filters:
 
 exit_l3_metrics_in_profit:
   enabled: true
-  exit_amount_change_scaled_values: [50, 100, 200]
-  exit_toptrader_short_threshold: [-0.95, -0.9, -0.85]
-  exit_toptrader_allow_difference: [0.95, 0.8, 0.65]
+  exit_amount_change_scaled_values: 100
+  exit_toptrader_short_threshold: -0.95
+  exit_toptrader_allow_difference: 0.95
   exit_oi_threshold: -0.95
   exit_oi_allow_difference: 1.0
 
 btc_performance_risk_scaling:
-  enabled: true
+  enabled: false
   risk_scaling_method: "linear"
   rolling_zscore: 200
   stop_executing_above_zscore: 2.8
@@ -134,7 +128,7 @@ btc_performance_risk_scaling:
   risk_multiplier_min_z_threshold: 1.0 # 3.0
 
 sol_performance_risk_scaling:
-  enabled: true
+  enabled: false
   risk_scaling_method: "linear"
   rolling_zscore: 200
   stop_executing_above_zscore: 2.8

@@ -930,10 +930,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             else:
                 self.btc_context["rolling_std"] = abs(self.btc_context["rolling_mean"]) * 0.001
             
-<<<<<<< HEAD
-=======
             # Calculate main z-score (clamped)
->>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
             current_price = price_history[-1]
             if current_price is None or current_price != current_price:
                 self.btc_context["current_risk_multiplier"] = 1.0
@@ -942,12 +939,6 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             if self.btc_context["rolling_std"] > 0:
                 raw_z = (current_price - self.btc_context["rolling_mean"]) / self.btc_context["rolling_std"]
             else:
-<<<<<<< HEAD
-                self.btc_context["current_zscore"] = 0.0
-            
-            zscore = max(self.btc_context["min_zscore"], 
-                        min(self.btc_context["max_zscore"], self.btc_context["current_zscore"]))
-=======
                 raw_z = 0.0
 
             # Clamp z-score to configured bounds
@@ -970,7 +961,6 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
                 current_zscores[key] = z_i
 
             self.btc_context["current_zscores"] = current_zscores
->>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
             
             # Risk multiplier still derived from main window
             risk_multiplier = self._zscore_to_risk_multiplier_btc(zscore_main)
@@ -1009,10 +999,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             else:
                 self.sol_context["rolling_std"] = abs(self.sol_context["rolling_mean"]) * 0.001
             
-<<<<<<< HEAD
-=======
             # Calculate main z-score (clamped)
->>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
             current_price = price_history[-1]
             if current_price is None or current_price != current_price:
                 self.sol_context["current_risk_multiplier"] = 1.0
@@ -1021,14 +1008,6 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             if self.sol_context["rolling_std"] > 0:
                 raw_z = (current_price - self.sol_context["rolling_mean"]) / self.sol_context["rolling_std"]
             else:
-<<<<<<< HEAD
-                self.sol_context["current_zscore"] = 0.0
-            
-            zscore = max(self.sol_context["min_zscore"], 
-                        min(self.sol_context["max_zscore"], self.sol_context["current_zscore"]))
-            
-            risk_multiplier = self._zscore_to_risk_multiplier_sol(zscore)
-=======
                 raw_z = 0.0
 
             # Clamp z-score to configured bounds
@@ -1054,7 +1033,6 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
 
             # Risk multiplier still derived from main window
             risk_multiplier = self._zscore_to_risk_multiplier_sol(zscore_main)
->>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
             self.sol_context["current_risk_multiplier"] = risk_multiplier
         else:
             self.sol_context["current_risk_multiplier"] = 1.0
@@ -1400,13 +1378,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
 
         # SOL Risk Scaling metrics (only for non-SOL instruments)
         if self.config.sol_performance_risk_scaling.get("enabled", False) and hasattr(self, 'sol_context'):
-<<<<<<< HEAD
-            if not self.is_sol_instrument(inst_id):
-                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_risk_multiplier", value=self.sol_context.get("current_risk_multiplier", 1.0))
-=======
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_zscore", value=self.sol_context.get("current_zscore", 0.0))
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_risk_multiplier", value=self.sol_context.get("current_risk_multiplier", 1.0))
->>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
 
 
     def on_order_filled(self, order_filled) -> None:
