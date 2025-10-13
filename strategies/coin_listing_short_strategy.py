@@ -10,9 +10,11 @@ from nautilus_trader.common.enums import LogColor
 from pydantic import Field
 from decimal import Decimal
 
-from nautilus_trader.indicators.aroon import AroonOscillator
-from nautilus_trader.indicators.atr import AverageTrueRange
-from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
+from nautilus_trader.indicators.averages import ExponentialMovingAverage
+from nautilus_trader.indicators.trend import AroonOscillator
+from nautilus_trader.indicators.volatility import AverageTrueRange
+
+
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
