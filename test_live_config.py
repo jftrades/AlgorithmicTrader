@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from execution.live_run_execution import LiveTrader
+from AlgorithmicTrader.execution.live.live_run_execution import LiveTrader
 
 
 def test_config_loading():

@@ -24,7 +24,7 @@ from nautilus_trader.common.enums import LogColor
 
 
 # Strategiespezifische Importe
-from nautilus_trader.indicators.rsi import RelativeStrengthIndex
+from nautilus_trader.indicators.momentum import RelativeStrengthIndex
 
 # -------------------------------------------------
 # Multi-Instrument Konfiguration (jetzt Pflicht)

@@ -22,7 +22,7 @@ from nautilus_trader.backtest.config import BacktestDataConfig
 from core.visualizing.dashboard1 import TradingDashboard
 
 def run_backtest(run_config):
-    node = BacktestNode(run_config)  # Übergib eine Liste!
+    node = BacktestNode(run_config)
     result = node.run()
     return result
 

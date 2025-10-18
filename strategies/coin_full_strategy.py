@@ -20,6 +20,7 @@ from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 from data.download.crypto_downloads.custom_class.metrics_data import MetricsData
 
+
 class CoinFullConfig(StrategyConfig):
     instruments: List[dict]  
     max_leverage: float
