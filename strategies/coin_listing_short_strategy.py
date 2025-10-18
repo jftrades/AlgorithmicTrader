@@ -1386,6 +1386,16 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["l3_oi_window"] = []
             
             self.log.info("Executing short trade - L3 window activated for exit tracking")
+            self.log.info(f"ORDER INIT: {bar.ts_event})", LogColor.CYAN)
+            self.log.info(f"ORDER INIT: {bar.ts_event})", LogColor.CYAN)
+            self.log.info(f"ORDER INIT: {bar.ts_event})", LogColor.CYAN)
+            self.log.info(f"ORDER INIT: {bar.ts_event})", LogColor.CYAN)
+            self.log.info(f"ORDER INIT: {bar.ts_event})", LogColor.CYAN)
+            self.log.info(f"ORDER open: {bar.open})", LogColor.CYAN)
+            self.log.info(f"ORDER high: {bar.high})", LogColor.CYAN)
+            self.log.info(f"ORDER low: {bar.low})", LogColor.CYAN)
+            self.log.info(f"ORDER close: {bar.close})", LogColor.CYAN)
+
             self.order_types.submit_short_market_order(instrument_id, qty)
             #self.order_types.submit_short_bracket_order(instrument_id, qty, bar.close, stop_loss_price, 0.00001)
 
@@ -1468,6 +1478,12 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
 
 
     def on_order_filled(self, order_filled) -> None:
+        self.log.info(f"ORDER FILLED: {order_filled.ts_event})", LogColor.CYAN)
+        self.log.info(f"ORDER FILLED: {order_filled.ts_event})", LogColor.CYAN)
+        self.log.info(f"ORDER FILLED: {order_filled.ts_event})", LogColor.CYAN)
+        self.log.info(f"ORDER FILLED: {order_filled.ts_event})", LogColor.CYAN)
+        self.log.info(f"ORDER FILLED: {order_filled.ts_event})", LogColor.CYAN)
+        self.log.info(f"ORDER px: {order_filled.last_px})", LogColor.CYAN)
         return self.base_on_order_filled(order_filled)
     
 
@@ -1488,3 +1504,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             raise ValueError("InstrumentId erforderlich (kein globales primäres Instrument mehr).")
         position = self.base_get_position(instrument_id)
         return self.base_close_position(position)
+    
+    def on_position_opened(self, position_opened) -> None:
+        self.log.info(f"POS OPENED: {position_opened.ts_init})", LogColor.CYAN)
+        self.log.info(f"POS OPENED: {position_opened.ts_opened})", LogColor.CYAN)
