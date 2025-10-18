@@ -158,8 +158,6 @@ class BaseStrategy(Strategy):
         position = self.cache.position(order_filled.position_id)
         parent_id = position.opening_order_id
         id_ctx["collector"].add_trade_details(order_filled, parent_id)
-        self.log.info(
-            f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
 
     def base_on_position_closed(self, position_closed) -> None:
         pos_id = position_closed.position_id 

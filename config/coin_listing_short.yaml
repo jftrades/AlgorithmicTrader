@@ -59,7 +59,7 @@ exp_growth_atr_risk:
 log_growth_atr_risk:
   enabled: true
   atr_period: 50
-  atr_multiple: 1.5 #1.5
+  atr_multiple: 3.0
   risk_percent: 0.05
 
 exp_fixed_trade_risk:
@@ -86,8 +86,8 @@ use_min_coin_filters:
 
 use_aroon_simple_trend_system:
   enabled: true
-  aroon_period: 250
-  aroon_osc_short_threshold: -60
+  aroon_period: 70
+  aroon_osc_short_threshold: -50
 
 entry_scale_binance_metrics: # rank based approach for ENTRY logic
   enabled: false
@@ -97,7 +97,7 @@ entry_scale_binance_metrics: # rank based approach for ENTRY logic
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
-  rolling_window_bars_binance: 600
+  rolling_window_bars_binance: 500 # for OI around 2000 and for TopTrader around 500 best
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
@@ -111,13 +111,13 @@ five_day_scaling_filters:
 
 exit_l3_metrics_in_profit:
   enabled: true
-  exit_amount_change_scaled_values: 150
-  exit_toptrader_short_threshold: -0.90
-  exit_toptrader_allow_difference: 0.6
-  exit_oi_threshold: -0.90
-  exit_oi_allow_difference: 0.6
-  only_check_thresholds_after_entry: true  # New parameter
-  exit_signal_mode: "both_and"  # Options: "toptrader_only", "oi_only", "both_or", "both_and"
+  exit_amount_change_scaled_values: 100
+  exit_toptrader_short_threshold: -0.95
+  exit_toptrader_allow_difference: 0.8
+  exit_oi_threshold: -0.95
+  exit_oi_allow_difference: 0.8
+  only_check_thresholds_after_entry: true
+  exit_signal_mode: "toptrader_only"  # Options: "toptrader_only", "oi_only", "both_or", "both_and"
 
 btc_performance_risk_scaling:
   enabled: false
@@ -130,7 +130,7 @@ btc_performance_risk_scaling:
   risk_multiplier_min_z_threshold: 1.0 # 3.0
 
 sol_performance_risk_scaling:
-  enabled: true
+  enabled: false
   risk_scaling_method: "linear"
   rolling_zscore: 200
   stop_executing_above_zscore: 2.8
