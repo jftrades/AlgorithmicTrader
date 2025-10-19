@@ -222,13 +222,8 @@ class FearAndGreedDownloader:
 if __name__ == "__main__":
     base_dir = Path(__file__).resolve().parents[3] / "DATA_STORAGE"
     downloader = FearAndGreedDownloader(
-<<<<<<< HEAD
         start_date="2023-01-01",
-        end_date="2025-10-01",
-=======
-        start_date="2024-01-01",
-        end_date="2025-10-07",
->>>>>>> f90045ccd8ef966366c43632c5d99daa11877470
+        end_date="2025-10-19",
         base_data_dir=str(base_dir),
         instrument_id_str="FNG-INDEX.BINANCE",
         limit=0,
