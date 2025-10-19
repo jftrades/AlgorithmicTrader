@@ -498,8 +498,8 @@ class BarDownloader:
         start_ms = int(pd.Timestamp(self.start_date).tz_localize("UTC").timestamp() * 1000)
         end_ms = int((pd.Timestamp(self.end_date) + pd.Timedelta(days=1)).tz_localize("UTC").timestamp() * 1000) - 1
         
-        # Bybit API limit: max 200 days per request, chunk into 180-day windows
-        chunk_days = 180
+        # Bybit API limit: chunk into large windows for efficiency
+        chunk_days = 1800  # ~5 years per chunk (increased from 180)
         chunk_ms = chunk_days * 24 * 60 * 60 * 1000
         
         all_bars = []
