@@ -38,8 +38,8 @@ import os
 # ============================================================================
 
 symbol = "BTCUSDT-LINEAR"
-start_date = "2024-01-01"
-end_date = "2024-12-01"
+start_date = "2022-01-01"
+end_date = "2025-10-18"
 base_data_dir = str(Path(__file__).resolve().parents[3] / "DATA_STORAGE")
 datatype = "bar"
 interval = "15m"
@@ -498,43 +498,58 @@ class BarDownloader:
         start_ms = int(pd.Timestamp(self.start_date).tz_localize("UTC").timestamp() * 1000)
         end_ms = int((pd.Timestamp(self.end_date) + pd.Timedelta(days=1)).tz_localize("UTC").timestamp() * 1000) - 1
         
-        params = {
-            "category": "linear",
-            "symbol": self.symbol,
-            "interval": self.bybit_interval,
-            "start": start_ms,
-            "end": end_ms,
-            "limit": 1000,
-        }
+        # Bybit API limit: max 200 days per request, chunk into 180-day windows
+        chunk_days = 180
+        chunk_ms = chunk_days * 24 * 60 * 60 * 1000
         
         all_bars = []
-        cursor = None
-        page = 0
+        current_start = start_ms
+        chunk_num = 0
         
-        while True:
-            page += 1
-            if cursor:
-                params["cursor"] = cursor
+        while current_start < end_ms:
+            chunk_num += 1
+            current_end = min(current_start + chunk_ms, end_ms)
             
-            try:
-                data = make_bybit_api_request(BYBIT_ENDPOINTS["kline"], params)
-            except Exception as e:
-                print(f"[ERROR] API request failed: {e}")
-                break
+            print(f"[INFO] Downloading chunk {chunk_num}: {pd.Timestamp(current_start, unit='ms')} to {pd.Timestamp(current_end, unit='ms')}")
             
-            result = data.get("result", {})
-            bars = result.get("list", [])
+            params = {
+                "category": "linear",
+                "symbol": self.symbol,
+                "interval": self.bybit_interval,
+                "start": current_start,
+                "end": current_end,
+                "limit": 1000,
+            }
             
-            if not bars:
-                print(f"[INFO] No more data (page {page})")
-                break
+            cursor = None
+            page = 0
             
-            all_bars.extend(bars)
-            print(f"[INFO] Downloaded {len(bars)} bars (page {page}, total: {len(all_bars)})")
+            while True:
+                page += 1
+                if cursor:
+                    params["cursor"] = cursor
+                
+                try:
+                    data = make_bybit_api_request(BYBIT_ENDPOINTS["kline"], params)
+                except Exception as e:
+                    print(f"[ERROR] API request failed: {e}")
+                    break
+                
+                result = data.get("result", {})
+                bars = result.get("list", [])
+                
+                if not bars:
+                    print(f"[INFO] No more data (chunk {chunk_num}, page {page})")
+                    break
+                
+                all_bars.extend(bars)
+                print(f"[INFO] Downloaded {len(bars)} bars (chunk {chunk_num}, page {page}, total: {len(all_bars)})")
+                
+                cursor = result.get("nextPageCursor")
+                if not cursor:
+                    break
             
-            cursor = result.get("nextPageCursor")
-            if not cursor:
-                break
+            current_start = current_end + 1
         
         if not all_bars:
             print("[WARN] No bars downloaded")
