@@ -38,7 +38,7 @@ data_sources:
 
 # backtest period
 start_date: "2025-01-01T00:00:00Z"
-end_date: "2025-02-01T00:00:00Z"
+end_date: "2025-10-01T00:00:00Z"
 
 # account/venue params  
 starting_account_balance: "1000 USDT"
@@ -91,33 +91,29 @@ use_aroon_simple_trend_system:
 
 entry_scale_binance_metrics: # rank based approach for ENTRY logic
   enabled: false
-  rolling_window_bars_binance: 200
+  rolling_window_bars_binance: 2000
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
-  rolling_window_bars_binance: 2000 # for OI around 2000 and for TopTrader around 500 best
+  rolling_window_bars_binance: 100 # for OI metrics
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
 five_day_scaling_filters:
   enabled: false
   amount_change_scaled_values: 250
-  toptrader_short_threshold: 0.8
-  toptrader_allow_entry_difference: 0.5
   oi_trade_threshold: 0.8
   oi_allow_entry_difference: 0.5
 
 exit_l3_metrics_in_profit:
   enabled: true
   exit_amount_change_scaled_values: 100
-  exit_toptrader_short_threshold: -0.95
-  exit_toptrader_allow_difference: 0.8
-  exit_oi_threshold: -0.95
-  exit_oi_allow_difference: 0.8
+  exit_oi_threshold: -0.6
+  exit_oi_allow_difference: 0.5
   only_check_thresholds_after_entry: true
-  exit_signal_mode: "oi_only"  # Options: "toptrader_only", "oi_only", "both_or", "both_and"
+  exit_signal_mode: "oi_only"
 
 btc_performance_risk_scaling:
   enabled: false

@@ -104,18 +104,16 @@ exit_scale_binance_metrics:
 five_day_scaling_filters:
   enabled: true
   amount_change_scaled_values: [100, 250]
-  toptrader_short_threshold: 0.8
-  toptrader_allow_entry_difference: 0.5
   oi_trade_threshold: 0.8
   oi_allow_entry_difference: 0.5
 
 exit_l3_metrics_in_profit:
   enabled: true
   exit_amount_change_scaled_values: 100
-  exit_toptrader_short_threshold: -0.95
-  exit_toptrader_allow_difference: 0.8
   exit_oi_threshold: -0.95
   exit_oi_allow_difference: 0.8
+  only_check_thresholds_after_entry: true
+  exit_signal_mode: "oi_only"
 
 log_growth_atr_risk:
   enabled: true

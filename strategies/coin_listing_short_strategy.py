@@ -104,7 +104,7 @@ class CoinListingShortConfig(StrategyConfig):
             "aroon_period": 14,
             "aroon_osc_short_threshold": -50
         }
-    )
+    )   
 
     # metrics scaling
     exit_scale_binance_metrics: Dict[str, Any] = Field(
@@ -129,8 +129,6 @@ class CoinListingShortConfig(StrategyConfig):
         default_factory=lambda: {
             "enabled": True,
             "amount_change_scaled_values": 100,
-            "toptrader_short_threshold": 0.8,
-            "toptrader_allow_entry_difference": 0.4,
             "oi_trade_threshold": 0.8,
             "oi_allow_entry_difference": 0.4
         }
@@ -140,12 +138,10 @@ class CoinListingShortConfig(StrategyConfig):
         default_factory=lambda: {
             "enabled": False,
             "exit_amount_change_scaled_values": 200,
-            "exit_toptrader_short_threshold": -0.95,
-            "exit_toptrader_allow_difference": [0.4, 0.8],
             "exit_oi_threshold": -0.95,
             "exit_oi_allow_difference": [0.4, 0.8],
             "only_check_thresholds_after_entry": False,
-            "exit_signal_mode": "both_or"  # "toptrader_only", "oi_only", "both_or", "both_and"
+            "exit_signal_mode": "oi_only" 
         }
     )
 
@@ -213,30 +209,19 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             # Aroon crossover detection
             current_instrument["prev_aroon_osc_value"] = None
 
-            # l3 metrics
-            current_instrument["sum_toptrader_long_short_ratio"] = 0.0
-            current_instrument["count_long_short_ratio"] = 0.0
+            # l3 metrics - OI only
             current_instrument["latest_open_interest_value"] = 0.0
 
-
             # Scaled values (separate from raw values) - ENTRY scaling
-            current_instrument["sum_toptrader_long_short_ratio_scaled_entry"] = 0.0
-            current_instrument["count_long_short_ratio_scaled_entry"] = 0.0
             current_instrument["latest_open_interest_value_scaled_entry"] = 0.0
 
             # Scaled values (separate from raw values) - EXIT scaling
-            current_instrument["sum_toptrader_long_short_ratio_scaled_exit"] = 0.0
-            current_instrument["count_long_short_ratio_scaled_exit"] = 0.0
             current_instrument["latest_open_interest_value_scaled_exit"] = 0.0
 
             # Historical storage for scaling - ENTRY Binance metrics
-            current_instrument["sum_toptrader_long_short_ratio_history_entry"] = []
-            current_instrument["count_long_short_ratio_history_entry"] = []
             current_instrument["latest_open_interest_value_history_entry"] = []
 
             # Historical storage for scaling - EXIT Binance metrics
-            current_instrument["sum_toptrader_long_short_ratio_history_exit"] = []
-            current_instrument["count_long_short_ratio_history_exit"] = []
             current_instrument["latest_open_interest_value_history_exit"] = []
 
             # ENTRY Scaling configs - use values from YAML configuration
@@ -253,42 +238,34 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["exit_upper_percentile_threshold_binance"] = exit_binance_config["upper_percentile_threshold_binance"]
             current_instrument["exit_lower_percentile_threshold_binance"] = exit_binance_config["lower_percentile_threshold_binance"]
 
-            # Five day scaling filters configuration
+            # Five day scaling filters configuration - OI only
             filter_config = self.config.five_day_scaling_filters
             current_instrument["five_day_filters_enabled"] = filter_config["enabled"]
             current_instrument["amount_change_scaled_values"] = filter_config["amount_change_scaled_values"]
-            current_instrument["toptrader_short_threshold"] = filter_config["toptrader_short_threshold"]
-            current_instrument["toptrader_allow_entry_difference"] = filter_config["toptrader_allow_entry_difference"]
             current_instrument["oi_trade_threshold"] = filter_config["oi_trade_threshold"]
             current_instrument["oi_allow_entry_difference"] = filter_config["oi_allow_entry_difference"]
             
-            # Historical tracking for five day scaling filters (uses ENTRY scaled values)
-            current_instrument["toptrader_scaled_history"] = []
+            # Historical tracking for five day scaling filters (uses ENTRY scaled values) - OI only
             current_instrument["oi_scaled_history"] = []
 
-            # Exit L3 metrics configuration
+            # Exit L3 metrics configuration - OI only
             exit_config = self.config.exit_l3_metrics_in_profit
             current_instrument["exit_l3_enabled"] = exit_config["enabled"]
             current_instrument["exit_amount_change_scaled_values"] = exit_config["exit_amount_change_scaled_values"]
-            current_instrument["exit_toptrader_short_threshold"] = exit_config["exit_toptrader_short_threshold"]
-            current_instrument["exit_toptrader_allow_difference"] = exit_config["exit_toptrader_allow_difference"]
             current_instrument["exit_oi_threshold"] = exit_config["exit_oi_threshold"]
             current_instrument["exit_oi_allow_difference"] = exit_config["exit_oi_allow_difference"]
             current_instrument["only_check_thresholds_after_entry"] = exit_config.get("only_check_thresholds_after_entry", False)
-            current_instrument["exit_signal_mode"] = exit_config.get("exit_signal_mode", "both_or")
+            current_instrument["exit_signal_mode"] = exit_config.get("exit_signal_mode", "oi_only")
             
-            # Track entry values for exit logic
-            current_instrument["entry_toptrader_scaled"] = None
+            # Track entry values for exit logic - OI only
             current_instrument["entry_oi_scaled"] = None
             current_instrument["trade_entry_timestamp"] = None
             current_instrument["entry_history_position"] = None
             
-            # Separate history arrays for exit logic (independent from five_day_scaling_filters)
-            current_instrument["exit_toptrader_scaled_history"] = []
+            # Separate history arrays for exit logic (independent from five_day_scaling_filters) - OI only
             current_instrument["exit_oi_scaled_history"] = []
             
-            # NEW: L3 window that starts fresh after each trade entry
-            current_instrument["l3_toptrader_window"] = []
+            # NEW: L3 window that starts fresh after each trade entry - OI only
             current_instrument["l3_oi_window"] = []
             current_instrument["l3_window_active"] = False
 
@@ -296,10 +273,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             if self.config.use_aroon_simple_trend_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("aroon_osc", 2)
             
-            # Initialize scaled metrics visualization (both entry and exit)
-            current_instrument["collector"].initialise_logging_indicator("scaled_toptrader_ratio_entry", 1)
+            # Initialize scaled metrics visualization (both entry and exit) - OI only
             current_instrument["collector"].initialise_logging_indicator("scaled_open_interest_entry", 1)
-            current_instrument["collector"].initialise_logging_indicator("scaled_toptrader_ratio_exit", 1)
             current_instrument["collector"].initialise_logging_indicator("scaled_open_interest_exit", 1)
             #current_instrument["collector"].initialise_logging_indicator("fng", 1)
             
@@ -442,10 +417,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         current_instrument = self.instrument_dict.get(instrument_id)
 
         if current_instrument is not None:
-            # Map Bybit fields to strategy fields
-            # Bybit only has: open_interest, funding_rate, long_short_ratio
-            current_instrument["sum_toptrader_long_short_ratio"] = data.long_short_ratio
-            current_instrument["count_long_short_ratio"] = data.long_short_ratio  # Same field for Bybit
+            # Map Bybit fields to strategy fields - OI only
             current_instrument["latest_open_interest_value"] = data.open_interest
             
             # Apply BOTH entry and exit scaling
@@ -459,37 +431,16 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         if not current_instrument.get("five_day_filters_enabled", True):
             return True
         
-        toptrader_threshold = current_instrument.get("toptrader_short_threshold", 0.0)
         oi_threshold = current_instrument.get("oi_trade_threshold", [0.8, 0.95])
-        toptrader_difference = current_instrument.get("toptrader_allow_entry_difference", 0.0)
         oi_difference = current_instrument.get("oi_allow_entry_difference", [0.2, 0.5])
         
-        toptrader_history = current_instrument.get("toptrader_scaled_history", [])
         oi_history = current_instrument.get("oi_scaled_history", [])
         
-        if len(toptrader_history) == 0 or len(oi_history) == 0:
+        if len(oi_history) == 0:
             return False
         
         # Use ENTRY scaled values for entry logic
-        current_toptrader = current_instrument.get("sum_toptrader_long_short_ratio_scaled_entry", 0.0)
         current_oi = current_instrument.get("latest_open_interest_value_scaled_entry", 0.0)
-        
-        if toptrader_threshold >= 0:
-            # Positive threshold: look for downward movement from peaks
-            toptrader_past_condition = any(val >= toptrader_threshold for val in toptrader_history)
-            if toptrader_past_condition:
-                max_toptrader = max(toptrader_history)
-                toptrader_condition = current_toptrader <= (max_toptrader - toptrader_difference)
-            else:
-                toptrader_condition = False
-        else:
-            # Negative threshold: look for upward movement from lows
-            toptrader_past_condition = any(val <= toptrader_threshold for val in toptrader_history)
-            if toptrader_past_condition:
-                min_toptrader = min(toptrader_history)
-                toptrader_condition = current_toptrader >= (min_toptrader + toptrader_difference)
-            else:
-                toptrader_condition = False
         
         oi_threshold_val = oi_threshold[0] if isinstance(oi_threshold, list) else oi_threshold
         oi_difference_val = oi_difference[0] if isinstance(oi_difference, list) else oi_difference
@@ -511,8 +462,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             else:
                 oi_condition = False
         
-        # At least ONE condition must be met (OR logic)
-        return toptrader_condition or oi_condition
+        return oi_condition
     
     def check_exit_l3_metrics_signal(self, current_instrument: Dict[str, Any], position) -> bool:
         if not current_instrument.get("exit_l3_enabled", False):
@@ -543,101 +493,47 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         if not is_profitable:
             return False
         
-        # Use EXIT scaled values for exit logic
-        current_toptrader = current_instrument.get("sum_toptrader_long_short_ratio_scaled_exit", 0.0)
+        # Use EXIT scaled values for exit logic - OI only
         current_oi = current_instrument.get("latest_open_interest_value_scaled_exit", 0.0)
         
-        exit_toptrader_threshold = current_instrument.get("exit_toptrader_short_threshold", 0.0)
         exit_oi_threshold = current_instrument.get("exit_oi_threshold", -0.95)
-        exit_toptrader_allow_diff = current_instrument.get("exit_toptrader_allow_difference", 0.0)
         exit_oi_allow_diff = current_instrument.get("exit_oi_allow_difference", [0.5, 1.0])
-        exit_signal_mode = current_instrument.get("exit_signal_mode", "both_or")
         
-        if isinstance(exit_toptrader_allow_diff, list):
-            exit_toptrader_allow_diff = exit_toptrader_allow_diff[0]
         if isinstance(exit_oi_allow_diff, list):
             exit_oi_allow_diff = exit_oi_allow_diff[0]
         
         # Use L3 window for exit analysis if only_check_thresholds_after_entry is enabled
         if current_instrument.get("only_check_thresholds_after_entry", False):
             # Use the fresh L3 window that started after trade entry
-            toptrader_recent = current_instrument.get("l3_toptrader_window", [])
             oi_recent = current_instrument.get("l3_oi_window", [])
-            #self.log.info(f"L3 WINDOW OI: {oi_recent}", LogColor.CYAN)
         else:
             # Use the regular exit history
             lookback_window = current_instrument.get("exit_amount_change_scaled_values", 200)
-            toptrader_history = current_instrument.get("exit_toptrader_scaled_history", [])
             oi_history = current_instrument.get("exit_oi_scaled_history", [])
             
-            if len(toptrader_history) > lookback_window:
-                toptrader_recent = toptrader_history[-lookback_window:]
-            else:
-                toptrader_recent = toptrader_history
-                
             if len(oi_history) > lookback_window:
                 oi_recent = oi_history[-lookback_window:]
             else:
                 oi_recent = oi_history
         
-        # Calculate toptrader exit signal
-        toptrader_exit_signal = False
-        if exit_signal_mode in ["toptrader_only", "both_or", "both_and"]:
-            if exit_toptrader_threshold != 0.0 and exit_toptrader_allow_diff > 0.0 and len(toptrader_recent) > 0:
-                if exit_toptrader_threshold >= 0:
-                    # Positive threshold: check if we reached the extreme high, then snapped back down
-                    toptrader_reached_extreme = any(val >= exit_toptrader_threshold for val in toptrader_recent)
-                    if toptrader_reached_extreme:
-                        max_toptrader = max(toptrader_recent)
-                        toptrader_exit_signal = current_toptrader <= (max_toptrader - exit_toptrader_allow_diff)
-                else:
-                    # Negative threshold: check if we reached the extreme low, then snapped back up
-                    toptrader_reached_extreme = any(val <= exit_toptrader_threshold for val in toptrader_recent)
-                    if toptrader_reached_extreme:
-                        min_toptrader = min(toptrader_recent)
-                        required_rebound = min_toptrader + exit_toptrader_allow_diff
-                        toptrader_exit_signal = current_toptrader >= required_rebound
-                        
-                        # DEBUG LOG for toptrader
-                       # if toptrader_exit_signal:
-                           # self.log.info(f"TOPTRADER EXIT: min={min_toptrader:.3f}, current={current_toptrader:.3f}, required={required_rebound:.3f}")
-        
         # Calculate OI exit signal
         oi_exit_signal = False
-        if exit_signal_mode in ["oi_only", "both_or", "both_and"]:
-            if exit_oi_threshold != 0.0 and exit_oi_allow_diff > 0.0 and len(oi_recent) > 0:
-                if exit_oi_threshold >= 0:
-                    # Positive threshold: check if we reached the extreme high, then snapped back down
-                    oi_reached_extreme = any(val >= exit_oi_threshold for val in oi_recent)
-                    if oi_reached_extreme:
-                        max_oi = max(oi_recent)
-                        oi_exit_signal = current_oi <= (max_oi - exit_oi_allow_diff)
-                else:
-                    # Negative threshold: check if we reached the extreme low, then snapped back up
-                    oi_reached_extreme = any(val <= exit_oi_threshold for val in oi_recent)
-                    if oi_reached_extreme:
-                        min_oi = min(oi_recent)
-                        required_oi_rebound = min_oi + exit_oi_allow_diff
-                        oi_exit_signal = current_oi >= required_oi_rebound
-                        
-                        # DEBUG LOG for OI
-                       # if oi_reached_extreme:
-                        #    self.log.info(f"L3 OI ANALYSIS: min={min_oi:.3f}, current={current_oi:.3f}, required={required_oi_rebound:.3f}, signal={oi_exit_signal}")
+        if exit_oi_threshold != 0.0 and exit_oi_allow_diff > 0.0 and len(oi_recent) > 0:
+            if exit_oi_threshold >= 0:
+                # Positive threshold: check if we reached the extreme high, then snapped back down
+                oi_reached_extreme = any(val >= exit_oi_threshold for val in oi_recent)
+                if oi_reached_extreme:
+                    max_oi = max(oi_recent)
+                    oi_exit_signal = current_oi <= (max_oi - exit_oi_allow_diff)
+            else:
+                # Negative threshold: check if we reached the extreme low, then snapped back up
+                oi_reached_extreme = any(val <= exit_oi_threshold for val in oi_recent)
+                if oi_reached_extreme:
+                    min_oi = min(oi_recent)
+                    required_oi_rebound = min_oi + exit_oi_allow_diff
+                    oi_exit_signal = current_oi >= required_oi_rebound
         
-        # Combine signals based on exit signal mode
-        if exit_signal_mode == "toptrader_only":
-            final_exit_signal = toptrader_exit_signal
-        elif exit_signal_mode == "oi_only":
-            final_exit_signal = oi_exit_signal
-        elif exit_signal_mode == "both_or":
-            final_exit_signal = toptrader_exit_signal or oi_exit_signal
-        elif exit_signal_mode == "both_and":
-            final_exit_signal = toptrader_exit_signal and oi_exit_signal
-        else:
-            # Default to OR logic
-            final_exit_signal = toptrader_exit_signal or oi_exit_signal
-        
-        return final_exit_signal
+        return oi_exit_signal
     
     def detect_aroon_crossover_below(self, current_instrument: Dict[str, Any]) -> bool:
         aroon = current_instrument["aroon"]
@@ -757,9 +653,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         upper_threshold = current_instrument.get("entry_upper_percentile_threshold_binance", 95)
         lower_threshold = current_instrument.get("entry_lower_percentile_threshold_binance", 5)
 
+        # OI only
         metrics = [
-            ("sum_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio_history_entry", "sum_toptrader_long_short_ratio_scaled_entry"),
-            ("count_long_short_ratio", "count_long_short_ratio_history_entry", "count_long_short_ratio_scaled_entry"),
             ("latest_open_interest_value", "latest_open_interest_value_history_entry", "latest_open_interest_value_scaled_entry")
         ]
 
@@ -809,9 +704,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         upper_threshold = current_instrument.get("exit_upper_percentile_threshold_binance", 95)
         lower_threshold = current_instrument.get("exit_lower_percentile_threshold_binance", 5)
 
+        # OI only
         metrics = [
-            ("sum_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio_history_exit", "sum_toptrader_long_short_ratio_scaled_exit"),
-            ("count_long_short_ratio", "count_long_short_ratio_history_exit", "count_long_short_ratio_scaled_exit"),
             ("latest_open_interest_value", "latest_open_interest_value_history_exit", "latest_open_interest_value_scaled_exit")
         ]
 
@@ -859,15 +753,10 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         lookback_window = current_instrument.get("amount_change_scaled_values", 100)
         
-        # Use ENTRY scaled values for five day filters (entry logic)
-        toptrader_scaled = current_instrument.get("sum_toptrader_long_short_ratio_scaled_entry", 0.0)
+        # Use ENTRY scaled values for five day filters (entry logic) - OI only
         oi_scaled = current_instrument.get("latest_open_interest_value_scaled_entry", 0.0)
         
-        current_instrument["toptrader_scaled_history"].append(toptrader_scaled)
         current_instrument["oi_scaled_history"].append(oi_scaled)
-        
-        if len(current_instrument["toptrader_scaled_history"]) > lookback_window:
-            current_instrument["toptrader_scaled_history"].pop(0)
             
         if len(current_instrument["oi_scaled_history"]) > lookback_window:
             current_instrument["oi_scaled_history"].pop(0)
@@ -879,20 +768,13 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         lookback_window = current_instrument.get("exit_amount_change_scaled_values", 200)
         
         # Use EXIT scaled values for exit logic
-        toptrader_scaled = current_instrument.get("sum_toptrader_long_short_ratio_scaled_exit", 0.0)
         oi_scaled = current_instrument.get("latest_open_interest_value_scaled_exit", 0.0)
         
-        # Initialize separate exit history arrays if needed
-        if "exit_toptrader_scaled_history" not in current_instrument:
-            current_instrument["exit_toptrader_scaled_history"] = []
         if "exit_oi_scaled_history" not in current_instrument:
             current_instrument["exit_oi_scaled_history"] = []
         
-        current_instrument["exit_toptrader_scaled_history"].append(toptrader_scaled)
         current_instrument["exit_oi_scaled_history"].append(oi_scaled)
-        
-        if len(current_instrument["exit_toptrader_scaled_history"]) > lookback_window:
-            current_instrument["exit_toptrader_scaled_history"].pop(0)
+    
             
         if len(current_instrument["exit_oi_scaled_history"]) > lookback_window:
             current_instrument["exit_oi_scaled_history"].pop(0)
@@ -902,19 +784,13 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         if not current_instrument.get("l3_window_active", False):
             return
             
-        # Get current scaled exit values
-        current_toptrader = current_instrument.get("sum_toptrader_long_short_ratio_scaled_exit", 0.0)
         current_oi = current_instrument.get("latest_open_interest_value_scaled_exit", 0.0)
         
         # Add to L3 window
-        current_instrument["l3_toptrader_window"].append(current_toptrader)
         current_instrument["l3_oi_window"].append(current_oi)
         
         # Limit L3 window size to lookback window
         lookback_window = current_instrument.get("exit_amount_change_scaled_values", 200)
-        
-        if len(current_instrument["l3_toptrader_window"]) > lookback_window:
-            current_instrument["l3_toptrader_window"].pop(0)
             
         if len(current_instrument["l3_oi_window"]) > lookback_window:
             current_instrument["l3_oi_window"].pop(0)
@@ -1359,7 +1235,6 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             return
         
         if self.detect_aroon_crossover_below(current_instrument):
-            # Then check both toptrader and OI filters before executing
             if self.passes_five_day_scaling_filters(current_instrument):
                 self.enter_short_aroon_trend(bar, current_instrument)
 
@@ -1389,17 +1264,12 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["min_topt_difference_since_entry"] = None
             current_instrument["sl_price"] = stop_loss_price
             current_instrument["trade_entry_timestamp"] = bar.ts_event
-            
-            # Store current position in exit history for filtering
-            current_instrument["entry_history_position"] = len(current_instrument.get("exit_toptrader_scaled_history", []))
-            
-            # Store entry metric values for exit logic (using ENTRY scaled values)
-            current_instrument["entry_toptrader_scaled"] = current_instrument.get("sum_toptrader_long_short_ratio_scaled_entry", 0.0)
+                        
+            # Store entry metric values for exit logic (using ENTRY scaled values) - OI only
             current_instrument["entry_oi_scaled"] = current_instrument.get("latest_open_interest_value_scaled_entry", 0.0)
             
             # ACTIVATE L3 WINDOW: Start fresh tracking for this trade
             current_instrument["l3_window_active"] = True
-            current_instrument["l3_toptrader_window"] = []
             current_instrument["l3_oi_window"] = []
             
             self.log.info("Executing short trade - L3 window activated for exit tracking")
@@ -1457,24 +1327,20 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         current_instrument["bars_since_entry"] = 0
         current_instrument["sl_price"] = None
         current_instrument["in_short_position"] = False
-        current_instrument["entry_toptrader_scaled"] = None
         current_instrument["entry_oi_scaled"] = None
         current_instrument["trade_entry_timestamp"] = None
         current_instrument["entry_history_position"] = None
         
         # DEACTIVATE L3 WINDOW: Stop tracking for this trade
         current_instrument["l3_window_active"] = False
-        current_instrument["l3_toptrader_window"] = []
         current_instrument["l3_oi_window"] = []
 
     def update_visualizer_data(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         inst_id = bar.bar_type.instrument_id
         self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)
 
-        # Scaled Binance metrics visualization (-1 to 1) - BOTH entry and exit
-        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_toptrader_ratio_entry", value=current_instrument.get("sum_toptrader_long_short_ratio_scaled_entry", 0.0))
+        # Scaled Binance metrics visualization (-1 to 1) - BOTH entry and exit - OI only
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_open_interest_entry", value=current_instrument.get("latest_open_interest_value_scaled_entry", 0.0))
-        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_toptrader_ratio_exit", value=current_instrument.get("sum_toptrader_long_short_ratio_scaled_exit", 0.0))
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_open_interest_exit", value=current_instrument.get("latest_open_interest_value_scaled_exit", 0.0))
         #current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="fng", value=current_instrument.get("fng", 0.0))
 
