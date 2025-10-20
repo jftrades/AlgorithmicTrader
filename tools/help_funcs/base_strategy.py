@@ -6,6 +6,7 @@ from nautilus_trader.common.enums import LogColor
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 from typing import Any, Dict, Optional
 from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.currencies import USDT
 from  tools.help_funcs.help_funcs_strategy import extract_interval_from_bar_type
 
 
@@ -204,7 +205,7 @@ class BaseStrategy(Strategy):
                 seen_venues.add(venue)
                 account = self.portfolio.account(venue)
                 if account:
-                    total_balances += account.balance_total().as_double()
+                    total_balances += account.balance_total(USDT).as_double()
         total_equity = total_balances + total_unrealized
         self.general_collector.add_indicator(timestamp=ts, name="total_position", value=total_position)
         self.general_collector.add_indicator(timestamp=ts, name="total_unrealized_pnl", value=total_unrealized)
@@ -222,7 +223,7 @@ class BaseStrategy(Strategy):
         realized_pnl = self.portfolio.total_pnl(inst_id)
         venue = inst_id.venue
         account = self.portfolio.account(venue)
-        usdt_balance = account.balance_total()
+        usdt_balance = account.balance_total(USDT)
         equity = usdt_balance.as_double() + (float(unrealized_pnl) if unrealized_pnl else 0)
         collector.add_indicator(timestamp=timestamp, name="position", value=net_exp)
         collector.add_indicator(timestamp=timestamp, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)

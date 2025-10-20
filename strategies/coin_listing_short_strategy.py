@@ -556,7 +556,11 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         from pathlib import Path
         
         onboard_dates = {}
-        csv_path = Path(__file__).parent.parent / "data" / "DATA_STORAGE" / "project_future_scraper" / "new_bybit_perpetual_futures.csv"
+        
+        live_csv = Path(__file__).parent.parent / "data" / "DATA_STORAGE" / "project_future_scraper" / "bybit_live_linear_perpetual_futures.csv"
+        backtest_csv = Path(__file__).parent.parent / "data" / "DATA_STORAGE" / "project_future_scraper" / "new_bybit_linear_perpetual_futures.csv"
+        
+        csv_path = live_csv if live_csv.exists() else backtest_csv
         
         try:
             with open(csv_path, 'r') as file:
@@ -1186,6 +1190,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         if self.config.use_aroon_simple_trend_system.get("enabled", False):
             aroon = current_instrument["aroon"]
             if not aroon.initialized:
+                self.log.info(f"Aroon not initialized yet for {instrument_id} - need 70 bars", LogColor.YELLOW)
                 return        
         
         open_orders = self.cache.orders_open(instrument_id=instrument_id)

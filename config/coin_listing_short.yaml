@@ -86,7 +86,7 @@ use_min_coin_filters:
 
 use_aroon_simple_trend_system:
   enabled: true
-  aroon_period: 70
+  aroon_period: [30, 50, 70, 100]
   aroon_osc_short_threshold: -50
 
 entry_scale_binance_metrics: # rank based approach for ENTRY logic
@@ -97,7 +97,7 @@ entry_scale_binance_metrics: # rank based approach for ENTRY logic
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
-  rolling_window_bars_binance: 100 # for OI metrics
+  rolling_window_bars_binance: 2000 # for OI metrics - needs large window to capture full OI lifecycle
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
@@ -110,8 +110,8 @@ five_day_scaling_filters:
 exit_l3_metrics_in_profit:
   enabled: true
   exit_amount_change_scaled_values: 100
-  exit_oi_threshold: -0.6
-  exit_oi_allow_difference: 0.5
+  exit_oi_threshold: -0.9 
+  exit_oi_allow_difference: 0.38  # Changed: Smaller rebound needed
   only_check_thresholds_after_entry: true
   exit_signal_mode: "oi_only"
 
