@@ -37,7 +37,7 @@ import os
 # CONFIGURATION PARAMETERS
 # ============================================================================
 
-symbol = "BTCUSDT-LINEAR"
+symbol = "SOLUSDT-LINEAR"
 start_date = "2022-01-01"
 end_date = "2025-10-18"
 base_data_dir = str(Path(__file__).resolve().parents[3] / "DATA_STORAGE")

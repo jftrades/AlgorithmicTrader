@@ -19,7 +19,7 @@ from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 from nautilus_trader.model.data import DataType
-from data.download.crypto_downloads.custom_class.metrics_data import MetricsData
+from data.download.crypto_downloads.custom_class.bybit_metrics_data import BybitMetricsData
 from data.download.crypto_downloads.custom_class.fear_and_greed_data import FearAndGreedData
 
 
@@ -159,7 +159,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
     def __init__(self, config: CoinListingShortConfig):
         super().__init__(config)
         self.risk_manager = RiskManager(config)
-        self.risk_manager.set_strategy(self)
+        self.risk_manager.set_strategy(self)    
         self.risk_manager.set_max_leverage(Decimal(str(config.max_leverage)))
         self.order_types = OrderTypes(self) 
         self.onboard_dates = self.load_onboard_dates()
@@ -396,10 +396,10 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
 
     def _subscribe_to_metrics_data(self):
         try:
-            metrics_data_type = DataType(MetricsData)
+            metrics_data_type = DataType(BybitMetricsData)
             self.subscribe_data(data_type=metrics_data_type)
         except Exception as e:
-            self.log.error(f"Failed to subscribe to MetricsData: {e}", LogColor.RED)
+            self.log.error(f"Failed to subscribe to BybitMetricsData: {e}", LogColor.RED)
         
     def update_rolling_24h_volume(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         current_volume = float(bar.volume) if hasattr(bar, 'volume') else 0.0
@@ -426,7 +426,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         current_instrument["rolling_24h_dollar_volume"] = sum(dollar_volumes)
     
     def on_data(self, data) -> None:
-        if isinstance(data, MetricsData):
+        if isinstance(data, BybitMetricsData):
             self.on_metrics_data(data)
         if isinstance(data, FearAndGreedData):
             self.on_fear_and_greed_data(data)
@@ -437,15 +437,16 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         self.fng_classification = data.classification
         self.log.info(f"Fear and Greed Index updated: {self.current_fng} ({self.fng_classification})", LogColor.CYAN)
 
-    def on_metrics_data(self, data: MetricsData) -> None:
+    def on_metrics_data(self, data: BybitMetricsData) -> None:
         instrument_id = data.instrument_id
         current_instrument = self.instrument_dict.get(instrument_id)
 
         if current_instrument is not None:
-            # Store raw values first
-            current_instrument["sum_toptrader_long_short_ratio"] = data.sum_toptrader_long_short_ratio
-            current_instrument["count_long_short_ratio"] = data.count_long_short_ratio
-            current_instrument["latest_open_interest_value"] = data.sum_open_interest_value
+            # Map Bybit fields to strategy fields
+            # Bybit only has: open_interest, funding_rate, long_short_ratio
+            current_instrument["sum_toptrader_long_short_ratio"] = data.long_short_ratio
+            current_instrument["count_long_short_ratio"] = data.long_short_ratio  # Same field for Bybit
+            current_instrument["latest_open_interest_value"] = data.open_interest
             
             # Apply BOTH entry and exit scaling
             self.entry_scale_binance_metrics(current_instrument)
@@ -659,7 +660,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         from pathlib import Path
         
         onboard_dates = {}
-        csv_path = Path(__file__).parent.parent / "data" / "DATA_STORAGE" / "project_future_scraper" / "new_binance_perpetual_futures.csv"
+        csv_path = Path(__file__).parent.parent / "data" / "DATA_STORAGE" / "project_future_scraper" / "new_bybit_perpetual_futures.csv"
         
         try:
             with open(csv_path, 'r') as file:

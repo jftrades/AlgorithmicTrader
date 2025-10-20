@@ -2,23 +2,23 @@ strategy_path: "strategies.coin_listing_short_strategy:CoinListingShortStrategy"
 config_path: "strategies.coin_listing_short_strategy:CoinListingShortConfig"
 
 visualize: true
-venue: "BINANCE"
+venue: "BYBIT"
 
 instruments:
-  - instrument_id: "BTCUSDT-PERP.BINANCE"
+  - instrument_id: "BTCUSDT-LINEAR.BYBIT"
     bar_types: 
-      - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
+      - "BTCUSDT-LINEAR.BYBIT-15-MINUTE-LAST-EXTERNAL"
     trade_size_usdt: "1"  
-  - instrument_id: "SOLUSDT-PERP.BINANCE"
+  - instrument_id: "SOLUSDT-LINEAR.BYBIT"
     bar_types: 
-      - "SOLUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
-    trade_size_usdt: "1"  
+      - "SOLUSDT-LINEAR.BYBIT-15-MINUTE-LAST-EXTERNAL"
+    trade_size_usdt: "1"
  
 
 instruments_from_path:
-  path: "../data/DATA_STORAGE/project_future_scraper/new_binance_perpetual_futures.csv"
+  path: "../data/DATA_STORAGE/project_future_scraper/new_bybit_linear_perpetual_futures.csv"
   symbol_column: "symbol"
-  instrument_suffix: "-PERP"
+  instrument_suffix: "-LINEAR"
   bar_type_endings:
     - "-15-MINUTE-LAST-EXTERNAL"
   trade_size_usdt: "150"
@@ -29,16 +29,16 @@ data_sources:
     instrument_ids: all
     bar_types: from_instruments
 
-  - data_cls: "data.download.crypto_downloads.custom_class.metrics_data:MetricsData"
+  - data_cls: "data.download.crypto_downloads.custom_class.bybit_metrics_data:BybitMetricsData"
     instrument_ids: all
 
-  #- data_cls: "data.download.crypto_downloads.custom_class.fear_and_greed_data:FearAndGreedData"
-  #  instrument_ids: 
-  #    - "FNG-INDEX.BINANCE"
+  # - data_cls: "data.download.crypto_downloads.custom_class.fear_and_greed_data:FearAndGreedData"
+  #   instrument_ids: 
+  #     - "FNG-INDEX.BINANCE"
 
 # backtest period
-start_date: "2024-08-01T00:00:00Z"
-end_date: "2025-09-01T00:00:00Z"
+start_date: "2025-01-01T00:00:00Z"
+end_date: "2025-02-01T00:00:00Z"
 
 # account/venue params  
 starting_account_balance: "1000 USDT"
@@ -97,7 +97,7 @@ entry_scale_binance_metrics: # rank based approach for ENTRY logic
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
-  rolling_window_bars_binance: 500 # for OI around 2000 and for TopTrader around 500 best
+  rolling_window_bars_binance: 2000 # for OI around 2000 and for TopTrader around 500 best
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
@@ -117,7 +117,7 @@ exit_l3_metrics_in_profit:
   exit_oi_threshold: -0.95
   exit_oi_allow_difference: 0.8
   only_check_thresholds_after_entry: true
-  exit_signal_mode: "toptrader_only"  # Options: "toptrader_only", "oi_only", "both_or", "both_and"
+  exit_signal_mode: "oi_only"  # Options: "toptrader_only", "oi_only", "both_or", "both_and"
 
 btc_performance_risk_scaling:
   enabled: false
