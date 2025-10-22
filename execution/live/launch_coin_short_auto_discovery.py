@@ -178,6 +178,7 @@ class AutoDiscoveryLiveTrader:
                 "entry_scale_binance_metrics": {"enabled": False, "rolling_window_bars_binance": 100, "upper_percentile_threshold_binance": 95, "lower_percentile_threshold_binance": 5},
                 "five_day_scaling_filters": {"enabled": False, "amount_change_scaled_values": 100, "oi_trade_threshold": 0.8, "oi_allow_entry_difference": 0.5},
                 "exit_l3_metrics_in_profit": {"enabled": True, "exit_amount_change_scaled_values": 100, "exit_oi_threshold": -0.9, "exit_oi_allow_difference": 0.5, "only_check_thresholds_after_entry": True, "exit_signal_mode": "oi_only"},
+                "use_close_ema": {"enabled": False, "exit_trend_ema_period": 200, "min_bars_over_ema": 25, "min_bars_under_ema": 25},
                 "only_execute_short": True,
                 "hold_profit_for_remaining_days": True,
                 "close_positions_on_stop": True,

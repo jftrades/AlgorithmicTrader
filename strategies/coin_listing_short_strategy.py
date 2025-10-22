@@ -145,6 +145,15 @@ class CoinListingShortConfig(StrategyConfig):
         }
     )
 
+    use_close_ema: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "exit_trend_ema_period": 200,
+            "min_bars_over_ema": 25,
+            "min_bars_under_ema": 25
+        }
+    )
+
     only_execute_short: bool = False
     hold_profit_for_remaining_days: bool = False
     close_positions_on_stop: bool = True
@@ -269,9 +278,21 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["l3_oi_window"] = []
             current_instrument["l3_window_active"] = False
 
+            # EMA Exit system
+            if self.config.use_close_ema.get("enabled", False):
+                exit_config = self.config.use_close_ema
+                exit_trend_ema_period = exit_config.get("exit_trend_ema_period", 200)
+                current_instrument["exit_trend_ema"] = ExponentialMovingAverage(exit_trend_ema_period)
+                current_instrument["bars_over_ema_exit"] = 0
+                current_instrument["bars_under_ema_exit"] = 0
+                current_instrument["ema_exit_qualified"] = False
+
             # visualizer
             if self.config.use_aroon_simple_trend_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("aroon_osc", 2)
+            
+            if self.config.use_close_ema.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("exit_trend_ema", 0)
             
             # Initialize scaled metrics visualization (both entry and exit) - OI only
             current_instrument["collector"].initialise_logging_indicator("scaled_open_interest_entry", 1)
@@ -1184,6 +1205,10 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             aroon = current_instrument["aroon"]
             aroon.handle_bar(bar)
         
+        if self.config.use_close_ema.get("enabled", False):
+            exit_trend_ema = current_instrument["exit_trend_ema"]
+            exit_trend_ema.handle_bar(bar)
+        
         self.base_collect_bar_data(bar, current_instrument)
         self.update_visualizer_data(bar, current_instrument)
 
@@ -1297,35 +1322,87 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         instrument_id = bar.bar_type.instrument_id
         current_instrument["prev_bar_close"] = float(bar.close)
         
+        # Always check stop loss first (highest priority)
         if sl_price is not None and float(bar.close) > sl_price:
             close_qty = min(int(abs(position.quantity)), abs(position.quantity))
             if close_qty > 0:
-                #self.order_types.submit_long_market_order(instrument_id, int(close_qty))
-                self.order_types.close_position_by_market_order(instrument_id)
-
-            self.reset_position_tracking(current_instrument)
-            return
-
-        # Check for L3 metrics exit signal (counter-signals)
-        if self.check_exit_l3_metrics_signal(current_instrument, position):
-            close_qty = min(int(abs(position.quantity)), abs(position.quantity))
-        #return self.base_on_position_closed(position_closed)
-            if close_qty > 0:
-                #self.order_types.submit_long_market_order(instrument_id, int(close_qty))
                 self.order_types.close_position_by_market_order(instrument_id)
             self.reset_position_tracking(current_instrument)
             return
 
+        # Check time-based exit
         if self.check_time_based_exit(bar, current_instrument, position, self.config.time_after_listing_close):
             close_qty = min(int(abs(position.quantity)), abs(position.quantity))
             if close_qty > 0:
-                #self.order_types.submit_long_market_order(instrument_id, int(close_qty))
                 self.order_types.close_position_by_market_order(instrument_id)
             self.reset_position_tracking(current_instrument)
             return
         
+        # Skip all other exits if time-based exit is enabled but deadline not reached
         if self.config.hold_profit_for_remaining_days:
             return
+
+        # EMA EXIT OVERRIDES OI EXIT: Check EMA first if enabled
+        should_exit = False
+        
+        if self.config.use_close_ema.get("enabled", False):
+            if self.check_ema_exit_short(bar, current_instrument):
+                should_exit = True
+        # Only check L3 OI metrics if EMA exit is NOT enabled
+        elif self.config.exit_l3_metrics_in_profit.get("enabled", False):
+            if self.check_exit_l3_metrics_signal(current_instrument, position):
+                should_exit = True
+        
+        # Execute exit if any method triggered
+        if should_exit:
+            close_qty = min(int(abs(position.quantity)), abs(position.quantity))
+            if close_qty > 0:
+                self.order_types.close_position_by_market_order(instrument_id)
+            self.reset_position_tracking(current_instrument)
+            return
+
+    def check_ema_exit_short(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
+        """
+        EMA Exit Logic for SHORT positions:
+        1. Price must stay UNDER EMA for min_bars_under_ema bars (qualification phase)
+        2. Once qualified, if price crosses back ABOVE EMA → EXIT signal
+        """
+        exit_trend_ema = current_instrument.get("exit_trend_ema")
+        
+        if not exit_trend_ema or not exit_trend_ema.initialized:
+            return False
+            
+        current_price = float(bar.close)
+        ema_value = float(exit_trend_ema.value)
+        min_bars = self.config.use_close_ema.get("min_bars_under_ema", 25)
+
+        if "ema_exit_qualified" not in current_instrument:
+            current_instrument["ema_exit_qualified"] = False
+        if "bars_under_ema_exit" not in current_instrument:
+            current_instrument["bars_under_ema_exit"] = 0
+        if "bars_over_ema_exit" not in current_instrument:
+            current_instrument["bars_over_ema_exit"] = 0
+        
+        # Price is BELOW EMA (good for short - count bars)
+        if current_price < ema_value:
+            current_instrument["bars_under_ema_exit"] += 1
+            current_instrument["bars_over_ema_exit"] = 0
+            
+            # Qualify for exit after enough bars under EMA
+            if current_instrument["bars_under_ema_exit"] >= min_bars:
+                current_instrument["ema_exit_qualified"] = True
+        # Price is ABOVE EMA (bad for short - potential exit)
+        else:
+            current_instrument["bars_over_ema_exit"] += 1
+            current_instrument["bars_under_ema_exit"] = 0
+            
+            # EXIT: Price crossed back above EMA after qualification
+            if current_instrument["ema_exit_qualified"] and current_price >= ema_value:
+                self.log.info(f"EMA EXIT SIGNAL: Price {current_price:.4f} crossed above EMA {ema_value:.4f}", LogColor.MAGENTA)
+                current_instrument["ema_exit_qualified"] = False
+                return True
+
+        return False
 
     def reset_position_tracking(self, current_instrument: Dict[str, Any]):
         current_instrument["short_entry_price"] = None
@@ -1339,6 +1416,12 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         # DEACTIVATE L3 WINDOW: Stop tracking for this trade
         current_instrument["l3_window_active"] = False
         current_instrument["l3_oi_window"] = []
+        
+        # Reset EMA exit tracking
+        if self.config.use_close_ema.get("enabled", False):
+            current_instrument["bars_over_ema_exit"] = 0
+            current_instrument["bars_under_ema_exit"] = 0
+            current_instrument["ema_exit_qualified"] = False
 
     def update_visualizer_data(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         inst_id = bar.bar_type.instrument_id
@@ -1354,6 +1437,13 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             aroon = current_instrument["aroon"]
             aroon_osc_value = float(aroon.value) if aroon.value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="aroon_osc", value=aroon_osc_value)
+
+        # EMA Exit Indicator
+        if self.config.use_close_ema.get("enabled", False):
+            exit_trend_ema = current_instrument.get("exit_trend_ema")
+            if exit_trend_ema and exit_trend_ema.initialized:
+                ema_value = float(exit_trend_ema.value)
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="exit_trend_ema", value=ema_value)
 
         # BTC Risk Scaling metrics (only for non-BTC instruments)
         if self.config.btc_performance_risk_scaling.get("enabled", False) and hasattr(self, 'btc_context'):
