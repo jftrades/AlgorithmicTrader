@@ -34,10 +34,18 @@ class RiskManager:
         
         sl_distance = abs(entry_price - stop_loss_price)
         
-        contracts_needed = risk_amount / sl_distance
+        if self.max_leverage is not None and self.max_leverage > Decimal("0"):
+            # Use risk amount as collateral, leverage it up
+            position_value = risk_amount * self.max_leverage
+            contracts_needed = position_value / entry_price
+        else:
+            # No leverage specified, use simple risk calculation
+            contracts_needed = risk_amount / sl_distance
 
+        # Leverage check: Ensure position value doesn't exceed balance * max_leverage
         if self.max_leverage is not None:
-            max_contracts_allowed = (risk_amount * self.max_leverage) / entry_price
+            max_position_value = current_balance * self.max_leverage
+            max_contracts_allowed = max_position_value / entry_price
             if contracts_needed > max_contracts_allowed:
                 contracts_needed = max_contracts_allowed
 
@@ -46,16 +54,19 @@ class RiskManager:
     def log_growth_atr_risk(self, entry_price: Decimal, stop_loss_price: Decimal, risk_percent: Decimal) -> Decimal:
         starting_balance = self.get_starting_balance()
         
+        # Calculate risk amount (the collateral we want to allocate)
         risk_amount = starting_balance * risk_percent
         
         sl_distance = abs(entry_price - stop_loss_price)
         
-        contracts_needed = risk_amount / sl_distance
-
-        if self.max_leverage is not None:
-            max_contracts_allowed = (risk_amount * self.max_leverage) / entry_price
-            if contracts_needed > max_contracts_allowed:
-                contracts_needed = max_contracts_allowed
+        if self.max_leverage is not None and self.max_leverage > Decimal("0"):
+            # Use risk amount as collateral, leverage it up
+            # This way risk_multiplier affects position size directly
+            position_value = risk_amount * self.max_leverage
+            contracts_needed = position_value / entry_price
+        else:
+            # No leverage specified, use simple risk calculation
+            contracts_needed = risk_amount / sl_distance
 
         return contracts_needed
 

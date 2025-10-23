@@ -59,7 +59,7 @@ exp_growth_atr_risk:
 log_growth_atr_risk:
   enabled: true
   atr_period: 50
-  atr_multiple: 3.0
+  atr_multiple: 5.0
   risk_percent: 0.05
 
 exp_fixed_trade_risk:
@@ -86,8 +86,8 @@ use_min_coin_filters:
 
 use_aroon_simple_trend_system:
   enabled: true
-  aroon_period: 50
-  aroon_osc_short_threshold: -50
+  aroon_period: 60
+  aroon_osc_short_threshold: -40
 
 entry_scale_binance_metrics: # rank based approach for ENTRY logic
   enabled: false
@@ -110,35 +110,35 @@ five_day_scaling_filters:
 exit_l3_metrics_in_profit:
   enabled: false
   exit_amount_change_scaled_values: 100
-  exit_oi_threshold: -0.5
-  exit_oi_allow_difference: 2.1  # Changed: Smaller rebound needed
+  exit_oi_threshold: -0.8
+  exit_oi_allow_difference: 0.6  # Changed: Smaller rebound needed
   only_check_thresholds_after_entry: true
   exit_signal_mode: "oi_only"
 
 use_close_ema:
   enabled: true
-  exit_trend_ema_period: [50, 100, 200]
-  min_bars_over_ema: 25
-  min_bars_under_ema: 25
+  exit_trend_ema_period: 80
+  min_bars_over_ema: 28
+  min_bars_under_ema: 28
 
 btc_performance_risk_scaling:
-  enabled: false
+  enabled: true
   risk_scaling_method: "linear"
   rolling_zscore: 200
   stop_executing_above_zscore: 2.8
   max_zscore: 4.0
   min_zscore: -4.0
-  risk_multiplier_max_z_threshold: 1.0 # 0.4
-  risk_multiplier_min_z_threshold: 1.0 # 3.0
+  risk_multiplier_max_z_threshold: 0.4  # Min risk when BTC bullish
+  risk_multiplier_min_z_threshold: 2.0  # Max risk when BTC bearish (REDUCED from 2.0!)
 
 sol_performance_risk_scaling:
-  enabled: false
+  enabled: true
   risk_scaling_method: "linear"
   rolling_zscore: 200
   stop_executing_above_zscore: 2.8
   max_zscore: 4.0
   min_zscore: -4.0
-  risk_multiplier_max_z_threshold: 1.0 # 0.4
-  risk_multiplier_min_z_threshold: 1.0 # 3.0
+  risk_multiplier_max_z_threshold: 0.4  # Min risk when SOL bullish
+  risk_multiplier_min_z_threshold: 2.0  # Max risk when SOL bearish (REDUCED from 2.0!)
 
 

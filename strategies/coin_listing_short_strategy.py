@@ -1092,18 +1092,24 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             return 1.0
             
         if not hasattr(self, 'btc_context'):
+            self.log.warning("BTC context not initialized - returning 1.0", LogColor.YELLOW)
             return 1.0
-            
-        return self.btc_context.get("current_risk_multiplier", 1.0)
+        
+        multiplier = self.btc_context.get("current_risk_multiplier", 1.0)
+        self.log.info(f"BTC Risk Multiplier: {multiplier:.2f} (z-score: {self.btc_context.get('current_zscore', 0.0):.2f})", LogColor.CYAN)
+        return multiplier
     
     def get_sol_risk_multiplier(self) -> float:
         if not self.config.sol_performance_risk_scaling.get("enabled", False):
             return 1.0
             
         if not hasattr(self, 'sol_context'):
+            self.log.warning("SOL context not initialized - returning 1.0", LogColor.YELLOW)
             return 1.0
-            
-        return self.sol_context.get("current_risk_multiplier", 1.0)
+        
+        multiplier = self.sol_context.get("current_risk_multiplier", 1.0)
+        self.log.info(f"SOL Risk Multiplier: {multiplier:.2f} (z-score: {self.sol_context.get('current_zscore', 0.0):.2f})", LogColor.CYAN)
+        return multiplier
     
     def should_stop_executing_due_to_btc_zscore(self) -> bool:
         if not self.config.btc_performance_risk_scaling.get("enabled", False):
@@ -1153,6 +1159,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         # Combine both risk multipliers (multiply them together)
         combined_risk_multiplier = btc_risk_multiplier * sol_risk_multiplier
+        
+        self.log.info(f"Risk Multipliers: BTC={btc_risk_multiplier:.2f}, SOL={sol_risk_multiplier:.2f}, Combined={combined_risk_multiplier:.2f}", LogColor.MAGENTA)
         
         if self.config.exp_growth_atr_risk["enabled"]:
             base_risk_percent = Decimal(str(self.config.exp_growth_atr_risk["risk_percent"]))
