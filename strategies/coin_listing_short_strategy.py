@@ -1228,6 +1228,51 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         return self.calculate_fixed_position_size(instrument_id, entry_price)
 
+    def on_historical_data(self, data):
+        """
+        Handle historical data responses from request_bars().
+        Feed historical bars to indicators for initialization.
+        Data can be either a list of bars or a single bar.
+        """
+        if data is None:
+            return
+        
+        # Handle both single Bar and list of Bars
+        bars = [data] if isinstance(data, Bar) else data
+        
+        if not bars:
+            return
+        
+        # Feed all bars to indicators (silently - no logging spam)
+        for bar in bars:
+            instrument_id = bar.bar_type.instrument_id
+            
+            # Process BTC/SOL bars
+            if self.is_btc_instrument(instrument_id):
+                self.process_btc_bar(bar)
+                continue
+                
+            if self.is_sol_instrument(instrument_id):
+                self.process_sol_bar(bar)
+                continue
+            
+            # Process trading instrument bars
+            current_instrument = self.instrument_dict.get(instrument_id)
+            if current_instrument is None:
+                continue
+                
+            # Update indicators with historical bars
+            if "atr" in current_instrument:
+                current_instrument["atr"].handle_bar(bar)
+            
+            if self.config.use_aroon_simple_trend_system.get("enabled", False):
+                if "aroon" in current_instrument:
+                    current_instrument["aroon"].handle_bar(bar)
+            
+            if self.config.use_close_ema.get("enabled", False):
+                if "exit_trend_ema" in current_instrument:
+                    current_instrument["exit_trend_ema"].handle_bar(bar)
+
     def on_bar(self, bar: Bar) -> None:
         instrument_id = bar.bar_type.instrument_id
         
