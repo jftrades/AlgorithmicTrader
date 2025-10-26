@@ -3,7 +3,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional, List, Union
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
-from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.enums import PositionSide
 from nautilus_trader.common.enums import LogColor
@@ -382,6 +382,59 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         super().on_start()
         self._subscribe_to_metrics_data()
         #self._subscribe_to_fear_and_greed_data()
+        
+        # Request historical bars for all instruments to initialize indicators
+        self._request_historical_bars()
+    
+    def _request_historical_bars(self):
+        """Request historical bars for all trading instruments to initialize indicators."""
+        # Calculate how many bars we need based on indicator periods
+        max_lookback = max(
+            self.config.atr_period,
+            self.config.use_aroon_simple_trend_system.get("aroon_period", 60),
+            self.config.use_close_ema.get("exit_trend_ema_period", 80)
+        )
+        
+        # Add 10% buffer to ensure we have enough data
+        bars_needed = int(max_lookback * 1.1)
+        
+        self.log.info(
+            f"Requesting {bars_needed} historical bars for {len(self.config.instruments)} instruments",
+            LogColor.BLUE
+        )
+        
+        for instrument_data in self.config.instruments:
+            try:
+                instrument_id_str = instrument_data.get("instrument_id")
+                if not instrument_id_str:
+                    self.log.warning("Instrument missing instrument_id, skipping", LogColor.YELLOW)
+                    continue
+                    
+                instrument_id = InstrumentId.from_str(instrument_id_str)
+                
+                # Get the first bar_type from the list (typically only one per instrument)
+                bar_types = instrument_data.get("bar_types", [])
+                if not bar_types:
+                    self.log.warning(
+                        f"No bar_types defined for {instrument_id}, skipping historical bar request",
+                        LogColor.YELLOW
+                    )
+                    continue
+                
+                bar_type = BarType.from_str(bar_types[0])
+                
+                # Calculate how far back we need to go (bars_needed * 15 minutes for 15-min bars)
+                lookback_minutes = bars_needed * 15
+                start_time = self._clock.utc_now() - timedelta(minutes=lookback_minutes)
+                
+                # Request historical bars using start time
+                self.request_bars(bar_type, start=start_time)
+                
+            except Exception as e:
+                self.log.error(
+                    f"Failed to request historical bars for {instrument_data.get('instrument_id')}: {e}",
+                    LogColor.RED
+                )
 
     def _subscribe_to_fear_and_greed_data(self):
         try:

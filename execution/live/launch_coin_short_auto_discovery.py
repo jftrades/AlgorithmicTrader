@@ -189,6 +189,15 @@ class AutoDiscoveryLiveTrader:
             }
         )
         
+        # Calculate required historical bars dynamically from config
+        atr_period = strategy_config.config["atr_period"]
+        aroon_period = strategy_config.config["use_aroon_simple_trend_system"]["aroon_period"]
+        exit_trend_ema_period = strategy_config.config["use_close_ema"]["exit_trend_ema_period"]
+        max_lookback = max(atr_period, aroon_period, exit_trend_ema_period)
+        
+        print(f"Calculated lookback: ATR={atr_period}, Aroon={aroon_period}, EMA={exit_trend_ema_period}")
+        print(f"Will fetch {max_lookback} historical 15-minute bars for strategy initialization")
+        
         reconciliation_ids = [InstrumentId.from_str(inst["instrument_id"]) for inst in instruments[:10]]
         
         config_node = TradingNodeConfig(
