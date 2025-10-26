@@ -8,12 +8,11 @@ instruments:
   - instrument_id: "BTCUSDT-LINEAR.BYBIT"
     bar_types: 
       - "BTCUSDT-LINEAR.BYBIT-15-MINUTE-LAST-EXTERNAL"
-    trade_size_usdt: "1"  
+    trade_size_usdt: "1"
   - instrument_id: "SOLUSDT-LINEAR.BYBIT"
     bar_types: 
       - "SOLUSDT-LINEAR.BYBIT-15-MINUTE-LAST-EXTERNAL"
     trade_size_usdt: "1"
- 
 
 instruments_from_path:
   path: "../data/DATA_STORAGE/project_future_scraper/new_bybit_linear_perpetual_futures.csv"
@@ -60,7 +59,7 @@ log_growth_atr_risk:
   enabled: true
   atr_period: 50
   atr_multiple: 5.0
-  risk_percent: 0.05
+  risk_percent: 0.05  # Base 5% risk, will be scaled by BTC/SOL multipliers (0.4x to 2.0x each)
 
 exp_fixed_trade_risk:
   enabled: false
@@ -76,7 +75,7 @@ log_fixed_trade_risk:
 only_execute_short: true
 hold_profit_for_remaining_days: false
 time_after_listing_close: 20
-max_leverage: 1
+max_leverage: 5  # Increased from 1 to make risk scaling more noticeable
 
 use_min_coin_filters:
   enabled: false
@@ -122,7 +121,7 @@ use_close_ema:
   min_bars_under_ema: 28
 
 btc_performance_risk_scaling:
-  enabled: true
+  enabled: false
   risk_scaling_method: "linear"
   rolling_zscore: 200
   stop_executing_above_zscore: 2.8
@@ -132,7 +131,7 @@ btc_performance_risk_scaling:
   risk_multiplier_min_z_threshold: 2.0  # Max risk when BTC bearish (REDUCED from 2.0!)
 
 sol_performance_risk_scaling:
-  enabled: true
+  enabled: false
   risk_scaling_method: "linear"
   rolling_zscore: 200
   stop_executing_above_zscore: 2.8
