@@ -1391,6 +1391,17 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
 
+        # Get instrument info to check minimum order requirements
+        instrument = self.cache.instrument(instrument_id)
+        if instrument is not None:
+            # Round quantity to match instrument's size increment
+            qty_step = float(instrument.size_increment)
+            min_qty = float(instrument.min_quantity)
+            
+            # Round to nearest valid step
+            qty = max(min_qty, round(qty / qty_step) * qty_step)
+            
+            self.log.info(f"Adjusted qty to {qty} (min: {min_qty}, step: {qty_step})", LogColor.YELLOW)
         
         if qty > 0:
             current_instrument["in_short_position"] = True
@@ -1409,17 +1420,11 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             
             self.log.info("Executing short trade - L3 window activated for exit tracking")
             self.log.info(f"ORDER INIT: {bar.ts_event})", LogColor.CYAN)
-            self.log.info(f"ORDER INIT: {bar.ts_event})", LogColor.CYAN)
-            self.log.info(f"ORDER INIT: {bar.ts_event})", LogColor.CYAN)
-            self.log.info(f"ORDER INIT: {bar.ts_event})", LogColor.CYAN)
-            self.log.info(f"ORDER INIT: {bar.ts_event})", LogColor.CYAN)
-            self.log.info(f"ORDER open: {bar.open})", LogColor.CYAN)
-            self.log.info(f"ORDER high: {bar.high})", LogColor.CYAN)
-            self.log.info(f"ORDER low: {bar.low})", LogColor.CYAN)
-            self.log.info(f"ORDER close: {bar.close})", LogColor.CYAN)
+            self.log.info(f"ORDER INIT Qty: {qty}, Entry: {entry_price:.6f}, SL: {stop_loss_price:.6f}", LogColor.CYAN)
+            self.log.info(f"BAR - Open: {bar.open}, High: {bar.high}, Low: {bar.low}, Close: {bar.close}", LogColor.CYAN)
 
+            # Submit simple market order - stop loss managed in short_exit_logic()
             self.order_types.submit_short_market_order(instrument_id, qty)
-            #self.order_types.submit_short_bracket_order(instrument_id, qty, bar.close, stop_loss_price, 0.00001)
 
     def short_exit_logic(self, bar: Bar, current_instrument: Dict[str, Any], position):
         current_instrument["bars_since_entry"] += 1

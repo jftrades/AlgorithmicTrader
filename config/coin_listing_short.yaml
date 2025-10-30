@@ -85,7 +85,7 @@ use_min_coin_filters:
 
 use_aroon_simple_trend_system:
   enabled: true
-  aroon_period: 60
+  aroon_period: 65
   aroon_osc_short_threshold: -40
 
 entry_scale_binance_metrics: # rank based approach for ENTRY logic
