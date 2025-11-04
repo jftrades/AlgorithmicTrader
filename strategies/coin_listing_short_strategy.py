@@ -1123,12 +1123,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             risk_multiplier = min_risk + (max_risk - min_risk) * inverted_normalized
         
         return risk_multiplier
-
-
-
-
-
-
+    # 2 hour shorting was funding rate < 0
     
     def update_btc_visualizer_data(self, bar: Bar, btc_instrument: Dict[str, Any]) -> None:
         if not hasattr(self, 'btc_context'):
@@ -1329,6 +1324,12 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         position = self.base_get_position(instrument_id)
 
+        # Update previous Aroon value EVERY bar (even when in position) to prevent stale crossover detection
+        if self.config.use_aroon_simple_trend_system.get("enabled", False):
+            aroon = current_instrument["aroon"]
+            if aroon.initialized:
+                current_instrument["prev_aroon_osc_value"] = float(aroon.value)
+
         if position is not None and position.side == PositionSide.SHORT:
             self.short_exit_logic(bar, current_instrument, position)
             return
@@ -1346,12 +1347,6 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             return
             
         self.aroon_simple_trend_setup(bar, current_instrument)
-        
-        # Update previous Aroon value for next bar's crossover detection
-        if self.config.use_aroon_simple_trend_system.get("enabled", False):
-            aroon = current_instrument["aroon"]
-            if aroon.initialized:
-                current_instrument["prev_aroon_osc_value"] = float(aroon.value)
 
 
 
