@@ -11,8 +11,8 @@ from pydantic import Field
 from decimal import Decimal
 from nautilus_trader.indicators.volatility import AverageTrueRange
 from nautilus_trader.indicators.averages import ExponentialMovingAverage
-from nautilus_trader.indicators.macd import MovingAverageConvergenceDivergence
-from nautilus_trader.indicators.rsi import RelativeStrengthIndex
+from nautilus_trader.indicators.trend import MovingAverageConvergenceDivergence
+from nautilus_trader.indicators.momentum import RelativeStrengthIndex
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
@@ -99,15 +99,17 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         for current_instrument in self.instrument_dict.values():
             # das hier drunter nur ATR
             atr_period = self.config.atr_period
-            exp_growth_config = self.config.exp_growth_atr_risk
-            log_growth_config = self.config.log_growth_atr_risk
             
-            if exp_growth_config["enabled"]:
-                atr_period = exp_growth_config["atr_period"]
-                current_instrument["sl_atr_multiple"] = exp_growth_config["atr_multiple"]
-            elif log_growth_config["enabled"]:
-                atr_period = log_growth_config["atr_period"]
-                current_instrument["sl_atr_multiple"] = log_growth_config["atr_multiple"]
+            # Handle exp_growth_atr_risk - check if it's a dict (might be FieldInfo if not in YAML)
+            exp_growth_config = self.config.exp_growth_atr_risk if isinstance(self.config.exp_growth_atr_risk, dict) else {}
+            log_growth_config = self.config.log_growth_atr_risk if isinstance(self.config.log_growth_atr_risk, dict) else {}
+            
+            if exp_growth_config.get("enabled", False):
+                atr_period = exp_growth_config.get("atr_period", 14)
+                current_instrument["sl_atr_multiple"] = exp_growth_config.get("atr_multiple", 2.0)
+            elif log_growth_config.get("enabled", False):
+                atr_period = log_growth_config.get("atr_period", 14)
+                current_instrument["sl_atr_multiple"] = log_growth_config.get("atr_multiple", 2.0)
             else:
                 current_instrument["sl_atr_multiple"] = self.config.sl_atr_multiple
             
@@ -115,12 +117,12 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             current_instrument["sl_price"] = None
 
             # htf ema bias filter
-            htf_ema_config = self.config.use_htf_ema_bias_filter
+            htf_ema_config = self.config.use_htf_ema_bias_filter if isinstance(self.config.use_htf_ema_bias_filter, dict) else {}
             htf_ema_period = htf_ema_config.get("ema_period", 200)
             current_instrument["htf_ema"] = ExponentialMovingAverage(htf_ema_period)
 
             # macd simple reversion
-            macd_config = self.config.use_macd_simple_reversion_system
+            macd_config = self.config.use_macd_simple_reversion_system if isinstance(self.config.use_macd_simple_reversion_system, dict) else {}
             macd_fast_period = macd_config.get("macd_fast_period", 12)
             macd_slow_period = macd_config.get("macd_slow_period", 26)
             macd_signal_period = macd_config.get("macd_signal_period", 9)
@@ -130,7 +132,7 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             current_instrument["prev_macd_signal"] = None
 
             # rsi simple reversion
-            rsi_config = self.config.use_rsi_simple_reversion_system
+            rsi_config = self.config.use_rsi_simple_reversion_system if isinstance(self.config.use_rsi_simple_reversion_system, dict) else {}
             rsi_period = rsi_config.get("rsi_period", 14)
             current_instrument["rsi"] = RelativeStrengthIndex(rsi_period)
             current_instrument["rsi_overbought"] = rsi_config.get("rsi_overbought", 0.7)
