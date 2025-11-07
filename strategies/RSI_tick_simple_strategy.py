@@ -15,7 +15,7 @@ from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 
 # Strategiespezifische Importe
-from nautilus_trader.indicators.rsi import RelativeStrengthIndex
+from nautilus_trader.indicators.momentum import RelativeStrengthIndex
 
 # -------------------------------------------------
 # Multi-Instrument Konfiguration (jetzt Pflicht)

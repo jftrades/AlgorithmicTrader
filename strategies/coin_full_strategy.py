@@ -8,13 +8,10 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.enums import PositionSide
 from nautilus_trader.common.enums import LogColor
 from pydantic import Field
-from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
-from nautilus_trader.indicators.macd import MovingAverageConvergenceDivergence
-from nautilus_trader.indicators.donchian_channel import DonchianChannel
-from nautilus_trader.indicators.aroon import AroonOscillator
-from nautilus_trader.indicators.rsi import RelativeStrengthIndex
-from nautilus_trader.indicators.atr import AverageTrueRange
-from nautilus_trader.indicators.dm import DirectionalMovement
+from nautilus_trader.indicators.averages import ExponentialMovingAverage
+from nautilus_trader.indicators.trend import MovingAverageConvergenceDivergence, DonchianChannel, AroonOscillator
+from nautilus_trader.indicators.momentum import RelativeStrengthIndex, DirectionalMovement
+from nautilus_trader.indicators.volatility import AverageTrueRange
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
@@ -205,12 +202,17 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         for current_instrument in self.instrument_dict.values():
             # risk management - get ATR period from enabled risk method
             atr_period = self.config.atr_period
-            if self.config.exp_growth_atr_risk["enabled"]:
-                atr_period = self.config.exp_growth_atr_risk["atr_period"]
-                current_instrument["sl_atr_multiple"] = self.config.exp_growth_atr_risk["atr_multiple"]
-            elif self.config.log_growth_atr_risk["enabled"]:
-                atr_period = self.config.log_growth_atr_risk["atr_period"]
-                current_instrument["sl_atr_multiple"] = self.config.log_growth_atr_risk["atr_multiple"]
+            
+            # Handle FieldInfo objects
+            exp_growth_config = self.config.exp_growth_atr_risk if isinstance(self.config.exp_growth_atr_risk, dict) else {}
+            log_growth_config = self.config.log_growth_atr_risk if isinstance(self.config.log_growth_atr_risk, dict) else {}
+            
+            if exp_growth_config.get("enabled", False):
+                atr_period = exp_growth_config.get("atr_period", 14)
+                current_instrument["sl_atr_multiple"] = exp_growth_config.get("atr_multiple", 2.0)
+            elif log_growth_config.get("enabled", False):
+                atr_period = log_growth_config.get("atr_period", 14)
+                current_instrument["sl_atr_multiple"] = log_growth_config.get("atr_multiple", 2.0)
             else:
                 current_instrument["sl_atr_multiple"] = self.config.sl_atr_multiple
             

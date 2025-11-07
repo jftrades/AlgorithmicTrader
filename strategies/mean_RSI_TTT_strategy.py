@@ -12,7 +12,7 @@ from tools.structure.TTTbreakout import TTTBreakout_Analyser
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 from tools.help_funcs.base_strategy import BaseStrategy
-from nautilus_trader.indicators.rsi import RelativeStrengthIndex
+from nautilus_trader.indicators.momentum import RelativeStrengthIndex
 
 
 class MeanRSITTTStrategyConfig(StrategyConfig):

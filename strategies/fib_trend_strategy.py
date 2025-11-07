@@ -19,7 +19,7 @@ from tools.order_management.risk_manager import RiskManager
 # Add strategy-specific imports here
 from tools.structure.PivotArchive import PivotArchive
 from tools.structure.fib_retracement import FibRetracementTool
-from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
+from nautilus_trader.indicators.averages import ExponentialMovingAverage
 
 # -------------------------------------------------
 # Multi-Instrument Configuration
