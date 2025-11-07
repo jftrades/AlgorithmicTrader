@@ -1247,13 +1247,15 @@ class GammaShortStrategy(BaseStrategy, Strategy):
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_open_interest_exit", value=current_instrument.get("latest_open_interest_value_scaled_exit", 0.0))
 
         # Aroon Oscillator (position 2)
-        if self.config.use_aroon_simple_trend_system.get("enabled", False):
+        aroon_config = self.config.use_aroon_simple_trend_system if isinstance(self.config.use_aroon_simple_trend_system, dict) else {}
+        if aroon_config.get("enabled", False):
             aroon = current_instrument["aroon"]
             aroon_osc_value = float(aroon.value) if aroon.value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="aroon_osc", value=aroon_osc_value)
 
         # BTC Risk Scaling metrics
-        if self.config.btc_performance_risk_scaling.get("enabled", False) and hasattr(self, 'btc_context'):
+        btc_risk_config = self.config.btc_performance_risk_scaling if isinstance(self.config.btc_performance_risk_scaling, dict) else {}
+        if btc_risk_config.get("enabled", False) and hasattr(self, 'btc_context'):
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
 
 

@@ -1547,25 +1547,29 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         #current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="fng", value=current_instrument.get("fng", 0.0))
 
         # Aroon Oscillator (position 2)
-        if self.config.use_aroon_simple_trend_system.get("enabled", False):
+        aroon_config = self.config.use_aroon_simple_trend_system if isinstance(self.config.use_aroon_simple_trend_system, dict) else {}
+        if aroon_config.get("enabled", False):
             aroon = current_instrument["aroon"]
             aroon_osc_value = float(aroon.value) if aroon.value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="aroon_osc", value=aroon_osc_value)
 
         # EMA Exit Indicator
-        if self.config.use_close_ema.get("enabled", False):
+        close_ema_config = self.config.use_close_ema if isinstance(self.config.use_close_ema, dict) else {}
+        if close_ema_config.get("enabled", False):
             exit_trend_ema = current_instrument.get("exit_trend_ema")
             if exit_trend_ema and exit_trend_ema.initialized:
                 ema_value = float(exit_trend_ema.value)
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="exit_trend_ema", value=ema_value)
 
         # BTC Risk Scaling metrics (only for non-BTC instruments)
-        if self.config.btc_performance_risk_scaling.get("enabled", False) and hasattr(self, 'btc_context'):
+        btc_risk_config = self.config.btc_performance_risk_scaling if isinstance(self.config.btc_performance_risk_scaling, dict) else {}
+        if btc_risk_config.get("enabled", False) and hasattr(self, 'btc_context'):
             if not self.is_btc_instrument(inst_id):
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
 
         # SOL Risk Scaling metrics (only for non-SOL instruments)
-        if self.config.sol_performance_risk_scaling.get("enabled", False) and hasattr(self, 'sol_context'):
+        sol_risk_config = self.config.sol_performance_risk_scaling if isinstance(self.config.sol_performance_risk_scaling, dict) else {}
+        if sol_risk_config.get("enabled", False) and hasattr(self, 'sol_context'):
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_zscore", value=self.sol_context.get("current_zscore", 0.0))
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_risk_multiplier", value=self.sol_context.get("current_risk_multiplier", 1.0))
 

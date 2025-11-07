@@ -111,7 +111,7 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
                 atr_period = log_growth_config.get("atr_period", 14)
                 current_instrument["sl_atr_multiple"] = log_growth_config.get("atr_multiple", 2.0)
             else:
-                current_instrument["sl_atr_multiple"] = self.config.sl_atr_multiple
+                current_instrument["sl_atr_multiple"] = self.config.sl_atr_multiple 
             
             current_instrument["atr"] = AverageTrueRange(atr_period)
             current_instrument["sl_price"] = None
@@ -146,8 +146,8 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             current_instrument["prev_bar_close"] = None
 
            # macd exit system
-            if self.config.use_macd_exit_system.get("enabled", False):
-                macd_exit_config = self.config.use_macd_exit_system
+            macd_exit_config = self.config.use_macd_exit_system if isinstance(self.config.use_macd_exit_system, dict) else {}
+            if macd_exit_config.get("enabled", False):
                 macd_exit_fast = macd_exit_config.get("macd_fast_exit_period", 10)
                 macd_exit_slow = macd_exit_config.get("macd_slow_exit_period", 32)
                 macd_exit_signal = macd_exit_config.get("macd_signal_exit_period", 10)
@@ -156,14 +156,21 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
                 current_instrument["prev_macd_exit_line"] = None
                 current_instrument["prev_macd_exit_signal"] = None
 
-            if self.config.use_htf_ema_bias_filter.get("enabled", False):
+            htf_ema_config = self.config.use_htf_ema_bias_filter if isinstance(self.config.use_htf_ema_bias_filter, dict) else {}
+            if htf_ema_config.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("htf_ema", 0)
-            if self.config.use_macd_simple_reversion_system.get("enabled", False):
+            
+            macd_config = self.config.use_macd_simple_reversion_system if isinstance(self.config.use_macd_simple_reversion_system, dict) else {}
+            if macd_config.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("macd", 1)
                 current_instrument["collector"].initialise_logging_indicator("macd_signal", 1)
-            if self.config.use_rsi_simple_reversion_system.get("enabled", False):
+            
+            rsi_config = self.config.use_rsi_simple_reversion_system if isinstance(self.config.use_rsi_simple_reversion_system, dict) else {}
+            if rsi_config.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("rsi", 1)
-            if self.config.use_macd_exit_system.get("enabled", False):
+            
+            macd_exit_config = self.config.use_macd_exit_system if isinstance(self.config.use_macd_exit_system, dict) else {}
+            if macd_exit_config.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("macd_exit", 1)
                 current_instrument["collector"].initialise_logging_indicator("macd_exit_signal", 1)
 
@@ -175,13 +182,19 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
 
     def _request_historical_bars(self):
         # Calculate how many bars we need based on indicator periods
+        log_growth_config = self.config.log_growth_atr_risk if isinstance(self.config.log_growth_atr_risk, dict) else {}
+        htf_ema_config = self.config.use_htf_ema_bias_filter if isinstance(self.config.use_htf_ema_bias_filter, dict) else {}
+        macd_config = self.config.use_macd_simple_reversion_system if isinstance(self.config.use_macd_simple_reversion_system, dict) else {}
+        macd_exit_config = self.config.use_macd_exit_system if isinstance(self.config.use_macd_exit_system, dict) else {}
+        rsi_config = self.config.use_rsi_simple_reversion_system if isinstance(self.config.use_rsi_simple_reversion_system, dict) else {}
+        
         max_lookback = max(
-            self.config.atr_period if self.config.log_growth_atr_risk.get("enabled", False) else self.config.atr_period,
-            self.config.log_growth_atr_risk.get("atr_period", 14),
-            self.config.use_htf_ema_bias_filter.get("ema_period", 200),
-            self.config.use_macd_simple_reversion_system.get("macd_slow_period", 26),
-            self.config.use_macd_exit_system.get("macd_slow_exit_period", 32),
-            self.config.use_rsi_simple_reversion_system.get("rsi_period", 20)
+            self.config.atr_period if log_growth_config.get("enabled", False) else self.config.atr_period,
+            log_growth_config.get("atr_period", 14),
+            htf_ema_config.get("ema_period", 200),
+            macd_config.get("macd_slow_period", 26),
+            macd_exit_config.get("macd_slow_exit_period", 32),
+            rsi_config.get("rsi_period", 20)
         )
         
         # Add 10% buffer to ensure we have enough data
@@ -255,7 +268,8 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
 
 
     def passes_htf_ema_bias_filter(self, bar: Bar, current_instrument: Dict[str, Any], trade_direction: str) -> bool:
-        if not self.config.use_htf_ema_bias_filter.get("enabled", False):
+        htf_ema_config = self.config.use_htf_ema_bias_filter if isinstance(self.config.use_htf_ema_bias_filter, dict) else {}
+        if not htf_ema_config.get("enabled", False):
             return True
         
         htf_ema = current_instrument["htf_ema"]
@@ -273,11 +287,11 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         return False
     
     def passes_rsi_condition_filter(self, bar: Bar, current_instrument: Dict[str, Any], trade_direction: str) -> bool:
-
-        if not self.config.use_rsi_simple_reversion_system.get("enabled", False):
+        rsi_config = self.config.use_rsi_simple_reversion_system if isinstance(self.config.use_rsi_simple_reversion_system, dict) else {}
+        if not rsi_config.get("enabled", False):
             return True
             
-        usage_method = self.config.use_rsi_simple_reversion_system.get("usage_method", "execution")
+        usage_method = rsi_config.get("usage_method", "execution")
         if usage_method != "condition":
             return True
             
@@ -442,21 +456,25 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             if "atr" in current_instrument:
                 current_instrument["atr"].handle_bar(bar)
             
-            if self.config.use_htf_ema_bias_filter.get("enabled", False):
+            htf_ema_config = self.config.use_htf_ema_bias_filter if isinstance(self.config.use_htf_ema_bias_filter, dict) else {}
+            if htf_ema_config.get("enabled", False):
                 if "htf_ema" in current_instrument:
                     current_instrument["htf_ema"].handle_bar(bar)
             
-            if self.config.use_macd_simple_reversion_system.get("enabled", False):
+            macd_config = self.config.use_macd_simple_reversion_system if isinstance(self.config.use_macd_simple_reversion_system, dict) else {}
+            if macd_config.get("enabled", False):
                 if "macd" in current_instrument:
                     current_instrument["macd"].handle_bar(bar)
                 if "macd_signal_ema" in current_instrument and current_instrument["macd"].initialized:
                     current_instrument["macd_signal_ema"].update_raw(current_instrument["macd"].value)
             
-            if self.config.use_rsi_simple_reversion_system.get("enabled", False):
+            rsi_config = self.config.use_rsi_simple_reversion_system if isinstance(self.config.use_rsi_simple_reversion_system, dict) else {}
+            if rsi_config.get("enabled", False):
                 if "rsi" in current_instrument:
                     current_instrument["rsi"].handle_bar(bar)
             
-            if self.config.use_macd_exit_system.get("enabled", False):
+            macd_exit_config = self.config.use_macd_exit_system if isinstance(self.config.use_macd_exit_system, dict) else {}
+            if macd_exit_config.get("enabled", False):
                 if "macd_exit" in current_instrument:
                     current_instrument["macd_exit"].handle_bar(bar)
                 if "macd_exit_signal" in current_instrument and current_instrument["macd_exit"].initialized:
@@ -482,22 +500,27 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             self.add_instrument_context()
 
         current_instrument["atr"].handle_bar(bar)
-        if self.config.use_htf_ema_bias_filter.get("enabled", False):
+        
+        htf_ema_config = self.config.use_htf_ema_bias_filter if isinstance(self.config.use_htf_ema_bias_filter, dict) else {}
+        if htf_ema_config.get("enabled", False):
             htf_ema = current_instrument["htf_ema"]
             htf_ema.handle_bar(bar)
         
-        if self.config.use_macd_simple_reversion_system.get("enabled", False):
+        macd_config = self.config.use_macd_simple_reversion_system if isinstance(self.config.use_macd_simple_reversion_system, dict) else {}
+        if macd_config.get("enabled", False):
             macd = current_instrument["macd"]
             macd.handle_bar(bar)
             if macd.initialized:
                 macd_signal_ema = current_instrument["macd_signal_ema"]
                 macd_signal_ema.update_raw(macd.value)
         
-        if self.config.use_rsi_simple_reversion_system.get("enabled", False):
+        rsi_config = self.config.use_rsi_simple_reversion_system if isinstance(self.config.use_rsi_simple_reversion_system, dict) else {}
+        if rsi_config.get("enabled", False):
             rsi = current_instrument["rsi"]
             rsi.handle_bar(bar)
         
-        if self.config.use_macd_exit_system.get("enabled", False):
+        macd_exit_config = self.config.use_macd_exit_system if isinstance(self.config.use_macd_exit_system, dict) else {}
+        if macd_exit_config.get("enabled", False):
             macd_exit = current_instrument["macd_exit"]
             macd_exit.handle_bar(bar)
             if macd_exit.initialized:
@@ -526,18 +549,20 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         
         # Only call RSI setup if usage_method is "execution" (direct RSI entry signals)
         # When usage_method="condition", RSI only acts as filter in macd_simple_reversion_setup
-        if self.config.use_rsi_simple_reversion_system.get("usage_method") == "execution":
+        rsi_config = self.config.use_rsi_simple_reversion_system if isinstance(self.config.use_rsi_simple_reversion_system, dict) else {}
+        if rsi_config.get("usage_method") == "execution":
             self.rsi_simple_reversion_setup(bar, current_instrument)
 
     def rsi_simple_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
-        if not self.config.use_rsi_simple_reversion_system.get("enabled", False):
+        rsi_config = self.config.use_rsi_simple_reversion_system if isinstance(self.config.use_rsi_simple_reversion_system, dict) else {}
+        if not rsi_config.get("enabled", False):
             return
             
         rsi = current_instrument["rsi"]
         if not rsi.initialized:
             return
             
-        usage_method = self.config.use_rsi_simple_reversion_system.get("usage_method", "execution")
+        usage_method = rsi_config.get("usage_method", "execution")
         
         if usage_method == "execution":
             # Original behavior - RSI directly triggers trades
@@ -578,7 +603,8 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             self.order_types.submit_short_market_order(instrument_id, qty)
 
     def macd_simple_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
-        if not self.config.use_macd_simple_reversion_system.get("enabled", False):
+        macd_config = self.config.use_macd_simple_reversion_system if isinstance(self.config.use_macd_simple_reversion_system, dict) else {}
+        if not macd_config.get("enabled", False):
             return
             
         macd = current_instrument["macd"]
@@ -662,7 +688,8 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         
         should_exit = False
 
-        if not should_exit and self.config.use_macd_exit_system.get("enabled", False):
+        macd_exit_config = self.config.use_macd_exit_system if isinstance(self.config.use_macd_exit_system, dict) else {}
+        if not should_exit and macd_exit_config.get("enabled", False):
             if self.check_macd_exit_short(bar, current_instrument):
                 should_exit = True
         
@@ -709,12 +736,14 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)
 
         # HTF EMA bias filter (position 0)
-        if self.config.use_htf_ema_bias_filter.get("enabled", False):
+        htf_ema_config = self.config.use_htf_ema_bias_filter if isinstance(self.config.use_htf_ema_bias_filter, dict) else {}
+        if htf_ema_config.get("enabled", False):
             htf_ema_value = float(current_instrument["htf_ema"].value) if current_instrument["htf_ema"].value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="htf_ema", value=htf_ema_value)
 
         # MACD for reversion system (position 1)
-        if self.config.use_macd_simple_reversion_system.get("enabled", False):
+        macd_config = self.config.use_macd_simple_reversion_system if isinstance(self.config.use_macd_simple_reversion_system, dict) else {}
+        if macd_config.get("enabled", False):
             macd = current_instrument["macd"]
             macd_signal_ema = current_instrument["macd_signal_ema"]
             if macd and macd.value is not None and macd_signal_ema and macd_signal_ema.value is not None:
@@ -724,14 +753,16 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="macd_signal", value=signal_value)
 
         # RSI for reversion system (position 1)
-        if self.config.use_rsi_simple_reversion_system.get("enabled", False):
+        rsi_config = self.config.use_rsi_simple_reversion_system if isinstance(self.config.use_rsi_simple_reversion_system, dict) else {}
+        if rsi_config.get("enabled", False):
             rsi = current_instrument.get("rsi")
             if rsi and rsi.value is not None:
                 rsi_value = float(rsi.value)
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="rsi", value=rsi_value)
 
         # MACD for exit method (position 1)
-        if self.config.use_macd_exit_system.get("enabled", False):
+        macd_exit_config = self.config.use_macd_exit_system if isinstance(self.config.use_macd_exit_system, dict) else {}
+        if macd_exit_config.get("enabled", False):
             macd_exit = current_instrument.get("macd_exit")
             macd_exit_signal = current_instrument.get("macd_exit_signal")
             if macd_exit and macd_exit.value is not None and macd_exit_signal and macd_exit_signal.value is not None:

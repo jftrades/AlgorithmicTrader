@@ -57,7 +57,7 @@ log_growth_atr_risk:
 # _______________________
 
 only_execute_short: true
-hold_profit_for_remaining_days: false
+hold_profit_for_remaining_days: true
 time_after_listing_close: 20
 max_leverage: 1
 
@@ -67,7 +67,7 @@ max_leverage: 1
 
 use_htf_ema_bias_filter:
   enabled: true
-  ema_period: 300
+  ema_period: 200
 
 use_macd_simple_reversion_system:
   enabled: true
@@ -78,7 +78,7 @@ use_macd_simple_reversion_system:
 use_rsi_simple_reversion_system:
   enabled: true
   usage_method: "condition" # or execution
-  rsi_period: 20
+  rsi_period: 50
   rsi_overbought: 0.6
   rsi_oversold: 0.3
 

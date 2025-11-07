@@ -1588,26 +1588,31 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)
 
         # Only visualize indicators for enabled systems
-        if self.config.use_trend_following_setup.get("enabled", False):
+        trend_following_config = self.config.use_trend_following_setup if isinstance(self.config.use_trend_following_setup, dict) else {}
+        if trend_following_config.get("enabled", False):
             entry_trend_ema_value = float(current_instrument["entry_trend_ema"].value) if current_instrument["entry_trend_ema"].value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="entry_trend_ema", value=entry_trend_ema_value)
         
-        if self.config.use_close_ema.get("enabled", False):
+        close_ema_config = self.config.use_close_ema if isinstance(self.config.use_close_ema, dict) else {}
+        if close_ema_config.get("enabled", False):
             exit_trend_ema_value = float(current_instrument["exit_trend_ema"].value) if current_instrument["exit_trend_ema"].value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="exit_trend_ema", value=exit_trend_ema_value)
         
         # Spike reversion EMA (position 0)
-        if self.config.use_spike_reversion_system.get("enabled", False):
+        spike_reversion_config = self.config.use_spike_reversion_system if isinstance(self.config.use_spike_reversion_system, dict) else {}
+        if spike_reversion_config.get("enabled", False):
             reversion_ema_value = float(current_instrument["reversion_ema"].value) if current_instrument["reversion_ema"].value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="reversion_ema", value=reversion_ema_value)
 
         # HTF EMA bias filter (position 0)
-        if self.config.use_htf_ema_bias_filter.get("enabled", False):
+        htf_ema_config = self.config.use_htf_ema_bias_filter if isinstance(self.config.use_htf_ema_bias_filter, dict) else {}
+        if htf_ema_config.get("enabled", False):
             htf_ema_value = float(current_instrument["htf_ema"].value) if current_instrument["htf_ema"].value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="htf_ema", value=htf_ema_value)
 
         # Directional Movement difference (position 1)
-        if self.config.use_directional_movement_filter.get("enabled", False):
+        dm_config = self.config.use_directional_movement_filter if isinstance(self.config.use_directional_movement_filter, dict) else {}
+        if dm_config.get("enabled", False):
             dm = current_instrument["directional_movement"]
             if dm and dm.initialized:
                 di_diff_value = abs(dm.pos - dm.neg)
@@ -1616,12 +1621,13 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="di_diff", value=None)
 
         # RSI for reversion system (position 1)
-        if self.config.use_rsi_simple_reversion_system.get("enabled", False):
+        rsi_config = self.config.use_rsi_simple_reversion_system if isinstance(self.config.use_rsi_simple_reversion_system, dict) else {}
+        if rsi_config.get("enabled", False):
             rsi_value = float(current_instrument["rsi"].value) if current_instrument["rsi"].value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="rsi", value=rsi_value)
             
             # Add condition mode visualization
-            usage_method = self.config.use_rsi_simple_reversion_system.get("usage_method", "execution")
+            usage_method = rsi_config.get("usage_method", "execution")
             if usage_method == "condition":
                 rsi_overbought = current_instrument["rsi_overbought"]
                 rsi_oversold = current_instrument["rsi_oversold"]
@@ -1629,7 +1635,8 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="rsi_oversold_level", value=rsi_oversold)
         
         # MACD for reversion system (position 1)
-        if self.config.use_macd_simple_reversion_system.get("enabled", False):
+        macd_config = self.config.use_macd_simple_reversion_system if isinstance(self.config.use_macd_simple_reversion_system, dict) else {}
+        if macd_config.get("enabled", False):
             macd = current_instrument["macd"]
             macd_signal_ema = current_instrument["macd_signal_ema"]
             if macd and macd.value is not None and macd_signal_ema and macd_signal_ema.value is not None:
@@ -1639,13 +1646,15 @@ class CoinFullStrategy(BaseStrategy,Strategy):
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="macd_signal", value=signal_value)
 
         # Aroon Oscillator (position 1)
-        if self.config.use_aroon_simple_trend_system.get("enabled", False):
+        aroon_config = self.config.use_aroon_simple_trend_system if isinstance(self.config.use_aroon_simple_trend_system, dict) else {}
+        if aroon_config.get("enabled", False):
             aroon = current_instrument["aroon"]
             aroon_osc_value = float(aroon.value) if aroon.value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="aroon_osc", value=aroon_osc_value)
 
         # Donchian Channel (position 0)
-        if self.config.use_donchian_breakout_system.get("enabled", False):
+        donchian_config = self.config.use_donchian_breakout_system if isinstance(self.config.use_donchian_breakout_system, dict) else {}
+        if donchian_config.get("enabled", False):
             donchian = current_instrument["donchian"]
             donchian_upper_value = float(donchian.upper) if donchian.upper is not None else None
             donchian_lower_value = float(donchian.lower) if donchian.lower is not None else None
