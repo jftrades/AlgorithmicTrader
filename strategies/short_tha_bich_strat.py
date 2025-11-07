@@ -1,0 +1,1 @@
+## code für die dann aber wirklich nutzbar coin short strat
