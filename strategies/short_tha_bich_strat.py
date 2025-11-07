@@ -20,7 +20,7 @@ from tools.order_management.risk_manager import RiskManager
 # from data.download.crypto_downloads.custom_class.bybit_metrics_data import BybitMetricsData
 
 
-class ShortThaBichStratConfig(StrategyConfig):
+class ShortThaBitchStratConfig(StrategyConfig):
     instruments:List[dict]
     min_account_balance: float
     run_id: str
@@ -86,7 +86,7 @@ class ShortThaBichStratConfig(StrategyConfig):
     max_leverage: Decimal = 10.0
 
 class ShortThaBitchStrat(BaseStrategy, Strategy):
-    def __init__(self, config: ShortThaBichStratConfig):
+    def __init__(self, config: ShortThaBitchStratConfig):
         super().__init__(config)
         self.risk_manager = RiskManager(config)
         self.risk_manager.set_strategy(self)    
@@ -99,12 +99,15 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         for current_instrument in self.instrument_dict.values():
             # das hier drunter nur ATR
             atr_period = self.config.atr_period
-            if self.config.exp_growth_atr_risk["enabled"]:
-                atr_period = self.config.exp_growth_atr_risk["atr_period"]
-                current_instrument["sl_atr_multiple"] = self.config.exp_growth_atr_risk["atr_multiple"]
-            elif self.config.log_growth_atr_risk["enabled"]:
-                atr_period = self.config.log_growth_atr_risk["atr_period"]
-                current_instrument["sl_atr_multiple"] = self.config.log_growth_atr_risk["atr_multiple"]
+            exp_growth_config = self.config.exp_growth_atr_risk
+            log_growth_config = self.config.log_growth_atr_risk
+            
+            if exp_growth_config["enabled"]:
+                atr_period = exp_growth_config["atr_period"]
+                current_instrument["sl_atr_multiple"] = exp_growth_config["atr_multiple"]
+            elif log_growth_config["enabled"]:
+                atr_period = log_growth_config["atr_period"]
+                current_instrument["sl_atr_multiple"] = log_growth_config["atr_multiple"]
             else:
                 current_instrument["sl_atr_multiple"] = self.config.sl_atr_multiple
             

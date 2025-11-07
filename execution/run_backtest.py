@@ -17,7 +17,7 @@ from core.visualizing.dashboard.main import launch_dashbaord
 
 #STRAT PARAMETER
 
-yaml_name = "short_that_bich.yaml"
+yaml_name = "short_tha_bich.yaml"
 
 # ------------------------------------------------------------
 # YAML laden & vorbereiten
