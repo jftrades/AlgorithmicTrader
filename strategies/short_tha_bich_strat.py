@@ -16,8 +16,8 @@ from nautilus_trader.indicators.rsi import RelativeStrengthIndex
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
-from nautilus_trader.model.data import DataType
-from data.download.crypto_downloads.custom_class.bybit_metrics_data import BybitMetricsData
+# from nautilus_trader.model.data import DataType
+# from data.download.crypto_downloads.custom_class.bybit_metrics_data import BybitMetricsData
 
 
 class ShortThaBichStratConfig(StrategyConfig):
@@ -85,7 +85,7 @@ class ShortThaBichStratConfig(StrategyConfig):
     close_positions_on_stop: bool = True
     max_leverage: Decimal = 10.0
 
-class ShortThaBichStratConfig(BaseStrategy, Strategy):
+class ShortThaBitchStrat(BaseStrategy, Strategy):
     def __init__(self, config: ShortThaBichStratConfig):
         super().__init__(config)
         self.risk_manager = RiskManager(config)
@@ -130,8 +130,15 @@ class ShortThaBichStratConfig(BaseStrategy, Strategy):
             rsi_config = self.config.use_rsi_simple_reversion_system
             rsi_period = rsi_config.get("rsi_period", 14)
             current_instrument["rsi"] = RelativeStrengthIndex(rsi_period)
-            current_instrument["rsi_overbought"] = rsi_config.get("rsi_overbought", 70)
-            current_instrument["rsi_oversold"] = rsi_config.get("rsi_oversold", 30)
+            current_instrument["rsi_overbought"] = rsi_config.get("rsi_overbought", 0.7)
+            current_instrument["rsi_oversold"] = rsi_config.get("rsi_oversold", 0.3)
+
+            # Position tracking initialization
+            current_instrument["in_short_position"] = False
+            current_instrument["in_long_position"] = False
+            current_instrument["short_entry_price"] = None
+            current_instrument["long_entry_price"] = None
+            current_instrument["prev_bar_close"] = None
 
            # macd exit system
             if self.config.use_macd_exit_system.get("enabled", False):
@@ -149,8 +156,8 @@ class ShortThaBichStratConfig(BaseStrategy, Strategy):
             if self.config.use_macd_simple_reversion_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("macd", 1)
                 current_instrument["collector"].initialise_logging_indicator("macd_signal", 1)
-            if self.config.use_rsi_as_exit.get("enabled", False):
-                current_instrument["collector"].initialise_logging_indicator("rsi_exit", 1)
+            if self.config.use_rsi_simple_reversion_system.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("rsi", 1)
             if self.config.use_macd_exit_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("macd_exit", 1)
                 current_instrument["collector"].initialise_logging_indicator("macd_exit_signal", 1)
@@ -158,15 +165,18 @@ class ShortThaBichStratConfig(BaseStrategy, Strategy):
 
     def on_start(self):
         super().on_start()
-        self._subscribe_to_metrics_data()
+        # self._subscribe_to_metrics_data()  # Disabled - not configured in YAML
         self._request_historical_bars()
 
     def _request_historical_bars(self):
         # Calculate how many bars we need based on indicator periods
         max_lookback = max(
-            self.config.atr_period,
-            self.config.use_aroon_simple_trend_system.get("aroon_period", 60),
-            self.config.use_close_ema.get("exit_trend_ema_period", 80)
+            self.config.atr_period if self.config.log_growth_atr_risk.get("enabled", False) else self.config.atr_period,
+            self.config.log_growth_atr_risk.get("atr_period", 14),
+            self.config.use_htf_ema_bias_filter.get("ema_period", 200),
+            self.config.use_macd_simple_reversion_system.get("macd_slow_period", 26),
+            self.config.use_macd_exit_system.get("macd_slow_exit_period", 32),
+            self.config.use_rsi_simple_reversion_system.get("rsi_period", 20)
         )
         
         # Add 10% buffer to ensure we have enough data
@@ -207,36 +217,37 @@ class ShortThaBichStratConfig(BaseStrategy, Strategy):
                     LogColor.RED
                 )
 
-    def _subscribe_to_metrics_data(self):
-        try:
-            metrics_data_type = DataType(BybitMetricsData)
-            self.subscribe_data(data_type=metrics_data_type)
-        except Exception as e:
-            self.log.error(f"Failed to subscribe to BybitMetricsData: {e}", LogColor.RED)
+    # def _subscribe_to_metrics_data(self):
+    #     try:
+    #         metrics_data_type = DataType(BybitMetricsData)
+    #         self.subscribe_data(data_type=metrics_data_type)
+    #     except Exception as e:
+    #         self.log.error(f"Failed to subscribe to BybitMetricsData: {e}", LogColor.RED)
 
-    def on_data(self, data) -> None:
-        if isinstance(data, BybitMetricsData):
-            self.on_metrics_data(data)
+    # def on_data(self, data) -> None:
+    #     if isinstance(data, BybitMetricsData):
+    #         self.on_metrics_data(data)
 
-    def on_metrics_data(self, data: BybitMetricsData) -> None:
-        instrument_id = data.instrument_id
-        
-        # Skip metrics for BTC and SOL - they're only used for price-based risk scaling
-        if self.is_btc_instrument(instrument_id) or self.is_sol_instrument(instrument_id):
-            return
-        
-        current_instrument = self.instrument_dict.get(instrument_id)
+    # def on_metrics_data(self, data: BybitMetricsData) -> None:
+    #     instrument_id = data.instrument_id
+    #     
+    #     # Skip metrics for BTC and SOL - they're only used for price-based risk scaling
+    #     if self.is_btc_instrument(instrument_id) or self.is_sol_instrument(instrument_id):
+    #         return
+    #     
+    #     current_instrument = self.instrument_dict.get(instrument_id)
+    #
+    #     if current_instrument is not None:
+    #         # Map Bybit fields to strategy fields - OI only
+    #         current_instrument["latest_open_interest_value"] = data.open_interest
+    #         
+    #         # Apply BOTH entry and exit scaling
+    #         self.entry_scale_binance_metrics(current_instrument)
+    #         self.exit_scale_binance_metrics(current_instrument)
+    #         
+    #         # Update L3 window if trade is active
+    #         self.update_l3_window(current_instrument)
 
-        if current_instrument is not None:
-            # Map Bybit fields to strategy fields - OI only
-            current_instrument["latest_open_interest_value"] = data.open_interest
-            
-            # Apply BOTH entry and exit scaling
-            self.entry_scale_binance_metrics(current_instrument)
-            self.exit_scale_binance_metrics(current_instrument)
-            
-            # Update L3 window if trade is active
-            self.update_l3_window(current_instrument)
 
     def passes_htf_ema_bias_filter(self, bar: Bar, current_instrument: Dict[str, Any], trade_direction: str) -> bool:
         if not self.config.use_htf_ema_bias_filter.get("enabled", False):
@@ -361,18 +372,21 @@ class ShortThaBichStratConfig(BaseStrategy, Strategy):
         if current_time < deadline:
             return True
         else:
-            self.log.info(f"TIME CLOSURE", LogColor.CYAN)
-            self.log.info(f"TIME CLOSURE", LogColor.CYAN)
-            self.log.info(f"TIME CLOSURE", LogColor.CYAN)
-            self.log.info(f"TIME CLOSURE", LogColor.CYAN)
-            self.log.info(f"TIME CLOSURE", LogColor.CYAN)
-            self.log.info(f"TIME CLOSURE", LogColor.CYAN)
-            self.log.info(f"TIME CLOSURE", LogColor.CYAN)
+            self.log.info("TIME CLOSURE", LogColor.CYAN)
+            self.log.info("TIME CLOSURE", LogColor.CYAN)
+            self.log.info("TIME CLOSURE", LogColor.CYAN)
+            self.log.info("TIME CLOSURE", LogColor.CYAN)
+            self.log.info("TIME CLOSURE", LogColor.CYAN)
+            self.log.info("TIME CLOSURE", LogColor.CYAN)
+            self.log.info("TIME CLOSURE", LogColor.CYAN)
             self.order_types.close_position_by_market_order(bar.bar_type.instrument_id)
             self.unsubscribe_bars(bar.bar_type)
             
             return False
 
+    # def is_btc_instrument(self, instrument_id) -> bool:
+    #     return "BTCUSDT" in str(instrument_id)
+    # 
     # def is_btc_instrument(self, instrument_id) -> bool:
     #     return "BTCUSDT" in str(instrument_id)
     
@@ -504,7 +518,11 @@ class ShortThaBichStratConfig(BaseStrategy, Strategy):
             return
         
         self.macd_simple_reversion_setup(bar, current_instrument)
-        self.rsi_simple_reversion_setup(bar, current_instrument)
+        
+        # Only call RSI setup if usage_method is "execution" (direct RSI entry signals)
+        # When usage_method="condition", RSI only acts as filter in macd_simple_reversion_setup
+        if self.config.use_rsi_simple_reversion_system.get("usage_method") == "execution":
+            self.rsi_simple_reversion_setup(bar, current_instrument)
 
     def rsi_simple_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_rsi_simple_reversion_system.get("enabled", False):
@@ -520,13 +538,12 @@ class ShortThaBichStratConfig(BaseStrategy, Strategy):
             # Original behavior - RSI directly triggers trades
             rsi_value = float(rsi.value)
             rsi_overbought = current_instrument["rsi_overbought"]
-            rsi_oversold = current_instrument["rsi_oversold"]
+            # rsi_oversold = current_instrument["rsi_oversold"]  # Unused with only_execute_short=true
             
             # Immediate execution on extreme RSI levels - no minimum bars required
             if rsi_value >= rsi_overbought and self.passes_htf_ema_bias_filter(bar, current_instrument, "short"):
                 self.enter_short_rsi_reversion(bar, current_instrument)
-            elif rsi_value <= rsi_oversold and self.is_long_entry_allowed() and self.passes_htf_ema_bias_filter(bar, current_instrument, "long"):
-                self.enter_long_rsi_reversion(bar, current_instrument)
+            # Long entries disabled via only_execute_short=true
         elif usage_method == "condition":
             # New behavior - RSI acts as a condition for other entry methods
             # The actual condition checking is done in passes_rsi_condition_filter method
@@ -552,11 +569,8 @@ class ShortThaBichStratConfig(BaseStrategy, Strategy):
         if qty > 0:
             current_instrument["in_short_position"] = True
             current_instrument["short_entry_price"] = entry_price
-            current_instrument["bars_since_entry"] = 0
-            current_instrument["max_topt_difference_since_entry"] = None
             current_instrument["sl_price"] = stop_loss_price
             self.order_types.submit_short_market_order(instrument_id, qty)
-
 
     def macd_simple_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if not self.config.use_macd_simple_reversion_system.get("enabled", False):
@@ -580,7 +594,7 @@ class ShortThaBichStratConfig(BaseStrategy, Strategy):
                 self.is_long_entry_allowed() and
                 self.passes_htf_ema_bias_filter(bar, current_instrument, "long") and
                 self.passes_rsi_condition_filter(bar, current_instrument, "long")):
-                self.enter_long_macd_reversion(bar, current_instrument)
+                pass  # Long entries disabled via only_execute_short=true
             
             elif (prev_macd >= prev_signal and macd_line < signal_line and
                   macd_line > 0 and signal_line > 0 and
@@ -611,13 +625,10 @@ class ShortThaBichStratConfig(BaseStrategy, Strategy):
         if qty > 0:
             current_instrument["in_short_position"] = True
             current_instrument["short_entry_price"] = entry_price
-            current_instrument["bars_since_entry"] = 0
-            current_instrument["min_topt_difference_since_entry"] = None
             current_instrument["sl_price"] = stop_loss_price
             self.order_types.submit_short_market_order(instrument_id, qty)
 
     def short_exit_logic(self, bar: Bar, current_instrument: Dict[str, Any], position):
-        current_instrument["bars_since_entry"] += 1
         sl_price = current_instrument.get("sl_price")
         instrument_id = bar.bar_type.instrument_id
         
@@ -631,7 +642,7 @@ class ShortThaBichStratConfig(BaseStrategy, Strategy):
             return
         
         # Check time-based exit (overrides all other exits if enabled)
-        if self.check_time_based_exit(bar, current_instrument, position):
+        if self.check_time_based_exit(bar, current_instrument, position, self.config.time_after_listing_close):
             close_qty = min(int(abs(position.quantity)), abs(position.quantity))
             if close_qty > 0:
                 self.order_types.submit_long_market_order(instrument_id, int(close_qty))
@@ -660,10 +671,7 @@ class ShortThaBichStratConfig(BaseStrategy, Strategy):
 
     def reset_position_tracking(self, current_instrument: Dict[str, Any]):
         current_instrument["short_entry_price"] = None
-        current_instrument["bars_since_entry"] = 0
         current_instrument["sl_price"] = None
-        current_instrument["in_short_position"] = False
-        current_instrument["ema_exit_qualified"] = False
         current_instrument["in_short_position"] = False
 
     def check_macd_exit_short(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
@@ -709,6 +717,13 @@ class ShortThaBichStratConfig(BaseStrategy, Strategy):
                 signal_value = float(macd_signal_ema.value)
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="macd", value=macd_value)
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="macd_signal", value=signal_value)
+
+        # RSI for reversion system (position 1)
+        if self.config.use_rsi_simple_reversion_system.get("enabled", False):
+            rsi = current_instrument.get("rsi")
+            if rsi and rsi.value is not None:
+                rsi_value = float(rsi.value)
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="rsi", value=rsi_value)
 
         # MACD for exit method (position 1)
         if self.config.use_macd_exit_system.get("enabled", False):
