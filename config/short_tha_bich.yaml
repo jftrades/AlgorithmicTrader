@@ -48,8 +48,8 @@ min_account_balance: 1000
 
 log_growth_atr_risk:
   enabled: true
-  atr_period: 50
-  atr_multiple: 5.0
+  atr_period: 30
+  atr_multiple: 4.0
   risk_percent: 0.05 
 
 # _______________________
@@ -57,7 +57,7 @@ log_growth_atr_risk:
 # _______________________
 
 only_execute_short: true
-hold_profit_for_remaining_days: true
+hold_profit_for_remaining_days: false
 time_after_listing_close: 20
 max_leverage: 1
 
@@ -67,28 +67,28 @@ max_leverage: 1
 
 use_htf_ema_bias_filter:
   enabled: true
-  ema_period: 200
+  ema_period: 70
 
 use_macd_simple_reversion_system:
   enabled: true
   macd_fast_period: 20
-  macd_slow_period: 32
-  macd_signal_period: 16
+  macd_slow_period: 35
+  macd_signal_period: 15
 
 use_rsi_simple_reversion_system:
-  enabled: true
+  enabled: false
   usage_method: "condition" # or execution
-  rsi_period: 50
-  rsi_overbought: 0.6
-  rsi_oversold: 0.3
+  rsi_period: 20
+  rsi_overbought: 0.55
+  rsi_oversold: 0.45
 
 
 # Entry System simple:
 #_____________________
 use_macd_exit_system:
   enabled: true
-  macd_fast_exit_period: 30
-  macd_slow_exit_period: 70
-  macd_signal_exit_period: 25
+  macd_fast_exit_period: 65
+  macd_slow_exit_period: 100
+  macd_signal_exit_period: 50
 
   
