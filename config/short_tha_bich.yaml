@@ -84,9 +84,9 @@ use_rsi_simple_reversion_system:
 
 atr_burst_entry:
   enabled: true
-  atr_period_calc: 40
-  atr_burst_threshold: 8
-  waiting_bars_after_burst: 5
+  atr_period_calc: 80
+  atr_burst_threshold: 10
+  waiting_bars_after_burst: 3
 
 
 # Exit System simple:

@@ -194,7 +194,7 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
 
             atr_burst_config = self.config.atr_burst_entry if isinstance(self.config.atr_burst_entry, dict) else {}
             if atr_burst_config.get("enabled", False):
-                current_instrument["collector"].initialise_logging_indicator("atr_burst", 1)
+                current_instrument["collector"].initialise_logging_indicator("tr_atr_ratio", 1)
 
 
     def on_start(self):
@@ -556,23 +556,25 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             atr_burst = current_instrument["atr_burst"]
             atr_burst.handle_bar(bar)
             if atr_burst.initialized:
-                current_atr = float(atr_burst.value)
                 atr_history = current_instrument["atr_history"]
-                atr_history.append(current_atr)
+                atr_history.append(float(atr_burst.value))
                 if len(atr_history) > 100:
                     atr_history.pop(0)
                 
-                true_range = float(bar.high.as_double() - bar.low.as_double())
-                bar_upside_move = float(bar.close.as_double() - bar.open.as_double())
-                burst_threshold = current_instrument["burst_threshold"]
-                
                 if len(atr_history) > 0:
                     avg_atr = sum(atr_history) / len(atr_history)
+                    true_range = float(bar.high.as_double() - bar.low.as_double())
+                    tr_atr_ratio = true_range / avg_atr if avg_atr > 0 else 0
                     
-                    if true_range > burst_threshold * avg_atr and bar_upside_move > 0:
-                        current_instrument["burst_detected"] = True
-                        current_instrument["bars_since_burst"] = 0
-                    elif current_instrument["burst_detected"]:
+                    current_instrument["tr_atr_ratio"] = tr_atr_ratio
+                    
+                    if not current_instrument.get("burst_detected", False):
+                        upside_move = float(bar.close.as_double() - bar.open.as_double())
+                        if tr_atr_ratio > current_instrument["burst_threshold"] and upside_move > 0:
+                            current_instrument["burst_detected"] = True
+                            current_instrument["bars_since_burst"] = 0
+                            self.log.info(f"BURST! TR/ATR = {tr_atr_ratio:.2f}x (threshold: {current_instrument['burst_threshold']}x)", LogColor.YELLOW)
+                    else:
                         current_instrument["bars_since_burst"] += 1
         
         self.base_collect_bar_data(bar, current_instrument)
@@ -605,13 +607,16 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         if not atr_burst_config.get("enabled", False):
             return
         
-        if not current_instrument["burst_detected"]:
+        if not current_instrument.get("burst_detected", False):
             return
         
         waiting_bars = current_instrument["waiting_bars"]
         bars_since_burst = current_instrument["bars_since_burst"]
         
+        self.log.info(f"Burst tracking: {bars_since_burst}/{waiting_bars} bars", LogColor.CYAN)
+        
         if bars_since_burst == waiting_bars:
+            self.log.info(f"ATTEMPTING SHORT ENTRY after {waiting_bars} bars!", LogColor.GREEN)
             self.enter_short_atr_burst(bar, current_instrument)
             current_instrument["burst_detected"] = False
             current_instrument["bars_since_burst"] = 0
@@ -849,10 +854,8 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
 
         atr_burst_config = self.config.atr_burst_entry if isinstance(self.config.atr_burst_entry, dict) else {}
         if atr_burst_config.get("enabled", False):
-            atr_burst = current_instrument.get("atr_burst")
-            if atr_burst and atr_burst.value is not None:
-                atr_burst_value = float(atr_burst.value)
-                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="atr_burst", value=atr_burst_value)
+            tr_atr_ratio = current_instrument.get("tr_atr_ratio", 0)
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="tr_atr_ratio", value=tr_atr_ratio)
         
     def on_order_filled(self, order_filled) -> None:
         self.log.info(f"ORDER FILLED: {order_filled.ts_event})", LogColor.CYAN)
