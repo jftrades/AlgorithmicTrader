@@ -80,6 +80,15 @@ class ShortThaBitchStratConfig(StrategyConfig):
         }
     )
 
+    atr_burst_entry: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "atr_period_calc": 40,
+            "atr_burst_threshold": 10,
+            "waiting_bars_after_burst": 5
+        }
+    )
+
     only_execute_short: bool = False
     hold_profit_for_remaining_days: bool = False
     close_positions_on_stop: bool = True
@@ -138,7 +147,16 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             current_instrument["rsi_overbought"] = rsi_config.get("rsi_overbought", 0.7)
             current_instrument["rsi_oversold"] = rsi_config.get("rsi_oversold", 0.3)
 
-            # Position tracking initialization
+            atr_burst_config = self.config.atr_burst_entry if isinstance(self.config.atr_burst_entry, dict) else {}
+            if atr_burst_config.get("enabled", False):
+                atr_burst_period = atr_burst_config.get("atr_period_calc", 40)
+                current_instrument["atr_burst"] = AverageTrueRange(atr_burst_period)
+                current_instrument["atr_history"] = []
+                current_instrument["burst_detected"] = False
+                current_instrument["bars_since_burst"] = 0
+                current_instrument["burst_threshold"] = atr_burst_config.get("atr_burst_threshold", 10)
+                current_instrument["waiting_bars"] = atr_burst_config.get("waiting_bars_after_burst", 5)
+
             current_instrument["in_short_position"] = False
             current_instrument["in_long_position"] = False
             current_instrument["short_entry_price"] = None
@@ -174,6 +192,10 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
                 current_instrument["collector"].initialise_logging_indicator("macd_exit", 1)
                 current_instrument["collector"].initialise_logging_indicator("macd_exit_signal", 1)
 
+            atr_burst_config = self.config.atr_burst_entry if isinstance(self.config.atr_burst_entry, dict) else {}
+            if atr_burst_config.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("atr_burst", 1)
+
 
     def on_start(self):
         super().on_start()
@@ -187,6 +209,7 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         macd_config = self.config.use_macd_simple_reversion_system if isinstance(self.config.use_macd_simple_reversion_system, dict) else {}
         macd_exit_config = self.config.use_macd_exit_system if isinstance(self.config.use_macd_exit_system, dict) else {}
         rsi_config = self.config.use_rsi_simple_reversion_system if isinstance(self.config.use_rsi_simple_reversion_system, dict) else {}
+        atr_burst_config = self.config.atr_burst_entry if isinstance(self.config.atr_burst_entry, dict) else {}
         
         max_lookback = max(
             self.config.atr_period if log_growth_config.get("enabled", False) else self.config.atr_period,
@@ -194,7 +217,8 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             htf_ema_config.get("ema_period", 200),
             macd_config.get("macd_slow_period", 26),
             macd_exit_config.get("macd_slow_exit_period", 32),
-            rsi_config.get("rsi_period", 20)
+            rsi_config.get("rsi_period", 20),
+            atr_burst_config.get("atr_period_calc", 40) + 100
         )
         
         # Add 10% buffer to ensure we have enough data
@@ -527,6 +551,27 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
                 macd_exit_signal = current_instrument["macd_exit_signal"]
                 macd_exit_signal.update_raw(macd_exit.value)
         
+        atr_burst_config = self.config.atr_burst_entry if isinstance(self.config.atr_burst_entry, dict) else {}
+        if atr_burst_config.get("enabled", False):
+            atr_burst = current_instrument["atr_burst"]
+            atr_burst.handle_bar(bar)
+            if atr_burst.initialized:
+                current_atr = float(atr_burst.value)
+                atr_history = current_instrument["atr_history"]
+                atr_history.append(current_atr)
+                if len(atr_history) > 100:
+                    atr_history.pop(0)
+                
+                bar_range = float(bar.high.as_double() - bar.low.as_double())
+                bar_upside_move = float(bar.close.as_double() - bar.open.as_double())
+                burst_threshold = current_instrument["burst_threshold"]
+                
+                if bar_range > burst_threshold * current_atr and bar_upside_move > 0:
+                    current_instrument["burst_detected"] = True
+                    current_instrument["bars_since_burst"] = 0
+                elif current_instrument["burst_detected"]:
+                    current_instrument["bars_since_burst"] += 1
+        
         self.base_collect_bar_data(bar, current_instrument)
         self.update_visualizer_data(bar, current_instrument)
         
@@ -545,13 +590,51 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         if not self.is_trading_allowed_after_listing(bar):
             return
         
+        self.atr_burst_setup(bar, current_instrument)
         self.macd_simple_reversion_setup(bar, current_instrument)
         
-        # Only call RSI setup if usage_method is "execution" (direct RSI entry signals)
-        # When usage_method="condition", RSI only acts as filter in macd_simple_reversion_setup
         rsi_config = self.config.use_rsi_simple_reversion_system if isinstance(self.config.use_rsi_simple_reversion_system, dict) else {}
         if rsi_config.get("usage_method") == "execution":
             self.rsi_simple_reversion_setup(bar, current_instrument)
+
+    def atr_burst_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
+        atr_burst_config = self.config.atr_burst_entry if isinstance(self.config.atr_burst_entry, dict) else {}
+        if not atr_burst_config.get("enabled", False):
+            return
+        
+        if not current_instrument["burst_detected"]:
+            return
+        
+        waiting_bars = current_instrument["waiting_bars"]
+        bars_since_burst = current_instrument["bars_since_burst"]
+        
+        if bars_since_burst == waiting_bars:
+            self.enter_short_atr_burst(bar, current_instrument)
+            current_instrument["burst_detected"] = False
+            current_instrument["bars_since_burst"] = 0
+
+    def enter_short_atr_burst(self, bar: Bar, current_instrument: Dict[str, Any]):
+        instrument_id = bar.bar_type.instrument_id
+        entry_price = float(bar.close)
+        
+        if not self.passes_htf_ema_bias_filter(bar, current_instrument, "short"):
+            return
+        
+        atr = current_instrument["atr"]
+        if not atr.initialized:
+            return
+        
+        atr_value = float(atr.value)
+        sl_atr_multiple = current_instrument.get("sl_atr_multiple", self.config.sl_atr_multiple)
+        stop_loss_price = entry_price + (atr_value * sl_atr_multiple)
+        
+        qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+        
+        if qty > 0:
+            current_instrument["in_short_position"] = True
+            current_instrument["short_entry_price"] = entry_price
+            current_instrument["sl_price"] = stop_loss_price
+            self.order_types.submit_short_market_order(instrument_id, qty)
 
     def rsi_simple_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         rsi_config = self.config.use_rsi_simple_reversion_system if isinstance(self.config.use_rsi_simple_reversion_system, dict) else {}
@@ -565,37 +648,27 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         usage_method = rsi_config.get("usage_method", "execution")
         
         if usage_method == "execution":
-            # Original behavior - RSI directly triggers trades
             rsi_value = float(rsi.value)
             rsi_overbought = current_instrument["rsi_overbought"]
-            # rsi_oversold = current_instrument["rsi_oversold"]  # Unused with only_execute_short=true
             
-            # Immediate execution on extreme RSI levels - no minimum bars required
             if rsi_value >= rsi_overbought and self.passes_htf_ema_bias_filter(bar, current_instrument, "short"):
                 self.enter_short_rsi_reversion(bar, current_instrument)
-            # Long entries disabled via only_execute_short=true
         elif usage_method == "condition":
-            # New behavior - RSI acts as a condition for other entry methods
-            # The actual condition checking is done in passes_rsi_condition_filter method
             pass
 
     def enter_short_rsi_reversion(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
         entry_price = float(bar.close)
         
-        # Calculate ATR-based stop loss
         atr_value = current_instrument["atr"].value
         sl_atr_multiple = current_instrument["sl_atr_multiple"]
         if atr_value is not None:
             stop_loss_price = entry_price + sl_atr_multiple * atr_value
         else:
-            # Fallback to 2% stop loss if ATR not available
             stop_loss_price = entry_price * 1.02
         
-        # Calculate risk-based position size
         qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
         
-        # Only submit order if quantity > 0
         if qty > 0:
             current_instrument["in_short_position"] = True
             current_instrument["short_entry_price"] = entry_price
@@ -770,6 +843,13 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
                 macd_exit_signal_value = float(macd_exit_signal.value)
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="macd_exit", value=macd_exit_value)
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="macd_exit_signal", value=macd_exit_signal_value)
+
+        atr_burst_config = self.config.atr_burst_entry if isinstance(self.config.atr_burst_entry, dict) else {}
+        if atr_burst_config.get("enabled", False):
+            atr_burst = current_instrument.get("atr_burst")
+            if atr_burst and atr_burst.value is not None:
+                atr_burst_value = float(atr_burst.value)
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="atr_burst", value=atr_burst_value)
         
     def on_order_filled(self, order_filled) -> None:
         self.log.info(f"ORDER FILLED: {order_filled.ts_event})", LogColor.CYAN)
