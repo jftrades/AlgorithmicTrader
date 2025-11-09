@@ -573,7 +573,6 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
                         if tr_atr_ratio > current_instrument["burst_threshold"] and upside_move > 0:
                             current_instrument["burst_detected"] = True
                             current_instrument["bars_since_burst"] = 0
-                            self.log.info(f"BURST! TR/ATR = {tr_atr_ratio:.2f}x (threshold: {current_instrument['burst_threshold']}x)", LogColor.YELLOW)
                     else:
                         current_instrument["bars_since_burst"] += 1
         
@@ -612,8 +611,6 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         
         waiting_bars = current_instrument["waiting_bars"]
         bars_since_burst = current_instrument["bars_since_burst"]
-        
-        self.log.info(f"Burst tracking: {bars_since_burst}/{waiting_bars} bars", LogColor.CYAN)
         
         if bars_since_burst == waiting_bars:
             self.log.info(f"ATTEMPTING SHORT ENTRY after {waiting_bars} bars!", LogColor.GREEN)
