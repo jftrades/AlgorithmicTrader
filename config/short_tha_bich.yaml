@@ -49,7 +49,7 @@ min_account_balance: 1000
 log_growth_atr_risk:
   enabled: true
   atr_period: 30
-  atr_multiple: 4.0
+  atr_multiple: 3.0
   risk_percent: 0.05 
 
 # _______________________
@@ -85,7 +85,7 @@ use_rsi_simple_reversion_system:
 atr_burst_entry:
   enabled: true
   atr_period_calc: 40
-  atr_burst_threshold: 10
+  atr_burst_threshold: 8
   waiting_bars_after_burst: 5
 
 

@@ -562,15 +562,18 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
                 if len(atr_history) > 100:
                     atr_history.pop(0)
                 
-                bar_range = float(bar.high.as_double() - bar.low.as_double())
+                true_range = float(bar.high.as_double() - bar.low.as_double())
                 bar_upside_move = float(bar.close.as_double() - bar.open.as_double())
                 burst_threshold = current_instrument["burst_threshold"]
                 
-                if bar_range > burst_threshold * current_atr and bar_upside_move > 0:
-                    current_instrument["burst_detected"] = True
-                    current_instrument["bars_since_burst"] = 0
-                elif current_instrument["burst_detected"]:
-                    current_instrument["bars_since_burst"] += 1
+                if len(atr_history) > 0:
+                    avg_atr = sum(atr_history) / len(atr_history)
+                    
+                    if true_range > burst_threshold * avg_atr and bar_upside_move > 0:
+                        current_instrument["burst_detected"] = True
+                        current_instrument["bars_since_burst"] = 0
+                    elif current_instrument["burst_detected"]:
+                        current_instrument["bars_since_burst"] += 1
         
         self.base_collect_bar_data(bar, current_instrument)
         self.update_visualizer_data(bar, current_instrument)
