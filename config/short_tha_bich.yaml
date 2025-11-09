@@ -67,7 +67,7 @@ max_leverage: 1
 
 use_htf_ema_bias_filter:
   enabled: true
-  ema_period: 70
+  ema_period: 150
 
 use_macd_simple_reversion_system:
   enabled: true
@@ -78,12 +78,12 @@ use_macd_simple_reversion_system:
 use_rsi_simple_reversion_system:
   enabled: false
   usage_method: "condition" # or execution
-  rsi_period: 20
+  rsi_period: 15
   rsi_overbought: 0.55
   rsi_oversold: 0.45
 
 
-# Entry System simple:
+# Exit System simple:
 #_____________________
 use_macd_exit_system:
   enabled: true
