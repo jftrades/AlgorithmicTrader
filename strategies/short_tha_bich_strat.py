@@ -84,6 +84,7 @@ class ShortThaBitchStratConfig(StrategyConfig):
         default_factory=lambda: {
             "enabled": False,
             "atr_period_calc": 40,
+            "tr_lb": 3,
             "atr_burst_threshold": 10,
             "waiting_bars_after_burst": 5
         }
@@ -152,6 +153,8 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
                 atr_burst_period = atr_burst_config.get("atr_period_calc", 40)
                 current_instrument["atr_burst"] = AverageTrueRange(atr_burst_period)
                 current_instrument["atr_history"] = []
+                current_instrument["tr_history"] = []
+                current_instrument["tr_lb"] = atr_burst_config.get("tr_lb", 3)
                 current_instrument["burst_detected"] = False
                 current_instrument["bars_since_burst"] = 0
                 current_instrument["burst_threshold"] = atr_burst_config.get("atr_burst_threshold", 10)
@@ -561,16 +564,23 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
                 if len(atr_history) > 100:
                     atr_history.pop(0)
                 
-                if len(atr_history) > 0:
-                    avg_atr = sum(atr_history) / len(atr_history)
+                tr_lb = current_instrument["tr_lb"]
+                if len(atr_history) >= tr_lb:
+                    cumulative_atr = sum(atr_history[-tr_lb:])
                     true_range = float(bar.high.as_double() - bar.low.as_double())
-                    tr_atr_ratio = true_range / avg_atr if avg_atr > 0 else 0
+                    is_upside = float(bar.close.as_double() - bar.open.as_double()) > 0
                     
+                    tr_history = current_instrument["tr_history"]
+                    tr_history.append(true_range if is_upside else 0)
+                    if len(tr_history) > tr_lb:
+                        tr_history.pop(0)
+                    
+                    cumulative_tr = sum(tr_history)
+                    tr_atr_ratio = cumulative_tr / cumulative_atr if cumulative_atr > 0 else 0
                     current_instrument["tr_atr_ratio"] = tr_atr_ratio
                     
                     if not current_instrument.get("burst_detected", False):
-                        upside_move = float(bar.close.as_double() - bar.open.as_double())
-                        if tr_atr_ratio > current_instrument["burst_threshold"] and upside_move > 0:
+                        if tr_atr_ratio > current_instrument["burst_threshold"] and is_upside:
                             current_instrument["burst_detected"] = True
                             current_instrument["bars_since_burst"] = 0
                     else:
