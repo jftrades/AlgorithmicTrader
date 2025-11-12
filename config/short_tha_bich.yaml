@@ -65,9 +65,7 @@ max_leverage: 1
 # Entry System idea:
 #_____________________
 
-use_htf_ema_bias_filter:
-  enabled: false
-  ema_period: 150
+
 
 use_macd_simple_reversion_system:
   enabled: false
@@ -84,9 +82,14 @@ use_rsi_simple_reversion_system:
 
 atr_burst_entry:
   enabled: true
-  atr_period_calc: 80
-  atr_burst_threshold: 10
-  waiting_bars_after_burst: 3
+  atr_period_calc: 50
+  tr_lb: 3
+  atr_burst_threshold: 6
+  waiting_bars_after_burst: 10
+
+use_htf_ema_bias_filter:
+  enabled: false
+  ema_period: 150
 
 
 # Exit System simple:
