@@ -42,17 +42,15 @@ metrics_columns = ['timestamp_iso', 'sum_open_interest', 'sum_open_interest_valu
 
 df_metrics_clean = df_metrics[metrics_columns].copy()
 
-# Select FNG columns (adjust based on actual FNG CSV structure)
-# Assuming FNG has timestamp_iso and fng_value columns
-fng_columns = [col for col in df_fng.columns if 'timestamp' in col.lower() or 'fng' in col.lower() or 'fear' in col.lower() or 'greed' in col.lower()]
+# Select FNG columns - only keep fear_greed value, not classification
 if 'timestamp_iso' not in df_fng.columns:
     # Find the timestamp column
     timestamp_col = [col for col in df_fng.columns if 'timestamp' in col.lower()][0]
     df_fng = df_fng.rename(columns={timestamp_col: 'timestamp_iso'})
 
-# Keep only relevant FNG columns
-fng_data_cols = [col for col in df_fng.columns if col != 'timestamp_iso']
-df_fng_clean = df_fng[['timestamp_iso'] + fng_data_cols].copy()
+# Keep only timestamp_iso and fear_greed columns
+df_fng_clean = df_fng[['timestamp_iso', 'fear_greed']].copy()
+fng_data_cols = ['fear_greed']  # Only the numeric FNG value
 
 # Normalize timestamp formats to common format (YYYY-MM-DDTHH:MM:SS)
 # Remove timezone info, milliseconds, and standardize format
