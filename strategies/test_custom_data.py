@@ -25,7 +25,7 @@ from nautilus_trader.core import Data
 
 
 # Strategiespezifische Importe
-from nautilus_trader.indicators.rsi import RelativeStrengthIndex
+from nautilus_trader.indicators.momentum import RelativeStrengthIndex
 
 from AlgorithmicTrader.data.download.crypto_downloads.custom_class.metrics_data import MetricsData
 from data.download.custom_data_nautilius.aggTrades_data import AggTradeData

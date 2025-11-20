@@ -102,13 +102,17 @@ class BaseStrategy(Strategy):
         entry_price_decimal = Decimal(str(entry_price))
         stop_loss_price_decimal = Decimal(str(stop_loss_price))
         
-        if self.config.exp_growth_atr_risk["enabled"]:
-            risk_percent = Decimal(str(self.config.exp_growth_atr_risk["risk_percent"]))
+        # Handle FieldInfo objects - convert to dict if needed
+        exp_growth_config = self.config.exp_growth_atr_risk if isinstance(self.config.exp_growth_atr_risk, dict) else {}
+        log_growth_config = self.config.log_growth_atr_risk if isinstance(self.config.log_growth_atr_risk, dict) else {}
+        
+        if exp_growth_config.get("enabled", False):
+            risk_percent = Decimal(str(exp_growth_config["risk_percent"]))
             exact_contracts = self.risk_manager.exp_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, risk_percent)
             return round(float(exact_contracts))
         
-        if self.config.log_growth_atr_risk["enabled"]:
-            risk_percent = Decimal(str(self.config.log_growth_atr_risk["risk_percent"]))
+        if log_growth_config.get("enabled", False):
+            risk_percent = Decimal(str(log_growth_config["risk_percent"]))
             exact_contracts = self.risk_manager.log_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, risk_percent)
             return round(float(exact_contracts))
         
@@ -117,13 +121,17 @@ class BaseStrategy(Strategy):
     def calculate_fixed_position_size(self, instrument_id: InstrumentId, entry_price: float) -> int:
         entry_price_decimal = Decimal(str(entry_price)) 
         
-        if self.config.exp_fixed_trade_risk["enabled"]:
-            invest_percent = Decimal(str(self.config.exp_fixed_trade_risk["invest_percent"]))
+        # Handle FieldInfo objects - convert to dict if needed
+        exp_fixed_config = self.config.exp_fixed_trade_risk if isinstance(self.config.exp_fixed_trade_risk, dict) else {}
+        log_fixed_config = self.config.log_fixed_trade_risk if isinstance(self.config.log_fixed_trade_risk, dict) else {}
+        
+        if exp_fixed_config.get("enabled", False):
+            invest_percent = Decimal(str(exp_fixed_config["invest_percent"]))
             qty = self.risk_manager.exp_fixed_trade_risk(entry_price_decimal, invest_percent)
             return round(float(qty))
         
-        if self.config.log_fixed_trade_risk["enabled"]:
-            investment_size = Decimal(str(self.config.log_fixed_trade_risk["investment_size"]))
+        if log_fixed_config.get("enabled", False):
+            investment_size = Decimal(str(log_fixed_config["investment_size"]))
             qty = self.risk_manager.log_fixed_trade_risk(entry_price_decimal, investment_size)
             return round(float(qty))
         

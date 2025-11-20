@@ -178,12 +178,17 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         for current_instrument in self.instrument_dict.values():
             # atr
             atr_period = self.config.atr_period
-            if self.config.exp_growth_atr_risk["enabled"]:
-                atr_period = self.config.exp_growth_atr_risk["atr_period"]
-                current_instrument["sl_atr_multiple"] = self.config.exp_growth_atr_risk["atr_multiple"]
-            elif self.config.log_growth_atr_risk["enabled"]:
-                atr_period = self.config.log_growth_atr_risk["atr_period"]
-                current_instrument["sl_atr_multiple"] = self.config.log_growth_atr_risk["atr_multiple"]
+            
+            # Handle FieldInfo objects
+            exp_growth_config = self.config.exp_growth_atr_risk if isinstance(self.config.exp_growth_atr_risk, dict) else {}
+            log_growth_config = self.config.log_growth_atr_risk if isinstance(self.config.log_growth_atr_risk, dict) else {}
+            
+            if exp_growth_config.get("enabled", False):
+                atr_period = exp_growth_config.get("atr_period", 14)
+                current_instrument["sl_atr_multiple"] = exp_growth_config.get("atr_multiple", 2.0)
+            elif log_growth_config.get("enabled", False):
+                atr_period = log_growth_config.get("atr_period", 14)
+                current_instrument["sl_atr_multiple"] = log_growth_config.get("atr_multiple", 2.0)
             else:
                 current_instrument["sl_atr_multiple"] = self.config.sl_atr_multiple
             
@@ -1123,12 +1128,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             risk_multiplier = min_risk + (max_risk - min_risk) * inverted_normalized
         
         return risk_multiplier
-
-
-
-
-
-
+    # 2 hour shorting was funding rate < 0
     
     def update_btc_visualizer_data(self, bar: Bar, btc_instrument: Dict[str, Any]) -> None:
         if not hasattr(self, 'btc_context'):
@@ -1214,14 +1214,18 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         # Combine both risk multipliers (multiply them together)
         combined_risk_multiplier = btc_risk_multiplier * sol_risk_multiplier
         
-        if self.config.exp_growth_atr_risk["enabled"]:
-            base_risk_percent = Decimal(str(self.config.exp_growth_atr_risk["risk_percent"]))
+        # Handle FieldInfo objects
+        exp_growth_config = self.config.exp_growth_atr_risk if isinstance(self.config.exp_growth_atr_risk, dict) else {}
+        log_growth_config = self.config.log_growth_atr_risk if isinstance(self.config.log_growth_atr_risk, dict) else {}
+        
+        if exp_growth_config.get("enabled", False):
+            base_risk_percent = Decimal(str(exp_growth_config["risk_percent"]))
             adjusted_risk_percent = base_risk_percent * Decimal(str(combined_risk_multiplier))
             exact_contracts = self.risk_manager.exp_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, adjusted_risk_percent)
             return round(float(exact_contracts))
         
-        if self.config.log_growth_atr_risk["enabled"]:
-            base_risk_percent = Decimal(str(self.config.log_growth_atr_risk["risk_percent"]))
+        if log_growth_config.get("enabled", False):
+            base_risk_percent = Decimal(str(log_growth_config["risk_percent"]))
             adjusted_risk_percent = base_risk_percent * Decimal(str(combined_risk_multiplier))
             exact_contracts = self.risk_manager.log_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, adjusted_risk_percent)
             return round(float(exact_contracts))
@@ -1329,6 +1333,12 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         position = self.base_get_position(instrument_id)
 
+        # Update previous Aroon value EVERY bar (even when in position) to prevent stale crossover detection
+        if self.config.use_aroon_simple_trend_system.get("enabled", False):
+            aroon = current_instrument["aroon"]
+            if aroon.initialized:
+                current_instrument["prev_aroon_osc_value"] = float(aroon.value)
+
         if position is not None and position.side == PositionSide.SHORT:
             self.short_exit_logic(bar, current_instrument, position)
             return
@@ -1346,12 +1356,6 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             return
             
         self.aroon_simple_trend_setup(bar, current_instrument)
-        
-        # Update previous Aroon value for next bar's crossover detection
-        if self.config.use_aroon_simple_trend_system.get("enabled", False):
-            aroon = current_instrument["aroon"]
-            if aroon.initialized:
-                current_instrument["prev_aroon_osc_value"] = float(aroon.value)
 
 
 
@@ -1543,25 +1547,29 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         #current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="fng", value=current_instrument.get("fng", 0.0))
 
         # Aroon Oscillator (position 2)
-        if self.config.use_aroon_simple_trend_system.get("enabled", False):
+        aroon_config = self.config.use_aroon_simple_trend_system if isinstance(self.config.use_aroon_simple_trend_system, dict) else {}
+        if aroon_config.get("enabled", False):
             aroon = current_instrument["aroon"]
             aroon_osc_value = float(aroon.value) if aroon.value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="aroon_osc", value=aroon_osc_value)
 
         # EMA Exit Indicator
-        if self.config.use_close_ema.get("enabled", False):
+        close_ema_config = self.config.use_close_ema if isinstance(self.config.use_close_ema, dict) else {}
+        if close_ema_config.get("enabled", False):
             exit_trend_ema = current_instrument.get("exit_trend_ema")
             if exit_trend_ema and exit_trend_ema.initialized:
                 ema_value = float(exit_trend_ema.value)
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="exit_trend_ema", value=ema_value)
 
         # BTC Risk Scaling metrics (only for non-BTC instruments)
-        if self.config.btc_performance_risk_scaling.get("enabled", False) and hasattr(self, 'btc_context'):
+        btc_risk_config = self.config.btc_performance_risk_scaling if isinstance(self.config.btc_performance_risk_scaling, dict) else {}
+        if btc_risk_config.get("enabled", False) and hasattr(self, 'btc_context'):
             if not self.is_btc_instrument(inst_id):
                 current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
 
         # SOL Risk Scaling metrics (only for non-SOL instruments)
-        if self.config.sol_performance_risk_scaling.get("enabled", False) and hasattr(self, 'sol_context'):
+        sol_risk_config = self.config.sol_performance_risk_scaling if isinstance(self.config.sol_performance_risk_scaling, dict) else {}
+        if sol_risk_config.get("enabled", False) and hasattr(self, 'sol_context'):
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_zscore", value=self.sol_context.get("current_zscore", 0.0))
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_risk_multiplier", value=self.sol_context.get("current_risk_multiplier", 1.0))
 
