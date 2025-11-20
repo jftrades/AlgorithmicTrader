@@ -20,15 +20,15 @@ import os
 
 
 # Parameter hier anpassen
-symbol = "SOLUSDT-PERP"
-start_date = "2024-01-01"
-end_date = "2025-10-07"
+symbol = "ETHUSDT-PERP"
+start_date = "2023-01-01"
+end_date = "2025-11-01"
 base_data_dir = str(Path(__file__).resolve().parents[3] / "DATA_STORAGE")
 datatype = "bar"  # oder "tick"
-interval = "15m"    # nur für Bars relevant
+interval = "5m"    # nur für Bars relevant
 
-save_as_csv = False    # Bars zusätzlich als OHLCV.csv speichern
-save_in_catalog = True  # Bars in Nautilus Parquet-Katalog schreiben
+save_as_csv = True    # Bars zusätzlich als OHLCV.csv speichern
+save_in_catalog = False  # Bars in Nautilus Parquet-Katalog schreiben
 
 class CombinedCryptoDataDownloader:
     def __init__(self, symbol, start_date, end_date, base_data_dir, datatype="tick", interval="1h",
