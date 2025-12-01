@@ -68,7 +68,7 @@ max_leverage: 1
 
 
 use_macd_simple_reversion_system:
-  enabled: false
+  enabled: true
   macd_fast_period: 20
   macd_slow_period: 35
   macd_signal_period: 15
@@ -81,14 +81,14 @@ use_rsi_simple_reversion_system:
   rsi_oversold: 0.45
 
 atr_burst_entry:
-  enabled: true
+  enabled: false
   atr_period_calc: 50
   tr_lb: 5
   atr_burst_threshold: 4
   waiting_bars_after_burst: 10
 
 use_htf_ema_bias_filter:
-  enabled: false
+  enabled: true
   ema_period: 150
 
 
