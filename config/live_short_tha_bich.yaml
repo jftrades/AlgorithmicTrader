@@ -1,0 +1,78 @@
+strategy_path: "strategies.short_tha_bich_strat:ShortThaBitchStrat"
+config_path: "strategies.short_tha_bich_strat:ShortThaBitchStratConfig"
+
+venue: "BYBIT"
+mode: "testnet"
+
+instruments_from_path:
+  path: "../data/DATA_STORAGE/project_future_scraper/bybit_live_linear_perpetual_futures.csv"
+  symbol_column: "symbol"
+  instrument_suffix: "-LINEAR"
+  bar_type_endings:
+    - "-15-MINUTE-LAST-EXTERNAL"
+  trade_size_usdt: "150"
+
+base_currency: "USDT"
+account_type: "MARGIN"
+oms_type: "NETTING"
+
+close_positions_on_stop: true
+min_account_balance: 1000
+
+log_growth_atr_risk:
+  enabled: true
+  atr_period: 30
+  atr_multiple: 3.0
+  risk_percent: 0.05
+
+exp_growth_atr_risk:
+  enabled: false
+  atr_period: 14
+  atr_multiple: 2.0
+  risk_percent: 0.04
+
+only_execute_short: true
+hold_profit_for_remaining_days: false
+time_after_listing_close: 20
+max_leverage: 1
+
+use_macd_simple_reversion_system:
+  enabled: true
+  macd_fast_period: 20
+  macd_slow_period: 35
+  macd_signal_period: 15
+
+use_rsi_simple_reversion_system:
+  enabled: false
+  usage_method: "condition"
+  rsi_period: 15
+  rsi_overbought: 0.55
+  rsi_oversold: 0.45
+
+atr_burst_entry:
+  enabled: false
+  atr_period_calc: 50
+  tr_lb: 5
+  atr_burst_threshold: 4
+  waiting_bars_after_burst: 10
+
+use_htf_ema_bias_filter:
+  enabled: true
+  ema_period: 150
+
+use_macd_exit_system:
+  enabled: true
+  macd_fast_exit_period: 65
+  macd_slow_exit_period: 100
+  macd_signal_exit_period: 50
+
+risk_engine:
+  bypass: false
+  max_order_rate: "10/00:00:01"
+  max_notional_per_order_usdt: 5000
+
+auto_discovery:
+  enabled: true
+  check_interval_seconds: 300
+  max_coins: 50
+  days_back: 30
