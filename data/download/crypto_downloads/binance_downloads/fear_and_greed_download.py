@@ -223,12 +223,12 @@ if __name__ == "__main__":
     base_dir = Path(__file__).resolve().parents[3] / "DATA_STORAGE"
     downloader = FearAndGreedDownloader(
         start_date="2023-01-01",
-        end_date="2025-10-19",
+        end_date="2025-11-01",
         base_data_dir=str(base_dir),
         instrument_id_str="FNG-INDEX.BINANCE",
         limit=0,
-        save_as_csv=False,
-        save_in_catalog=True,
+        save_as_csv=True,
+        save_in_catalog=False,
         download_if_missing=True,
         remove_processed=False,
     )
