@@ -62,20 +62,25 @@ time_after_listing_close: 20
 max_leverage: 1
 
 
-# Entry System idea:
+# Entry System:
 #_____________________
 
-
-
-use_macd_simple_reversion_system:
+# NEW: Relative Strength Entry (shorts coins weaker than BTC)
+relative_strength_entry:
   enabled: true
+  lookback_bars: 10
+  weakness_threshold: -0.02
+
+# DISABLED: Old MACD entry system
+use_macd_simple_reversion_system:
+  enabled: false
   macd_fast_period: 20
   macd_slow_period: 35
   macd_signal_period: 15
 
 use_rsi_simple_reversion_system:
   enabled: false
-  usage_method: "condition" # or execution
+  usage_method: "condition"
   rsi_period: 15
   rsi_overbought: 0.55
   rsi_oversold: 0.45
@@ -88,7 +93,7 @@ atr_burst_entry:
   waiting_bars_after_burst: 10
 
 use_htf_ema_bias_filter:
-  enabled: true
+  enabled: false
   ema_period: 150
 
 
@@ -100,12 +105,13 @@ use_macd_exit_system:
   macd_slow_exit_period: 100
   macd_signal_exit_period: 50
 
-# BTC Regime Filter (blocks shorts when BTC > 200 EMA)
-#_____________________
+# DISABLED: BTC Regime Filter (replaced by relative_strength_entry)
 btc_regime_filter:
-  enabled: true
+  enabled: false
   ema_period: 200
   only_short_below_ema: true
 
 # Max concurrent positions
-max_concurrent_positions: 500
+max_concurrent_positions: 100
+
+# sadly the btc flter ema(only short below ema) turned off because it only had 0.38 Sharpe when enabled

@@ -98,6 +98,14 @@ class ShortThaBitchStratConfig(StrategyConfig):
         }
     )
 
+    relative_strength_entry: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "lookback_bars": 10,
+            "weakness_threshold": -0.02
+        }
+    )
+
     only_execute_short: bool = False
     hold_profit_for_remaining_days: bool = False
     close_positions_on_stop: bool = True
@@ -112,20 +120,20 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         self.risk_manager.set_max_leverage(Decimal(str(config.max_leverage)))
         self.order_types = OrderTypes(self) 
         self.onboard_dates = self.load_onboard_dates()
-        self._init_btc_regime_filter()
+        self._init_relative_strength()
         self.add_instrument_context()
 
-    def _init_btc_regime_filter(self):
-        btc_config = self.config.btc_regime_filter if isinstance(self.config.btc_regime_filter, dict) else {}
-        if btc_config.get("enabled", False):
-            ema_period = btc_config.get("ema_period", 200)
-            self.btc_ema = ExponentialMovingAverage(ema_period)
-            self.btc_price = None
-            self.btc_regime_bullish = None
+    def _init_relative_strength(self):
+        rs_config = self.config.relative_strength_entry if isinstance(self.config.relative_strength_entry, dict) else {}
+        if rs_config.get("enabled", False):
+            lookback = rs_config.get("lookback_bars", 10)
+            self.btc_price_history = []
+            self.btc_lookback = lookback
+            self.btc_current_price = None
         else:
-            self.btc_ema = None
-            self.btc_price = None
-            self.btc_regime_bullish = None
+            self.btc_price_history = []
+            self.btc_lookback = 10
+            self.btc_current_price = None
 
     def add_instrument_context(self):
         for current_instrument in self.instrument_dict.values():
@@ -368,25 +376,50 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
     def is_btc_instrument(self, instrument_id) -> bool:
         return "BTCUSDT" in str(instrument_id)
     
-    def update_btc_regime(self, bar: Bar):
-        if self.btc_ema is None:
-            return
-        self.btc_ema.handle_bar(bar)
-        if self.btc_ema.initialized:
-            self.btc_price = float(bar.close)
-            ema_value = float(self.btc_ema.value)
-            self.btc_regime_bullish = self.btc_price > ema_value
+    def update_btc_price(self, bar: Bar):
+        price = float(bar.close)
+        self.btc_current_price = price
+        self.btc_price_history.append(price)
+        if len(self.btc_price_history) > self.btc_lookback + 1:
+            self.btc_price_history.pop(0)
     
-    def passes_btc_regime_filter(self) -> bool:
-        btc_config = self.config.btc_regime_filter if isinstance(self.config.btc_regime_filter, dict) else {}
-        if not btc_config.get("enabled", False):
+    def get_btc_return(self) -> Optional[float]:
+        if len(self.btc_price_history) < 2:
+            return None
+        return (self.btc_price_history[-1] - self.btc_price_history[0]) / self.btc_price_history[0]
+    
+    def get_coin_return(self, current_instrument: Dict[str, Any]) -> Optional[float]:
+        price_history = current_instrument.get("price_history", [])
+        if len(price_history) < 2:
+            return None
+        return (price_history[-1] - price_history[0]) / price_history[0]
+    
+    def update_coin_price_history(self, bar: Bar, current_instrument: Dict[str, Any]):
+        price = float(bar.close)
+        if "price_history" not in current_instrument:
+            current_instrument["price_history"] = []
+        current_instrument["price_history"].append(price)
+        if len(current_instrument["price_history"]) > self.btc_lookback + 1:
+            current_instrument["price_history"].pop(0)
+    
+    def passes_relative_strength_entry(self, current_instrument: Dict[str, Any]) -> bool:
+        rs_config = self.config.relative_strength_entry if isinstance(self.config.relative_strength_entry, dict) else {}
+        if not rs_config.get("enabled", False):
             return True
-        if self.btc_regime_bullish is None:
+        
+        btc_return = self.get_btc_return()
+        coin_return = self.get_coin_return(current_instrument)
+        
+        if btc_return is None or coin_return is None:
+            return False
+        
+        relative_strength = coin_return - btc_return
+        weakness_threshold = rs_config.get("weakness_threshold", -0.02)
+        
+        if relative_strength <= weakness_threshold:
             return True
-        if btc_config.get("only_short_below_ema", True):
-            if self.btc_regime_bullish:
-                return False
-        return True
+        
+        return False
     
     def can_open_new_position(self) -> bool:
         open_positions = [p for p in self.cache.positions() if p.is_open]
@@ -522,7 +555,7 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             instrument_id = bar.bar_type.instrument_id
             
             if self.is_btc_instrument(instrument_id):
-                self.update_btc_regime(bar)
+                self.update_btc_price(bar)
                 continue
                 
             current_instrument = self.instrument_dict.get(instrument_id)
@@ -561,7 +594,7 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         instrument_id = bar.bar_type.instrument_id
 
         if self.is_btc_instrument(instrument_id):
-            self.update_btc_regime(bar)
+            self.update_btc_price(bar)
             return
 
         current_instrument = self.instrument_dict.get(instrument_id)
@@ -635,6 +668,8 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         self.base_collect_bar_data(bar, current_instrument)
         self.update_visualizer_data(bar, current_instrument)
         
+        self.update_coin_price_history(bar, current_instrument)
+        
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
         if open_orders:
             return  
@@ -646,13 +681,10 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             self.short_exit_logic(bar, current_instrument, position)
             return
         
-        # Block new trades after listing deadline
         if not self.is_trading_allowed_after_listing(bar):
             return
         
-        # Block new shorts if BTC is in bullish regime
-        if not self.passes_btc_regime_filter():
-            return
+        self.relative_strength_entry_setup(bar, current_instrument)
         
         self.atr_burst_setup(bar, current_instrument)
         self.macd_simple_reversion_setup(bar, current_instrument)
@@ -677,6 +709,39 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             self.enter_short_atr_burst(bar, current_instrument)
             current_instrument["burst_detected"] = False
             current_instrument["bars_since_burst"] = 0
+
+    def relative_strength_entry_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
+        rs_config = self.config.relative_strength_entry if isinstance(self.config.relative_strength_entry, dict) else {}
+        if not rs_config.get("enabled", False):
+            return
+        
+        if not self.passes_relative_strength_entry(current_instrument):
+            return
+        
+        if not self.can_open_new_position():
+            return
+        
+        self.enter_short_relative_strength(bar, current_instrument)
+
+    def enter_short_relative_strength(self, bar: Bar, current_instrument: Dict[str, Any]):
+        instrument_id = bar.bar_type.instrument_id
+        entry_price = float(bar.close)
+        
+        atr = current_instrument["atr"]
+        if not atr.initialized:
+            return
+        
+        atr_value = float(atr.value)
+        sl_atr_multiple = current_instrument.get("sl_atr_multiple", self.config.sl_atr_multiple)
+        stop_loss_price = entry_price + (atr_value * sl_atr_multiple)
+        
+        qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+        
+        if qty > 0:
+            current_instrument["in_short_position"] = True
+            current_instrument["short_entry_price"] = entry_price
+            current_instrument["sl_price"] = stop_loss_price
+            self.order_types.submit_short_market_order_with_sl(instrument_id, qty, stop_loss_price)
 
     def enter_short_atr_burst(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
