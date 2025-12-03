@@ -66,11 +66,6 @@ use_macd_exit_system:
   macd_slow_exit_period: 100
   macd_signal_exit_period: 50
 
-risk_engine:
-  bypass: false
-  max_order_rate: "10/00:00:01"
-  max_notional_per_order_usdt: 5000
-
 auto_discovery:
   enabled: true
   check_interval_seconds: 300
