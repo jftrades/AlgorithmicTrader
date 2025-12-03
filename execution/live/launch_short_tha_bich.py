@@ -247,6 +247,7 @@ class ShortThaBitchLiveTrader:
             "hold_profit_for_remaining_days": False,
             "close_positions_on_stop": True,
             "max_leverage": 1.0,
+            "max_concurrent_positions": 50,
         }
 
     def _create_node(self, instruments):
@@ -278,7 +279,7 @@ class ShortThaBitchLiveTrader:
                 open_check_interval_secs=5.0,
                 graceful_shutdown_on_exception=True,
             ),
-            risk_engine=LiveRiskEngineConfig(bypass=False),
+            risk_engine=LiveRiskEngineConfig(bypass=True),
             portfolio=PortfolioConfig(min_account_state_logging_interval_ms=1000),
             data_clients={
                 BYBIT: BybitDataClientConfig(

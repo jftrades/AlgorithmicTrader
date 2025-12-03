@@ -93,6 +93,7 @@ class ShortThaBitchStratConfig(StrategyConfig):
     only_execute_short: bool = False
     hold_profit_for_remaining_days: bool = False
     close_positions_on_stop: bool = True
+    max_concurrent_positions: int = 50
     max_leverage: Decimal = 10.0
 
 class ShortThaBitchStrat(BaseStrategy, Strategy):
@@ -342,6 +343,13 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
 
     def is_long_entry_allowed(self) -> bool:
         return not self.config.only_execute_short
+    
+    def can_open_new_position(self) -> bool:
+        open_positions = [p for p in self.cache.positions() if p.is_open]
+        if len(open_positions) >= self.config.max_concurrent_positions:
+            self.log.warning(f"Max concurrent positions ({self.config.max_concurrent_positions}) reached, blocking new entry", LogColor.YELLOW)
+            return False
+        return True
     
     def load_onboard_dates(self):
         import csv
@@ -649,7 +657,7 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             current_instrument["in_short_position"] = True
             current_instrument["short_entry_price"] = entry_price
             current_instrument["sl_price"] = stop_loss_price
-            self.order_types.submit_short_market_order(instrument_id, qty)
+            self.order_types.submit_short_market_order_with_sl(instrument_id, qty, stop_loss_price)
 
     def rsi_simple_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         rsi_config = self.config.use_rsi_simple_reversion_system if isinstance(self.config.use_rsi_simple_reversion_system, dict) else {}
@@ -688,7 +696,7 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             current_instrument["in_short_position"] = True
             current_instrument["short_entry_price"] = entry_price
             current_instrument["sl_price"] = stop_loss_price
-            self.order_types.submit_short_market_order(instrument_id, qty)
+            self.order_types.submit_short_market_order_with_sl(instrument_id, qty, stop_loss_price)
 
     def macd_simple_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         macd_config = self.config.use_macd_simple_reversion_system if isinstance(self.config.use_macd_simple_reversion_system, dict) else {}
@@ -728,31 +736,29 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         instrument_id = bar.bar_type.instrument_id
         entry_price = float(bar.close)
         
-        # Calculate ATR-based stop loss
+        if not self.can_open_new_position():
+            return
+        
         atr_value = current_instrument["atr"].value
         sl_atr_multiple = current_instrument["sl_atr_multiple"]
         if atr_value is not None:
             stop_loss_price = entry_price + sl_atr_multiple * atr_value
         else:
-            # Fallback to 2% stop loss if ATR not available
             stop_loss_price = entry_price * 1.02
         
-        # Calculate risk-based position size
         qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
         
-        # Only submit order if quantity > 0
         if qty > 0:
             current_instrument["in_short_position"] = True
             current_instrument["short_entry_price"] = entry_price
             current_instrument["sl_price"] = stop_loss_price
-            self.order_types.submit_short_market_order(instrument_id, qty)
+            self.order_types.submit_short_market_order_with_sl(instrument_id, qty, stop_loss_price)
 
     def short_exit_logic(self, bar: Bar, current_instrument: Dict[str, Any], position):
         sl_price = current_instrument.get("sl_price")
         instrument_id = bar.bar_type.instrument_id
         
-        # Always check stop loss first (highest priority)
-        if sl_price is not None and float(bar.close) >= sl_price:
+        if sl_price is not None and float(bar.high) >= sl_price:
             close_qty = min(int(abs(position.quantity)), abs(position.quantity))
             if close_qty > 0:
                 self.order_types.submit_long_market_order(instrument_id, int(close_qty))
