@@ -77,7 +77,7 @@ class OrderTypes:
             orders=[entry_order, sl_order],
         )
         
-        self.strategy.submit_order_list(order_list, manage_gtd_expiry=True)
+        self.strategy.submit_order_list(order_list)
         self._collector(instrument_id).add_trade(entry_order)
         self.strategy.log.info(f"SHORT {instrument_id}: Qty={quantity}, SL={stop_loss_price}")
         return order_list
@@ -108,7 +108,7 @@ class OrderTypes:
             orders=[entry_order, sl_order],
         )
         
-        self.strategy.submit_order_list(order_list, manage_gtd_expiry=True)
+        self.strategy.submit_order_list(order_list)
         self._collector(instrument_id).add_trade(entry_order)
         self.strategy.log.info(f"LONG {instrument_id}: Qty={quantity}, SL={stop_loss_price}")
         return order_list
