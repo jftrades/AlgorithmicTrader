@@ -181,6 +181,15 @@ class ShortThaBitchLiveTrader:
         recent_df = recent_df.sort_values("onboardDate", ascending=False).head(self.max_coins)
 
         instruments = []
+        
+        instruments.append(
+            {
+                "instrument_id": "BTCUSDT-LINEAR.BYBIT",
+                "bar_types": ["BTCUSDT-LINEAR.BYBIT-15-MINUTE-LAST-EXTERNAL"],
+                "trade_size_usdt": "0",
+            }
+        )
+        
         for _, row in recent_df.iterrows():
             symbol = row["symbol"]
             instruments.append(
@@ -242,6 +251,11 @@ class ShortThaBitchLiveTrader:
                 "macd_fast_exit_period": 65,
                 "macd_slow_exit_period": 100,
                 "macd_signal_exit_period": 50,
+            },
+            "btc_regime_filter": {
+                "enabled": True,
+                "ema_period": 200,
+                "only_short_below_ema": True,
             },
             "only_execute_short": True,
             "hold_profit_for_remaining_days": False,

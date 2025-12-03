@@ -90,6 +90,14 @@ class ShortThaBitchStratConfig(StrategyConfig):
         }
     )
 
+    btc_regime_filter: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "ema_period": 200,
+            "only_short_below_ema": True
+        }
+    )
+
     only_execute_short: bool = False
     hold_profit_for_remaining_days: bool = False
     close_positions_on_stop: bool = True
@@ -104,7 +112,20 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         self.risk_manager.set_max_leverage(Decimal(str(config.max_leverage)))
         self.order_types = OrderTypes(self) 
         self.onboard_dates = self.load_onboard_dates()
+        self._init_btc_regime_filter()
         self.add_instrument_context()
+
+    def _init_btc_regime_filter(self):
+        btc_config = self.config.btc_regime_filter if isinstance(self.config.btc_regime_filter, dict) else {}
+        if btc_config.get("enabled", False):
+            ema_period = btc_config.get("ema_period", 200)
+            self.btc_ema = ExponentialMovingAverage(ema_period)
+            self.btc_price = None
+            self.btc_regime_bullish = None
+        else:
+            self.btc_ema = None
+            self.btc_price = None
+            self.btc_regime_bullish = None
 
     def add_instrument_context(self):
         for current_instrument in self.instrument_dict.values():
@@ -344,6 +365,29 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
     def is_long_entry_allowed(self) -> bool:
         return not self.config.only_execute_short
     
+    def is_btc_instrument(self, instrument_id) -> bool:
+        return "BTCUSDT" in str(instrument_id)
+    
+    def update_btc_regime(self, bar: Bar):
+        if self.btc_ema is None:
+            return
+        self.btc_ema.handle_bar(bar)
+        if self.btc_ema.initialized:
+            self.btc_price = float(bar.close)
+            ema_value = float(self.btc_ema.value)
+            self.btc_regime_bullish = self.btc_price > ema_value
+    
+    def passes_btc_regime_filter(self) -> bool:
+        btc_config = self.config.btc_regime_filter if isinstance(self.config.btc_regime_filter, dict) else {}
+        if not btc_config.get("enabled", False):
+            return True
+        if self.btc_regime_bullish is None:
+            return True
+        if btc_config.get("only_short_below_ema", True):
+            if self.btc_regime_bullish:
+                return False
+        return True
+    
     def can_open_new_position(self) -> bool:
         open_positions = [p for p in self.cache.positions() if p.is_open]
         if len(open_positions) >= self.config.max_concurrent_positions:
@@ -477,12 +521,10 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         for bar in bars:
             instrument_id = bar.bar_type.instrument_id
             
-            # # Process BTC/SOL bars
-            # if self.is_btc_instrument(instrument_id):
-            #     self.process_btc_bar(bar)
-            #     continue
+            if self.is_btc_instrument(instrument_id):
+                self.update_btc_regime(bar)
+                continue
                 
-            # Process trading instrument bars
             current_instrument = self.instrument_dict.get(instrument_id)
             if current_instrument is None:
                 continue
@@ -518,13 +560,9 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
     def on_bar(self, bar: Bar) -> None:
         instrument_id = bar.bar_type.instrument_id
 
-        # if self.is_btc_instrument(instrument_id):
-        #     self.process_btc_bar(bar)
-            
-        #     btc_instrument = self.instrument_dict.get(instrument_id)
-        #     if btc_instrument is not None:
-        #         self.update_btc_visualizer_data(bar, btc_instrument)
-        #     return
+        if self.is_btc_instrument(instrument_id):
+            self.update_btc_regime(bar)
+            return
 
         current_instrument = self.instrument_dict.get(instrument_id)
 
@@ -610,6 +648,10 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         
         # Block new trades after listing deadline
         if not self.is_trading_allowed_after_listing(bar):
+            return
+        
+        # Block new shorts if BTC is in bullish regime
+        if not self.passes_btc_regime_filter():
             return
         
         self.atr_burst_setup(bar, current_instrument)

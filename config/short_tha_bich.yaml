@@ -6,11 +6,11 @@ config_path: "strategies.short_tha_bich_strat:ShortThaBitchStratConfig"
 visualize: true
 venue: "BYBIT"
 
-# instruments:
-#   - instrument_id: "BTCUSDT-LINEAR.BYBIT"
-#     bar_types: 
-#       - "BTCUSDT-LINEAR.BYBIT-15-MINUTE-LAST-EXTERNAL"
-#     trade_size_usdt: "1"
+instruments:
+  - instrument_id: "BTCUSDT-LINEAR.BYBIT"
+    bar_types: 
+      - "BTCUSDT-LINEAR.BYBIT-15-MINUTE-LAST-EXTERNAL"
+    trade_size_usdt: "0"
     
 instruments_from_path:
   path: "../data/DATA_STORAGE/project_future_scraper/new_bybit_linear_perpetual_futures.csv"
@@ -100,4 +100,12 @@ use_macd_exit_system:
   macd_slow_exit_period: 100
   macd_signal_exit_period: 50
 
-  
+# BTC Regime Filter (blocks shorts when BTC > 200 EMA)
+#_____________________
+btc_regime_filter:
+  enabled: true
+  ema_period: 200
+  only_short_below_ema: true
+
+# Max concurrent positions
+max_concurrent_positions: 500
