@@ -55,6 +55,7 @@ venue_config = BacktestVenueConfig(
     account_type=params.get("account_type", "MARGIN"),
     base_currency=params.get("base_currency", "USDT"),
     starting_balances=[params.get("starting_account_balance", "100000 USDT")],
+    bar_adaptive_high_low_ordering=True,  # Realistische OHLC-Sequenzierung für Bracket Orders
     #fill_model=ImportableFillModelConfig(
     #    fill_model_path="nautilus_trader.model.fill_models:BestPriceFillModel",
     #    config_path="nautilus_trader.model.fill_models:FillModelConfig",

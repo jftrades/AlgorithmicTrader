@@ -865,10 +865,9 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         sl_price = current_instrument.get("sl_price")
         instrument_id = bar.bar_type.instrument_id
         
+        # SL check removed - now handled by exchange-side stop-market order from OrderList
+        # Just reset tracking if SL was hit (for state cleanup)
         if sl_price is not None and float(bar.high) >= sl_price:
-            close_qty = min(int(abs(position.quantity)), abs(position.quantity))
-            if close_qty > 0:
-                self.order_types.submit_long_market_order(instrument_id, int(close_qty))
             self.reset_position_tracking(current_instrument)
             current_instrument["prev_bar_close"] = float(bar.close)
             return
@@ -877,6 +876,8 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         if self.check_time_based_exit(bar, current_instrument, position, self.config.time_after_listing_close):
             close_qty = min(int(abs(position.quantity)), abs(position.quantity))
             if close_qty > 0:
+                # Cancel the stop-market order before closing position
+                self._cancel_open_orders(instrument_id)
                 self.order_types.submit_long_market_order(instrument_id, int(close_qty))
             self.reset_position_tracking(current_instrument)
             current_instrument["prev_bar_close"] = float(bar.close)
@@ -897,8 +898,18 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         if should_exit:
             close_qty = min(int(abs(position.quantity)), abs(position.quantity))
             if close_qty > 0:
+                # Cancel the stop-market order before closing position
+                self._cancel_open_orders(instrument_id)
                 self.order_types.submit_long_market_order(instrument_id, int(close_qty))
             self.reset_position_tracking(current_instrument)
+        
+        current_instrument["prev_bar_close"] = float(bar.close)
+    
+    def _cancel_open_orders(self, instrument_id):
+        """Cancel all open orders for the given instrument (used to cancel SL orders before manual exit)."""
+        open_orders = self.cache.orders_open(instrument_id=instrument_id)
+        for order in open_orders:
+            self.cancel_order(order)
         
         current_instrument["prev_bar_close"] = float(bar.close)
 
