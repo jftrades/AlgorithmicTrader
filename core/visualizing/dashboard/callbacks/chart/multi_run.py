@@ -180,7 +180,7 @@ def _build_single_instrument_multi_run(state, repo, instrument, active_runs, cli
         pass
 
     # determine global range if no external x_range is set
-    norm_ts = _normalize_timestamps(bars_df[\"timestamp\"]) if isinstance(bars_df, pd.DataFrame) and \"timestamp\" in bars_df.columns else pd.Series([], dtype=\"datetime64[ns]\")
+    norm_ts = _normalize_timestamps(bars_df["timestamp"]) if isinstance(bars_df, pd.DataFrame) and "timestamp" in bars_df.columns else pd.Series([], dtype="datetime64[ns]")
     if x_range is None and not norm_ts.empty:
         computed_range = [norm_ts.min(), norm_ts.max()]
     else:

@@ -271,7 +271,8 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
 
     metrics_panel = build_metrics_panel(None, single_mode=single_mode)
 
-    inner_padding = '24px' if single_mode else '22px'\n    content_body = html.Div([
+    inner_padding = '24px' if single_mode else '22px'
+    content_body = html.Div([
         collector_dropdown,
         trade_details_panel,
         price_block,

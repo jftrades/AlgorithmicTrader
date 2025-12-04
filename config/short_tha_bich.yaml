@@ -49,7 +49,7 @@ min_account_balance: 1000
 log_growth_atr_risk:
   enabled: true
   atr_period: 30
-  atr_multiple: [2, 2.5, 3.0, 4.0]
+  atr_multiple: 2.5
   risk_percent: 0.01
 
 # _______________________
@@ -105,7 +105,6 @@ use_macd_exit_system:
   macd_slow_exit_period: 100
   macd_signal_exit_period: 50
 
-# BTC Regime Filter - DISABLED (Sharpe: 0.28, killed too many good trades)
 btc_regime_filter:
   enabled: false
   ema_period: 200

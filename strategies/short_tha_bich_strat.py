@@ -669,15 +669,16 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         
         self.update_coin_price_history(bar, current_instrument)
         
-        open_orders = self.cache.orders_open(instrument_id=instrument_id)
-        if open_orders:
-            return  
-        
         position = self.base_get_position(instrument_id)
-
         
+        # if we have a position, check exit logic (even if SL order is open)
         if position is not None and position.side == PositionSide.SHORT:
             self.short_exit_logic(bar, current_instrument, position)
+            return
+        
+        # only block new entries if we have pending orders and no position
+        open_orders = self.cache.orders_open(instrument_id=instrument_id)
+        if open_orders:
             return
         
         if not self.is_trading_allowed_after_listing(bar):
@@ -909,8 +910,6 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
         for order in open_orders:
             self.cancel_order(order)
-        
-        current_instrument["prev_bar_close"] = float(bar.close)
 
     def reset_position_tracking(self, current_instrument: Dict[str, Any]):
         current_instrument["short_entry_price"] = None
