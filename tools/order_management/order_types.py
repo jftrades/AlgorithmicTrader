@@ -1,6 +1,6 @@
 from decimal import Decimal
 from nautilus_trader.model.objects import Price, Quantity
-from nautilus_trader.model.orders import MarketOrder, LimitOrder
+from nautilus_trader.model.orders import MarketOrder, LimitOrder, OrderList
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from tools.help_funcs.help_funcs_strategy import create_tags
 
@@ -49,6 +49,71 @@ class OrderTypes:
         return order
 
     # -------------------------------------------------
+    # Market Orders with Exchange-Side Stop Loss
+    # -------------------------------------------------
+    def submit_short_market_order_with_sl(self, instrument_id, quantity: Decimal, stop_loss_price: Decimal):
+        inst, instrument_id = self._resolve_instrument(instrument_id)
+        
+        entry_order = self.strategy.order_factory.market(
+            instrument_id=instrument_id,
+            order_side=OrderSide.SELL,
+            quantity=Quantity(quantity, inst.size_precision),
+            time_in_force=TimeInForce.GTC,
+            tags=create_tags(action="SHORT", type="OPEN"),
+        )
+        
+        sl_order = self.strategy.order_factory.stop_market(
+            instrument_id=instrument_id,
+            order_side=OrderSide.BUY,
+            quantity=Quantity(quantity, inst.size_precision),
+            trigger_price=Price(Decimal(str(stop_loss_price)), inst.price_precision),
+            time_in_force=TimeInForce.GTC,
+            reduce_only=True,
+            tags=create_tags(action="BUY", type="SL"),
+        )
+        
+        order_list = OrderList(
+            order_list_id=self.strategy.order_factory.generate_order_list_id(),
+            orders=[entry_order, sl_order],
+        )
+        
+        self.strategy.submit_order_list(order_list)
+        self._collector(instrument_id).add_trade(entry_order)
+        self.strategy.log.info(f"SHORT {instrument_id}: Qty={quantity}, SL={stop_loss_price}")
+        return order_list
+
+    def submit_long_market_order_with_sl(self, instrument_id, quantity: Decimal, stop_loss_price: Decimal):
+        inst, instrument_id = self._resolve_instrument(instrument_id)
+        
+        entry_order = self.strategy.order_factory.market(
+            instrument_id=instrument_id,
+            order_side=OrderSide.BUY,
+            quantity=Quantity(quantity, inst.size_precision),
+            time_in_force=TimeInForce.GTC,
+            tags=create_tags(action="BUY", type="OPEN"),
+        )
+        
+        sl_order = self.strategy.order_factory.stop_market(
+            instrument_id=instrument_id,
+            order_side=OrderSide.SELL,
+            quantity=Quantity(quantity, inst.size_precision),
+            trigger_price=Price(Decimal(str(stop_loss_price)), inst.price_precision),
+            time_in_force=TimeInForce.GTC,
+            reduce_only=True,
+            tags=create_tags(action="SELL", type="SL"),
+        )
+        
+        order_list = OrderList(
+            order_list_id=self.strategy.order_factory.generate_order_list_id(),
+            orders=[entry_order, sl_order],
+        )
+        
+        self.strategy.submit_order_list(order_list)
+        self._collector(instrument_id).add_trade(entry_order)
+        self.strategy.log.info(f"LONG {instrument_id}: Qty={quantity}, SL={stop_loss_price}")
+        return order_list
+
+    # -------------------------------------------------
     # Bracket Orders
     # -------------------------------------------------
     def submit_long_bracket_order(self, instrument_id, quantity: Decimal, entry_price: Decimal, stop_loss: Decimal, take_profit: Decimal):
@@ -60,7 +125,7 @@ class OrderTypes:
             sl_trigger_price=Price(stop_loss, inst.price_precision),
             tp_price=Price(take_profit, inst.price_precision),
             time_in_force=TimeInForce.GTC,
-            entry_tags=create_tags(action="BUY", type="OPEN"),
+            entry_tags=create_tags(action="BUY", type="OPEN", sl=stop_loss, tp=take_profit),
         )
         self.strategy.submit_order_list(bracket_order)
         self._collector(instrument_id).add_trade(bracket_order.orders[0])
@@ -78,7 +143,7 @@ class OrderTypes:
             sl_trigger_price=Price(stop_loss, inst.price_precision),
             tp_price=Price(take_profit, inst.price_precision),
             time_in_force=TimeInForce.GTC,
-            entry_tags=create_tags(action="SHORT", type="OPEN"),
+            entry_tags=create_tags(action="SHORT", type="OPEN", sl=stop_loss, tp=take_profit),
         )
         self.strategy.submit_order_list(bracket_order)
         self._collector(instrument_id).add_trade(bracket_order.orders[0])
@@ -124,10 +189,10 @@ class OrderTypes:
     # Close Position
     # -------------------------------------------------
     def close_position_by_market_order(self, instrument_id):
-        position = self.strategy.get_position(instrument_id)
+        position = self.strategy.base_get_position(instrument_id)
         if position is None or position.quantity == 0:
             self.strategy.log.info(f"[{instrument_id}] No open position to close.")
             return None
         # Engine Close
-        self.strategy.base_close_position(instrument_id)
+        self.strategy.base_close_position(position)
         return position

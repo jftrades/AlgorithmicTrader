@@ -21,14 +21,14 @@ import os
 
 # Parameter hier anpassen
 symbol = "ETHUSDT-PERP"
-start_date = "2024-01-01"
-end_date = "2025-10-07"
+start_date = "2023-01-01"
+end_date = "2025-11-01"
 base_data_dir = str(Path(__file__).resolve().parents[3] / "DATA_STORAGE")
 datatype = "bar"  # oder "tick"
 interval = "5m"    # nur für Bars relevant
 
-save_as_csv = False    # Bars zusätzlich als OHLCV.csv speichern
-save_in_catalog = True  # Bars in Nautilus Parquet-Katalog schreiben
+save_as_csv = True    # Bars zusätzlich als OHLCV.csv speichern
+save_in_catalog = False  # Bars in Nautilus Parquet-Katalog schreiben
 
 class CombinedCryptoDataDownloader:
     def __init__(self, symbol, start_date, end_date, base_data_dir, datatype="tick", interval="1h",
@@ -549,6 +549,16 @@ def get_instrument(symbol: str, is_perp: bool):
     step_size_str = filters["LOT_SIZE"]["stepSize"]
     use_price_precision = int(info["pricePrecision"])
     use_size_precision = int(info["quantityPrecision"])
+    
+    # Better fix: Calculate precision from tick size instead of trusting pricePrecision
+    # This handles all pairs, not just BTCUSDT
+    tick_size = Decimal(tick_size_str)
+    calculated_price_precision = abs(tick_size.as_tuple().exponent)
+    
+    if calculated_price_precision != use_price_precision:
+        print(f"Debug: Precision mismatch for {raw_symbol} - API says {use_price_precision}, tick size implies {calculated_price_precision}. Using tick size.")
+        use_price_precision = calculated_price_precision
+        
     if is_perp:
         margin_init = Decimal(info["requiredMarginPercent"]) / Decimal(100)
         margin_maint = Decimal(info["maintMarginPercent"]) / Decimal(100)

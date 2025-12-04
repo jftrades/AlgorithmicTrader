@@ -7,9 +7,13 @@ class RiskManager:
         self.config = config
         self.strategy = None
         self.starting_balance = None
+        self.max_leverage = None
 
     def set_strategy(self, strategy):
         self.strategy = strategy
+
+    def set_max_leverage(self, leverage: Decimal):
+        self.max_leverage = leverage
 
     def get_starting_balance(self):
         if self.starting_balance is None:
@@ -25,24 +29,42 @@ class RiskManager:
 
     def exp_growth_atr_risk(self, entry_price: Decimal, stop_loss_price: Decimal, risk_percent: Decimal) -> Decimal:
         current_balance = self.get_current_balance()
+        if current_balance <= Decimal("0"):
+            return Decimal("0")
         
         risk_amount = current_balance * risk_percent
-        
         sl_distance = abs(entry_price - stop_loss_price)
+        
+        if sl_distance <= Decimal("0"):
+            return Decimal("0")
         
         contracts_needed = risk_amount / sl_distance
         
+        if self.max_leverage is not None and self.max_leverage > Decimal("0"):
+            max_position_value = current_balance * self.max_leverage
+            max_contracts_allowed = max_position_value / entry_price
+            contracts_needed = min(contracts_needed, max_contracts_allowed)
+
         return contracts_needed
 
     def log_growth_atr_risk(self, entry_price: Decimal, stop_loss_price: Decimal, risk_percent: Decimal) -> Decimal:
         starting_balance = self.get_starting_balance()
+        if starting_balance <= Decimal("0"):
+            return Decimal("0")
         
         risk_amount = starting_balance * risk_percent
-        
         sl_distance = abs(entry_price - stop_loss_price)
+        
+        if sl_distance <= Decimal("0"):
+            return Decimal("0")
         
         contracts_needed = risk_amount / sl_distance
         
+        if self.max_leverage is not None and self.max_leverage > Decimal("0"):
+            max_position_value = starting_balance * self.max_leverage
+            max_contracts_allowed = max_position_value / entry_price
+            contracts_needed = min(contracts_needed, max_contracts_allowed)
+
         return contracts_needed
 
     def exp_fixed_trade_risk(self, entry_price: Decimal, invest_percent: Decimal) -> Decimal:

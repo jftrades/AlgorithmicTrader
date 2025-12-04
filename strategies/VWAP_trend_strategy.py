@@ -18,7 +18,7 @@ from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 
 from tools.indicators.VWAP_intraday import VWAPIntraday
-from nautilus_trader.indicators.atr import AverageTrueRange
+from nautilus_trader.indicators.volatility import AverageTrueRange
 from tools.structure.ChoCh import ChoCh, BreakType
 
 

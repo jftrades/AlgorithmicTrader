@@ -6,6 +6,7 @@ from nautilus_trader.common.enums import LogColor
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 from typing import Any, Dict, Optional
 from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.currencies import USDT
 from  tools.help_funcs.help_funcs_strategy import extract_interval_from_bar_type
 
 
@@ -101,13 +102,17 @@ class BaseStrategy(Strategy):
         entry_price_decimal = Decimal(str(entry_price))
         stop_loss_price_decimal = Decimal(str(stop_loss_price))
         
-        if self.config.exp_growth_atr_risk["enabled"]:
-            risk_percent = Decimal(str(self.config.exp_growth_atr_risk["risk_percent"]))
+        # Handle FieldInfo objects - convert to dict if needed
+        exp_growth_config = self.config.exp_growth_atr_risk if isinstance(self.config.exp_growth_atr_risk, dict) else {}
+        log_growth_config = self.config.log_growth_atr_risk if isinstance(self.config.log_growth_atr_risk, dict) else {}
+        
+        if exp_growth_config.get("enabled", False):
+            risk_percent = Decimal(str(exp_growth_config["risk_percent"]))
             exact_contracts = self.risk_manager.exp_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, risk_percent)
             return round(float(exact_contracts))
         
-        if self.config.log_growth_atr_risk["enabled"]:
-            risk_percent = Decimal(str(self.config.log_growth_atr_risk["risk_percent"]))
+        if log_growth_config.get("enabled", False):
+            risk_percent = Decimal(str(log_growth_config["risk_percent"]))
             exact_contracts = self.risk_manager.log_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, risk_percent)
             return round(float(exact_contracts))
         
@@ -116,13 +121,17 @@ class BaseStrategy(Strategy):
     def calculate_fixed_position_size(self, instrument_id: InstrumentId, entry_price: float) -> int:
         entry_price_decimal = Decimal(str(entry_price)) 
         
-        if self.config.exp_fixed_trade_risk["enabled"]:
-            invest_percent = Decimal(str(self.config.exp_fixed_trade_risk["invest_percent"]))
+        # Handle FieldInfo objects - convert to dict if needed
+        exp_fixed_config = self.config.exp_fixed_trade_risk if isinstance(self.config.exp_fixed_trade_risk, dict) else {}
+        log_fixed_config = self.config.log_fixed_trade_risk if isinstance(self.config.log_fixed_trade_risk, dict) else {}
+        
+        if exp_fixed_config.get("enabled", False):
+            invest_percent = Decimal(str(exp_fixed_config["invest_percent"]))
             qty = self.risk_manager.exp_fixed_trade_risk(entry_price_decimal, invest_percent)
             return round(float(qty))
         
-        if self.config.log_fixed_trade_risk["enabled"]:
-            investment_size = Decimal(str(self.config.log_fixed_trade_risk["investment_size"]))
+        if log_fixed_config.get("enabled", False):
+            investment_size = Decimal(str(log_fixed_config["investment_size"]))
             qty = self.risk_manager.log_fixed_trade_risk(entry_price_decimal, investment_size)
             return round(float(qty))
         
@@ -158,8 +167,6 @@ class BaseStrategy(Strategy):
         position = self.cache.position(order_filled.position_id)
         parent_id = position.opening_order_id
         id_ctx["collector"].add_trade_details(order_filled, parent_id)
-        self.log.info(
-            f"Order filled: {order_filled.commission}", color=LogColor.GREEN)
 
     def base_on_position_closed(self, position_closed) -> None:
         pos_id = position_closed.position_id 
@@ -206,7 +213,7 @@ class BaseStrategy(Strategy):
                 seen_venues.add(venue)
                 account = self.portfolio.account(venue)
                 if account:
-                    total_balances += account.balance_total().as_double()
+                    total_balances += account.balance_total(USDT).as_double()
         total_equity = total_balances + total_unrealized
         self.general_collector.add_indicator(timestamp=ts, name="total_position", value=total_position)
         self.general_collector.add_indicator(timestamp=ts, name="total_unrealized_pnl", value=total_unrealized)
@@ -224,7 +231,7 @@ class BaseStrategy(Strategy):
         realized_pnl = self.portfolio.total_pnl(inst_id)
         venue = inst_id.venue
         account = self.portfolio.account(venue)
-        usdt_balance = account.balance_total()
+        usdt_balance = account.balance_total(USDT)
         equity = usdt_balance.as_double() + (float(unrealized_pnl) if unrealized_pnl else 0)
         collector.add_indicator(timestamp=timestamp, name="position", value=net_exp)
         collector.add_indicator(timestamp=timestamp, name="unrealized_pnl", value=float(unrealized_pnl) if unrealized_pnl else None)

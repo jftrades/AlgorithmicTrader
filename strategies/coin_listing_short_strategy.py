@@ -3,24 +3,28 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional, List, Union
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
-from nautilus_trader.model.data import Bar
+from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.enums import PositionSide
 from nautilus_trader.common.enums import LogColor
 from pydantic import Field
+from decimal import Decimal
 
-from nautilus_trader.indicators.aroon import AroonOscillator
-from nautilus_trader.indicators.atr import AverageTrueRange
-from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
+from nautilus_trader.indicators.averages import ExponentialMovingAverage
+from nautilus_trader.indicators.trend import AroonOscillator
+from nautilus_trader.indicators.volatility import AverageTrueRange
+
+
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
 from nautilus_trader.model.data import DataType
-from data.download.crypto_downloads.custom_class.metrics_data import MetricsData
+from data.download.crypto_downloads.custom_class.bybit_metrics_data import BybitMetricsData
+from data.download.crypto_downloads.custom_class.fear_and_greed_data import FearAndGreedData
+
 
 class CoinListingShortConfig(StrategyConfig):
     instruments: List[dict]  
-    max_leverage: float
     min_account_balance: float
     run_id: str
     sl_atr_multiple: float = 2.0
@@ -30,7 +34,7 @@ class CoinListingShortConfig(StrategyConfig):
     # Risk Management Configuration
     exp_growth_atr_risk: Dict[str, Any] = Field(
         default_factory=lambda: {
-            "enabled": True,
+            "enabled": False,
             "atr_period": 14,
             "atr_multiple": 2.0,
             "risk_percent": 0.04
@@ -42,6 +46,19 @@ class CoinListingShortConfig(StrategyConfig):
             "atr_period": 14,
             "atr_multiple": 2.0,
             "risk_percent": 0.04
+        }
+    )
+    exp_fixed_trade_risk: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "invest_percent": 0.05
+        }
+    )
+
+    log_fixed_trade_risk: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": True,
+            "investment_size": 50
         }
     )
 
@@ -87,7 +104,7 @@ class CoinListingShortConfig(StrategyConfig):
             "aroon_period": 14,
             "aroon_osc_short_threshold": -50
         }
-    )
+    )   
 
     # metrics scaling
     exit_scale_binance_metrics: Dict[str, Any] = Field(
@@ -112,8 +129,6 @@ class CoinListingShortConfig(StrategyConfig):
         default_factory=lambda: {
             "enabled": True,
             "amount_change_scaled_values": 100,
-            "toptrader_short_threshold": 0.8,
-            "toptrader_allow_entry_difference": 0.4,
             "oi_trade_threshold": 0.8,
             "oi_allow_entry_difference": 0.4
         }
@@ -123,39 +138,57 @@ class CoinListingShortConfig(StrategyConfig):
         default_factory=lambda: {
             "enabled": False,
             "exit_amount_change_scaled_values": 200,
-            "exit_toptrader_short_threshold": -0.95,
-            "exit_toptrader_allow_difference": [0.4, 0.8],
             "exit_oi_threshold": -0.95,
-            "exit_oi_allow_difference": [0.4, 0.8]
+            "exit_oi_allow_difference": [0.4, 0.8],
+            "only_check_thresholds_after_entry": False,
+            "exit_signal_mode": "oi_only" 
+        }
+    )
+
+    use_close_ema: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "exit_trend_ema_period": 200,
+            "min_bars_over_ema": 25,
+            "min_bars_under_ema": 25
         }
     )
 
     only_execute_short: bool = False
     hold_profit_for_remaining_days: bool = False
     close_positions_on_stop: bool = True
+    max_leverage: Decimal = 10.0
 
 class CoinListingShortStrategy(BaseStrategy, Strategy):
 
     def __init__(self, config: CoinListingShortConfig):
         super().__init__(config)
         self.risk_manager = RiskManager(config)
-        self.risk_manager.set_strategy(self)
+        self.risk_manager.set_strategy(self)    
+        self.risk_manager.set_max_leverage(Decimal(str(config.max_leverage)))
         self.order_types = OrderTypes(self) 
         self.onboard_dates = self.load_onboard_dates()
         self.add_instrument_context()
         self.setup_btc_tracking()
         self.setup_sol_tracking()
+        self.current_fng = 0
+        self.fng_classification = "UNKNOWN"  # ensure default classification
     
     def add_instrument_context(self):
         for current_instrument in self.instrument_dict.values():
             # atr
             atr_period = self.config.atr_period
-            if self.config.exp_growth_atr_risk["enabled"]:
-                atr_period = self.config.exp_growth_atr_risk["atr_period"]
-                current_instrument["sl_atr_multiple"] = self.config.exp_growth_atr_risk["atr_multiple"]
-            elif self.config.log_growth_atr_risk["enabled"]:
-                atr_period = self.config.log_growth_atr_risk["atr_period"]
-                current_instrument["sl_atr_multiple"] = self.config.log_growth_atr_risk["atr_multiple"]
+            
+            # Handle FieldInfo objects
+            exp_growth_config = self.config.exp_growth_atr_risk if isinstance(self.config.exp_growth_atr_risk, dict) else {}
+            log_growth_config = self.config.log_growth_atr_risk if isinstance(self.config.log_growth_atr_risk, dict) else {}
+            
+            if exp_growth_config.get("enabled", False):
+                atr_period = exp_growth_config.get("atr_period", 14)
+                current_instrument["sl_atr_multiple"] = exp_growth_config.get("atr_multiple", 2.0)
+            elif log_growth_config.get("enabled", False):
+                atr_period = log_growth_config.get("atr_period", 14)
+                current_instrument["sl_atr_multiple"] = log_growth_config.get("atr_multiple", 2.0)
             else:
                 current_instrument["sl_atr_multiple"] = self.config.sl_atr_multiple
             
@@ -190,30 +223,19 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             # Aroon crossover detection
             current_instrument["prev_aroon_osc_value"] = None
 
-            # l3 metrics
-            current_instrument["sum_toptrader_long_short_ratio"] = 0.0
-            current_instrument["count_long_short_ratio"] = 0.0
+            # l3 metrics - OI only
             current_instrument["latest_open_interest_value"] = 0.0
 
-
             # Scaled values (separate from raw values) - ENTRY scaling
-            current_instrument["sum_toptrader_long_short_ratio_scaled_entry"] = 0.0
-            current_instrument["count_long_short_ratio_scaled_entry"] = 0.0
             current_instrument["latest_open_interest_value_scaled_entry"] = 0.0
 
             # Scaled values (separate from raw values) - EXIT scaling
-            current_instrument["sum_toptrader_long_short_ratio_scaled_exit"] = 0.0
-            current_instrument["count_long_short_ratio_scaled_exit"] = 0.0
             current_instrument["latest_open_interest_value_scaled_exit"] = 0.0
 
             # Historical storage for scaling - ENTRY Binance metrics
-            current_instrument["sum_toptrader_long_short_ratio_history_entry"] = []
-            current_instrument["count_long_short_ratio_history_entry"] = []
             current_instrument["latest_open_interest_value_history_entry"] = []
 
             # Historical storage for scaling - EXIT Binance metrics
-            current_instrument["sum_toptrader_long_short_ratio_history_exit"] = []
-            current_instrument["count_long_short_ratio_history_exit"] = []
             current_instrument["latest_open_interest_value_history_exit"] = []
 
             # ENTRY Scaling configs - use values from YAML configuration
@@ -230,45 +252,57 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["exit_upper_percentile_threshold_binance"] = exit_binance_config["upper_percentile_threshold_binance"]
             current_instrument["exit_lower_percentile_threshold_binance"] = exit_binance_config["lower_percentile_threshold_binance"]
 
-            # Five day scaling filters configuration
+            # Five day scaling filters configuration - OI only
             filter_config = self.config.five_day_scaling_filters
             current_instrument["five_day_filters_enabled"] = filter_config["enabled"]
             current_instrument["amount_change_scaled_values"] = filter_config["amount_change_scaled_values"]
-            current_instrument["toptrader_short_threshold"] = filter_config["toptrader_short_threshold"]
-            current_instrument["toptrader_allow_entry_difference"] = filter_config["toptrader_allow_entry_difference"]
             current_instrument["oi_trade_threshold"] = filter_config["oi_trade_threshold"]
             current_instrument["oi_allow_entry_difference"] = filter_config["oi_allow_entry_difference"]
             
-            # Historical tracking for five day scaling filters (uses ENTRY scaled values)
-            current_instrument["toptrader_scaled_history"] = []
+            # Historical tracking for five day scaling filters (uses ENTRY scaled values) - OI only
             current_instrument["oi_scaled_history"] = []
 
-            # Exit L3 metrics configuration
+            # Exit L3 metrics configuration - OI only
             exit_config = self.config.exit_l3_metrics_in_profit
             current_instrument["exit_l3_enabled"] = exit_config["enabled"]
             current_instrument["exit_amount_change_scaled_values"] = exit_config["exit_amount_change_scaled_values"]
-            current_instrument["exit_toptrader_short_threshold"] = exit_config["exit_toptrader_short_threshold"]
-            current_instrument["exit_toptrader_allow_difference"] = exit_config["exit_toptrader_allow_difference"]
             current_instrument["exit_oi_threshold"] = exit_config["exit_oi_threshold"]
             current_instrument["exit_oi_allow_difference"] = exit_config["exit_oi_allow_difference"]
+            current_instrument["only_check_thresholds_after_entry"] = exit_config.get("only_check_thresholds_after_entry", False)
+            current_instrument["exit_signal_mode"] = exit_config.get("exit_signal_mode", "oi_only")
             
-            # Track entry values for exit logic
-            current_instrument["entry_toptrader_scaled"] = None
+            # Track entry values for exit logic - OI only
             current_instrument["entry_oi_scaled"] = None
+            current_instrument["trade_entry_timestamp"] = None
+            current_instrument["entry_history_position"] = None
             
-            # Separate history arrays for exit logic (independent from five_day_scaling_filters)
-            current_instrument["exit_toptrader_scaled_history"] = []
+            # Separate history arrays for exit logic (independent from five_day_scaling_filters) - OI only
             current_instrument["exit_oi_scaled_history"] = []
+            
+            # NEW: L3 window that starts fresh after each trade entry - OI only
+            current_instrument["l3_oi_window"] = []
+            current_instrument["l3_window_active"] = False
+
+            # EMA Exit system
+            if self.config.use_close_ema.get("enabled", False):
+                exit_config = self.config.use_close_ema
+                exit_trend_ema_period = exit_config.get("exit_trend_ema_period", 200)
+                current_instrument["exit_trend_ema"] = ExponentialMovingAverage(exit_trend_ema_period)
+                current_instrument["bars_over_ema_exit"] = 0
+                current_instrument["bars_under_ema_exit"] = 0
+                current_instrument["ema_exit_qualified"] = False
 
             # visualizer
             if self.config.use_aroon_simple_trend_system.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("aroon_osc", 2)
             
-            # Initialize scaled metrics visualization (both entry and exit)
-            current_instrument["collector"].initialise_logging_indicator("scaled_toptrader_ratio_entry", 1)
+            if self.config.use_close_ema.get("enabled", False):
+                current_instrument["collector"].initialise_logging_indicator("exit_trend_ema", 0)
+            
+            # Initialize scaled metrics visualization (both entry and exit) - OI only
             current_instrument["collector"].initialise_logging_indicator("scaled_open_interest_entry", 1)
-            current_instrument["collector"].initialise_logging_indicator("scaled_toptrader_ratio_exit", 1)
             current_instrument["collector"].initialise_logging_indicator("scaled_open_interest_exit", 1)
+            #current_instrument["collector"].initialise_logging_indicator("fng", 1)
             
             if self.config.btc_performance_risk_scaling.get("enabled", False):
                 current_instrument["collector"].initialise_logging_indicator("btc_zscore", 1)
@@ -286,6 +320,11 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         self.btc_context = {
         "rolling_zscore": btc_config.get("rolling_zscore", 200),
+        "rolling_zscore_1": btc_config.get("rolling_zscore_1", 200),
+        "rolling_zscore_2": btc_config.get("rolling_zscore_2", 200),
+        "rolling_zscore_3": btc_config.get("rolling_zscore_3", 200),
+        "rolling_zscore_4": btc_config.get("rolling_zscore_4", 200),
+        "rolling_zscore_5": btc_config.get("rolling_zscore_5", 200),
         "risk_scaling_method": btc_config.get("risk_scaling_method", "exponential"),
         "stop_executing_above_zscore": btc_config.get("stop_executing_above_zscore", 4.0),
         "max_zscore": btc_config.get("max_zscore", 3.0),
@@ -297,6 +336,12 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         # Rolling z-score calculation components
         "price_history": [],
         "current_zscore": 0.0,
+        "current_zscore_1": 0.0,
+        "current_zscore_2": 0.0,
+        "current_zscore_3": 0.0,
+        "current_zscore_4": 0.0,
+        "current_zscore_5": 0.0,
+        "current_zscores": {},  # map: {"rolling_zscore": z, "rolling_zscore_1": z1, ...}
         "rolling_mean": 0.0,
         "rolling_std": 0.0,
         "current_risk_multiplier": 1.0
@@ -309,7 +354,13 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         sol_config = self.config.sol_performance_risk_scaling
         
         self.sol_context = {
-        "rolling_zscore": sol_config.get("rolling_zscore", 500),
+        #"rolling_zscore": sol_config.get("rolling_zscore", 500),
+        "rolling_zscore": sol_config.get("rolling_zscore", 200),
+        "rolling_zscore_1": sol_config.get("rolling_zscore_1", 200),
+        "rolling_zscore_2": sol_config.get("rolling_zscore_2", 200),
+        "rolling_zscore_3": sol_config.get("rolling_zscore_3", 200),
+        "rolling_zscore_4": sol_config.get("rolling_zscore_4", 200),
+        "rolling_zscore_5": sol_config.get("rolling_zscore_5", 200),
         "risk_scaling_method": sol_config.get("risk_scaling_method", "linear"),
         "stop_executing_above_zscore": sol_config.get("stop_executing_above_zscore", 2.8),
         "max_zscore": sol_config.get("max_zscore", 4.0),
@@ -321,6 +372,12 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         # Rolling z-score calculation components
         "price_history": [],
         "current_zscore": 0.0,
+        "current_zscore_1": 0.0,
+        "current_zscore_2": 0.0,
+        "current_zscore_3": 0.0,
+        "current_zscore_4": 0.0,
+        "current_zscore_5": 0.0,
+        "current_zscores": {},  # map: {"rolling_zscore": z, "rolling_zscore_1": z1, ...}
         "rolling_mean": 0.0,
         "rolling_std": 0.0,
         "current_risk_multiplier": 1.0
@@ -329,13 +386,74 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
     def on_start(self): 
         super().on_start()
         self._subscribe_to_metrics_data()
+        #self._subscribe_to_fear_and_greed_data()
+        
+        # Request historical bars for all instruments to initialize indicators
+        self._request_historical_bars()
+    
+    def _request_historical_bars(self):
+        """Request historical bars for all trading instruments to initialize indicators."""
+        # Calculate how many bars we need based on indicator periods
+        max_lookback = max(
+            self.config.atr_period,
+            self.config.use_aroon_simple_trend_system.get("aroon_period", 60),
+            self.config.use_close_ema.get("exit_trend_ema_period", 80)
+        )
+        
+        # Add 10% buffer to ensure we have enough data
+        bars_needed = int(max_lookback * 1.1)
+        
+        self.log.info(
+            f"Requesting {bars_needed} historical bars for {len(self.config.instruments)} instruments",
+            LogColor.BLUE
+        )
+        
+        for instrument_data in self.config.instruments:
+            try:
+                instrument_id_str = instrument_data.get("instrument_id")
+                if not instrument_id_str:
+                    self.log.warning("Instrument missing instrument_id, skipping", LogColor.YELLOW)
+                    continue
+                    
+                instrument_id = InstrumentId.from_str(instrument_id_str)
+                
+                # Get the first bar_type from the list (typically only one per instrument)
+                bar_types = instrument_data.get("bar_types", [])
+                if not bar_types:
+                    self.log.warning(
+                        f"No bar_types defined for {instrument_id}, skipping historical bar request",
+                        LogColor.YELLOW
+                    )
+                    continue
+                
+                bar_type = BarType.from_str(bar_types[0])
+                
+                # Calculate how far back we need to go (bars_needed * 15 minutes for 15-min bars)
+                lookback_minutes = bars_needed * 15
+                start_time = self._clock.utc_now() - timedelta(minutes=lookback_minutes)
+                
+                # Request historical bars using start time
+                self.request_bars(bar_type, start=start_time)
+                
+            except Exception as e:
+                self.log.error(
+                    f"Failed to request historical bars for {instrument_data.get('instrument_id')}: {e}",
+                    LogColor.RED
+                )
+
+    def _subscribe_to_fear_and_greed_data(self):
+        try:
+            fear_greed_data_type = DataType(FearAndGreedData)
+            self.subscribe_data(data_type=fear_greed_data_type)
+        except Exception as e:
+            self.log.error(f"Failed to subscribe to FNG Data: {e}", LogColor.RED)
 
     def _subscribe_to_metrics_data(self):
         try:
-            metrics_data_type = DataType(MetricsData)
+            metrics_data_type = DataType(BybitMetricsData)
             self.subscribe_data(data_type=metrics_data_type)
         except Exception as e:
-            self.log.error(f"Failed to subscribe to MetricsData: {e}", LogColor.RED)
+            self.log.error(f"Failed to subscribe to BybitMetricsData: {e}", LogColor.RED)
         
     def update_rolling_24h_volume(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         current_volume = float(bar.volume) if hasattr(bar, 'volume') else 0.0
@@ -362,80 +480,51 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         current_instrument["rolling_24h_dollar_volume"] = sum(dollar_volumes)
     
     def on_data(self, data) -> None:
-        if isinstance(data, MetricsData):
+        if isinstance(data, BybitMetricsData):
             self.on_metrics_data(data)
+        if isinstance(data, FearAndGreedData):
+            self.on_fear_and_greed_data(data)
 
-    def on_metrics_data(self, data: MetricsData) -> None:
+    def on_fear_and_greed_data(self, data: FearAndGreedData) -> None:
+        # FIX: FearAndGreedData has 'fear_greed', not 'value'
+        self.current_fng = int(data.fear_greed)
+        self.fng_classification = data.classification
+        self.log.info(f"Fear and Greed Index updated: {self.current_fng} ({self.fng_classification})", LogColor.CYAN)
+
+    def on_metrics_data(self, data: BybitMetricsData) -> None:
         instrument_id = data.instrument_id
+        
+        # Skip metrics for BTC and SOL - they're only used for price-based risk scaling
+        if self.is_btc_instrument(instrument_id) or self.is_sol_instrument(instrument_id):
+            return
+        
         current_instrument = self.instrument_dict.get(instrument_id)
 
         if current_instrument is not None:
-            # Store raw values first
-            current_instrument["sum_toptrader_long_short_ratio"] = data.sum_toptrader_long_short_ratio
-            current_instrument["count_long_short_ratio"] = data.count_long_short_ratio
-            current_instrument["latest_open_interest_value"] = data.sum_open_interest_value
+            # Map Bybit fields to strategy fields - OI only
+            current_instrument["latest_open_interest_value"] = data.open_interest
             
             # Apply BOTH entry and exit scaling
             self.entry_scale_binance_metrics(current_instrument)
             self.exit_scale_binance_metrics(current_instrument)
-
-    def passes_coin_filters(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
-        if not current_instrument.get("use_min_coin_filters", True):
-            return True
-        
-        min_price = current_instrument["min_price"]
-        if min_price > 0 and float(bar.close) < min_price:
-            return False
-        
-        min_24h_volume = current_instrument["min_24h_volume"]
-        if min_24h_volume > 0:
-            rolling_24h_dollar_volume = current_instrument.get("rolling_24h_dollar_volume", 0.0)
-            if rolling_24h_dollar_volume < min_24h_volume:
-                return False
-        
-        min_open_interest_value = current_instrument["min_sum_open_interest_value"]
-        if min_open_interest_value > 0:
-            latest_open_interest_value = current_instrument.get("latest_open_interest_value", 0.0)
-            if latest_open_interest_value < min_open_interest_value:
-                return False
-        
-        return True
+            
+            # Update L3 window if trade is active
+            self.update_l3_window(current_instrument)
     
     def passes_five_day_scaling_filters(self, current_instrument: Dict[str, Any]) -> bool:
         if not current_instrument.get("five_day_filters_enabled", True):
             return True
         
-        toptrader_threshold = current_instrument.get("toptrader_short_threshold", 0.0)
         oi_threshold = current_instrument.get("oi_trade_threshold", [0.8, 0.95])
-        toptrader_difference = current_instrument.get("toptrader_allow_entry_difference", 0.0)
         oi_difference = current_instrument.get("oi_allow_entry_difference", [0.2, 0.5])
         
-        toptrader_history = current_instrument.get("toptrader_scaled_history", [])
         oi_history = current_instrument.get("oi_scaled_history", [])
         
-        if len(toptrader_history) == 0 or len(oi_history) == 0:
+        if len(oi_history) == 0:
             return False
         
         # Use ENTRY scaled values for entry logic
-        current_toptrader = current_instrument.get("sum_toptrader_long_short_ratio_scaled_entry", 0.0)
         current_oi = current_instrument.get("latest_open_interest_value_scaled_entry", 0.0)
-        
-        if toptrader_threshold >= 0:
-            # Positive threshold: look for downward movement from peaks
-            toptrader_past_condition = any(val >= toptrader_threshold for val in toptrader_history)
-            if toptrader_past_condition:
-                max_toptrader = max(toptrader_history)
-                toptrader_condition = current_toptrader <= (max_toptrader - toptrader_difference)
-            else:
-                toptrader_condition = False
-        else:
-            # Negative threshold: look for upward movement from lows
-            toptrader_past_condition = any(val <= toptrader_threshold for val in toptrader_history)
-            if toptrader_past_condition:
-                min_toptrader = min(toptrader_history)
-                toptrader_condition = current_toptrader >= (min_toptrader + toptrader_difference)
-            else:
-                toptrader_condition = False
         
         oi_threshold_val = oi_threshold[0] if isinstance(oi_threshold, list) else oi_threshold
         oi_difference_val = oi_difference[0] if isinstance(oi_difference, list) else oi_difference
@@ -457,8 +546,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             else:
                 oi_condition = False
         
-        # At least ONE condition must be met (OR logic)
-        return toptrader_condition or oi_condition
+        return oi_condition
     
     def check_exit_l3_metrics_signal(self, current_instrument: Dict[str, Any], position) -> bool:
         if not current_instrument.get("exit_l3_enabled", False):
@@ -468,7 +556,18 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             return False
         
         entry_price = position.avg_px_open
-        current_price = current_instrument.get("prev_bar_close", entry_price)
+        current_price = current_instrument.get("prev_bar_close")
+        
+        # SAFETY CHECK: Handle None current_price
+        if current_price is None:
+            current_price = entry_price
+        
+        # Ensure both prices are float for comparison
+        try:
+            entry_price = float(entry_price)
+            current_price = float(current_price)
+        except (TypeError, ValueError):
+            return False
         
         if position.side == PositionSide.SHORT:
             is_profitable = current_price < entry_price
@@ -478,55 +577,32 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         if not is_profitable:
             return False
         
-        # Use EXIT scaled values for exit logic
-        current_toptrader = current_instrument.get("sum_toptrader_long_short_ratio_scaled_exit", 0.0)
+        # Use EXIT scaled values for exit logic - OI only
         current_oi = current_instrument.get("latest_open_interest_value_scaled_exit", 0.0)
         
-        exit_toptrader_threshold = current_instrument.get("exit_toptrader_short_threshold", 0.0)
         exit_oi_threshold = current_instrument.get("exit_oi_threshold", -0.95)
-        exit_toptrader_allow_diff = current_instrument.get("exit_toptrader_allow_difference", 0.0)
         exit_oi_allow_diff = current_instrument.get("exit_oi_allow_difference", [0.5, 1.0])
         
-        if isinstance(exit_toptrader_allow_diff, list):
-            exit_toptrader_allow_diff = exit_toptrader_allow_diff[0]
         if isinstance(exit_oi_allow_diff, list):
             exit_oi_allow_diff = exit_oi_allow_diff[0]
         
-        # Get lookback window for exit tracking
-        lookback_window = current_instrument.get("exit_amount_change_scaled_values", 200)
-        
-        # Use separate exit history arrays
-        toptrader_history = current_instrument.get("exit_toptrader_scaled_history", [])
-        oi_history = current_instrument.get("exit_oi_scaled_history", [])
-        
-        if len(toptrader_history) > lookback_window:
-            toptrader_recent = toptrader_history[-lookback_window:]
+        # Use L3 window for exit analysis if only_check_thresholds_after_entry is enabled
+        if current_instrument.get("only_check_thresholds_after_entry", False):
+            # Use the fresh L3 window that started after trade entry
+            oi_recent = current_instrument.get("l3_oi_window", [])
         else:
-            toptrader_recent = toptrader_history
+            # Use the regular exit history
+            lookback_window = current_instrument.get("exit_amount_change_scaled_values", 200)
+            oi_history = current_instrument.get("exit_oi_scaled_history", [])
             
-        if len(oi_history) > lookback_window:
-            oi_recent = oi_history[-lookback_window:]
-        else:
-            oi_recent = oi_history
-        
-        toptrader_exit_signal = False
-        if exit_toptrader_threshold != 0.0 and exit_toptrader_allow_diff > 0.0:
-            if exit_toptrader_threshold >= 0:
-                # Positive threshold: check if we reached the extreme high, then snapped back down
-                toptrader_reached_extreme = any(val >= exit_toptrader_threshold for val in toptrader_recent)
-                if toptrader_reached_extreme:
-                    max_toptrader = max(toptrader_recent)
-                    toptrader_exit_signal = current_toptrader <= (max_toptrader - exit_toptrader_allow_diff)
+            if len(oi_history) > lookback_window:
+                oi_recent = oi_history[-lookback_window:]
             else:
-                # Negative threshold: check if we reached the extreme low, then snapped back up
-                toptrader_reached_extreme = any(val <= exit_toptrader_threshold for val in toptrader_recent)
-                if toptrader_reached_extreme:
-                    min_toptrader = min(toptrader_recent)
-                    required_rebound = min_toptrader + exit_toptrader_allow_diff
-                    toptrader_exit_signal = current_toptrader >= required_rebound
+                oi_recent = oi_history
         
+        # Calculate OI exit signal
         oi_exit_signal = False
-        if exit_oi_threshold != 0.0 and exit_oi_allow_diff > 0.0:
+        if exit_oi_threshold != 0.0 and exit_oi_allow_diff > 0.0 and len(oi_recent) > 0:
             if exit_oi_threshold >= 0:
                 # Positive threshold: check if we reached the extreme high, then snapped back down
                 oi_reached_extreme = any(val >= exit_oi_threshold for val in oi_recent)
@@ -540,10 +616,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
                     min_oi = min(oi_recent)
                     required_oi_rebound = min_oi + exit_oi_allow_diff
                     oi_exit_signal = current_oi >= required_oi_rebound
-                    
-        final_exit_signal = toptrader_exit_signal or oi_exit_signal
         
-        return final_exit_signal
+        return oi_exit_signal
     
     def detect_aroon_crossover_below(self, current_instrument: Dict[str, Any]) -> bool:
         aroon = current_instrument["aroon"]
@@ -566,7 +640,11 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         from pathlib import Path
         
         onboard_dates = {}
-        csv_path = Path(__file__).parent.parent / "data" / "DATA_STORAGE" / "project_future_scraper" / "new_binance_perpetual_futures.csv"
+        
+        live_csv = Path(__file__).parent.parent / "data" / "DATA_STORAGE" / "project_future_scraper" / "bybit_live_linear_perpetual_futures.csv"
+        backtest_csv = Path(__file__).parent.parent / "data" / "DATA_STORAGE" / "project_future_scraper" / "new_bybit_linear_perpetual_futures.csv"
+        
+        csv_path = live_csv if live_csv.exists() else backtest_csv
         
         try:
             with open(csv_path, 'r') as file:
@@ -581,11 +659,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             
         return onboard_dates
     
-    def check_time_based_exit(self, bar: Bar, current_instrument: Dict[str, Any], position) -> bool:
-        time_after_listing_close = self.config.time_after_listing_close
-        if not self.config.hold_profit_for_remaining_days:
-            return False
-            
+    def check_time_based_exit(self, bar: Bar, current_instrument: Dict[str, Any], position, time_after_listing_close) -> bool:
+
         # Handle both single value and array for optimization
         if isinstance(time_after_listing_close, list):
             time_after_listing_close = time_after_listing_close[0]  # Use first value
@@ -605,17 +680,18 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         current_time = datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=timezone.utc).replace(tzinfo=None)
         
         if current_time >= deadline:
-            entry_price = position.avg_px_open
-            current_price = float(bar.close)
-            
-            if position.side == PositionSide.LONG:
-                is_profitable = current_price > entry_price
-            else:
-                is_profitable = current_price < entry_price
+            return True
+        #    entry_price = position.avg_px_open
+        #    current_price = float(bar.close)
+        #    
+        #    if position.side == PositionSide.LONG:
+        #        is_profitable = current_price > entry_price
+        #    else:
+        #        is_profitable = current_price < entry_price
                 
-            return is_profitable
+        #    return is_profitable
             
-        return False    
+        #return False    
     
     def is_trading_allowed_after_listing(self, bar: Bar) -> bool:
         if not self.config.hold_profit_for_remaining_days:
@@ -638,8 +714,24 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         current_time = datetime.fromtimestamp(bar.ts_event // 1_000_000_000, tz=timezone.utc).replace(tzinfo=None)
         
+        # Log current time and deadline in a readable format
+        #self.log.info(f"Current time: {current_time}, Deadline: {deadline}", LogColor.CYAN)
+        
         # Block all new trades after deadline
-        return current_time < deadline
+        if current_time < deadline:
+            return True
+        else:
+            self.log.info(f"TIME CLOSURE", LogColor.CYAN)
+            self.log.info(f"TIME CLOSURE", LogColor.CYAN)
+            self.log.info(f"TIME CLOSURE", LogColor.CYAN)
+            self.log.info(f"TIME CLOSURE", LogColor.CYAN)
+            self.log.info(f"TIME CLOSURE", LogColor.CYAN)
+            self.log.info(f"TIME CLOSURE", LogColor.CYAN)
+            self.log.info(f"TIME CLOSURE", LogColor.CYAN)
+            self.order_types.close_position_by_market_order(bar.bar_type.instrument_id)
+            self.unsubscribe_bars(bar.bar_type)
+            
+            return False
 
     def entry_scale_binance_metrics(self, current_instrument: Dict[str, Any]) -> None:
         if not current_instrument.get("entry_scale_binance_enabled", True):
@@ -649,9 +741,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         upper_threshold = current_instrument.get("entry_upper_percentile_threshold_binance", 95)
         lower_threshold = current_instrument.get("entry_lower_percentile_threshold_binance", 5)
 
+        # OI only
         metrics = [
-            ("sum_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio_history_entry", "sum_toptrader_long_short_ratio_scaled_entry"),
-            ("count_long_short_ratio", "count_long_short_ratio_history_entry", "count_long_short_ratio_scaled_entry"),
             ("latest_open_interest_value", "latest_open_interest_value_history_entry", "latest_open_interest_value_scaled_entry")
         ]
 
@@ -701,9 +792,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         upper_threshold = current_instrument.get("exit_upper_percentile_threshold_binance", 95)
         lower_threshold = current_instrument.get("exit_lower_percentile_threshold_binance", 5)
 
+        # OI only
         metrics = [
-            ("sum_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio_history_exit", "sum_toptrader_long_short_ratio_scaled_exit"),
-            ("count_long_short_ratio", "count_long_short_ratio_history_exit", "count_long_short_ratio_scaled_exit"),
             ("latest_open_interest_value", "latest_open_interest_value_history_exit", "latest_open_interest_value_scaled_exit")
         ]
 
@@ -751,15 +841,10 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         lookback_window = current_instrument.get("amount_change_scaled_values", 100)
         
-        # Use ENTRY scaled values for five day filters (entry logic)
-        toptrader_scaled = current_instrument.get("sum_toptrader_long_short_ratio_scaled_entry", 0.0)
+        # Use ENTRY scaled values for five day filters (entry logic) - OI only
         oi_scaled = current_instrument.get("latest_open_interest_value_scaled_entry", 0.0)
         
-        current_instrument["toptrader_scaled_history"].append(toptrader_scaled)
         current_instrument["oi_scaled_history"].append(oi_scaled)
-        
-        if len(current_instrument["toptrader_scaled_history"]) > lookback_window:
-            current_instrument["toptrader_scaled_history"].pop(0)
             
         if len(current_instrument["oi_scaled_history"]) > lookback_window:
             current_instrument["oi_scaled_history"].pop(0)
@@ -771,23 +856,32 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         lookback_window = current_instrument.get("exit_amount_change_scaled_values", 200)
         
         # Use EXIT scaled values for exit logic
-        toptrader_scaled = current_instrument.get("sum_toptrader_long_short_ratio_scaled_exit", 0.0)
         oi_scaled = current_instrument.get("latest_open_interest_value_scaled_exit", 0.0)
         
-        # Initialize separate exit history arrays if needed
-        if "exit_toptrader_scaled_history" not in current_instrument:
-            current_instrument["exit_toptrader_scaled_history"] = []
         if "exit_oi_scaled_history" not in current_instrument:
             current_instrument["exit_oi_scaled_history"] = []
         
-        current_instrument["exit_toptrader_scaled_history"].append(toptrader_scaled)
         current_instrument["exit_oi_scaled_history"].append(oi_scaled)
-        
-        if len(current_instrument["exit_toptrader_scaled_history"]) > lookback_window:
-            current_instrument["exit_toptrader_scaled_history"].pop(0)
+    
             
         if len(current_instrument["exit_oi_scaled_history"]) > lookback_window:
             current_instrument["exit_oi_scaled_history"].pop(0)
+
+    def update_l3_window(self, current_instrument: Dict[str, Any]) -> None:
+        """Update the L3 window with fresh data after trade entry"""
+        if not current_instrument.get("l3_window_active", False):
+            return
+            
+        current_oi = current_instrument.get("latest_open_interest_value_scaled_exit", 0.0)
+        
+        # Add to L3 window
+        current_instrument["l3_oi_window"].append(current_oi)
+        
+        # Limit L3 window size to lookback window
+        lookback_window = current_instrument.get("exit_amount_change_scaled_values", 200)
+            
+        if len(current_instrument["l3_oi_window"]) > lookback_window:
+            current_instrument["l3_oi_window"].pop(0)
 
     def is_btc_instrument(self, instrument_id) -> bool:
         return "BTCUSDT" in str(instrument_id)
@@ -833,6 +927,29 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         
         self.update_sol_risk_metrics()
         
+    # Helper: leak-safe rolling z-score with clamping
+    def _compute_rolling_zscore(self, prices: List[float], window: int, min_z: float, max_z: float) -> float:
+        if len(prices) < 2:
+            return 0.0
+        stats_data = prices[:-1]
+        if len(stats_data) < 2:
+            return 0.0
+        if len(stats_data) > window:
+            rolling_data = stats_data[-window:]
+        else:
+            rolling_data = stats_data
+
+        mean = sum(rolling_data) / len(rolling_data)
+        if len(rolling_data) > 1:
+            variance = sum((x - mean) ** 2 for x in rolling_data) / (len(rolling_data) - 1)
+            std = variance ** 0.5
+        else:
+            std = 0.0
+
+        current_price = prices[-1]
+        z = (current_price - mean) / std if std > 0 else 0.0
+        # Clamp
+        return max(min_z, min(max_z, z))
 
     def update_btc_risk_metrics(self) -> None:
         if not hasattr(self, 'btc_context') or len(self.btc_context["price_history"]) < 2:
@@ -844,35 +961,61 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         window_size = self.btc_context["rolling_zscore"]
 
         if len(price_history) >= 2:
-            # Use leak-safe approach: exclude current price from statistics calculation
             stats_data = price_history[:-1]
             
-            # Apply the window size properly
             if len(stats_data) > window_size:
-                rolling_data = stats_data[-window_size:]  # Take last window_size points
+                rolling_data = stats_data[-window_size:]
             else:
-                rolling_data = stats_data  # Use all available data if less than window
+                rolling_data = stats_data
+
+            if any(x is None or x != x for x in rolling_data):
+                self.btc_context["current_risk_multiplier"] = 1.0
+                return
                 
             self.btc_context["rolling_mean"] = sum(rolling_data) / len(rolling_data)
 
             if len(rolling_data) > 1:
                 variance = sum((x - self.btc_context["rolling_mean"]) ** 2 for x in rolling_data) / (len(rolling_data) - 1)
-                self.btc_context["rolling_std"] = variance ** 0.5
+                raw_std = variance ** 0.5
+                min_std_threshold = abs(self.btc_context["rolling_mean"]) * 0.001
+                self.btc_context["rolling_std"] = max(raw_std, min_std_threshold)
             else:
-                self.btc_context["rolling_std"] = 0.0
+                self.btc_context["rolling_std"] = abs(self.btc_context["rolling_mean"]) * 0.001
             
-            # Calculate z-score for current price
+            # Calculate main z-score (clamped)
             current_price = price_history[-1]
+            if current_price is None or current_price != current_price:
+                self.btc_context["current_risk_multiplier"] = 1.0
+                return
+
             if self.btc_context["rolling_std"] > 0:
-                self.btc_context["current_zscore"] = (current_price - self.btc_context["rolling_mean"]) / self.btc_context["rolling_std"]
+                raw_z = (current_price - self.btc_context["rolling_mean"]) / self.btc_context["rolling_std"]
             else:
-                self.btc_context["current_zscore"] = 0.0
-            
+                raw_z = 0.0
+
             # Clamp z-score to configured bounds
-            zscore = max(self.btc_context["min_zscore"], 
-                        min(self.btc_context["max_zscore"], self.btc_context["current_zscore"]))
+            zscore_main = max(self.btc_context["min_zscore"], 
+                              min(self.btc_context["max_zscore"], raw_z))
+            self.btc_context["current_zscore"] = zscore_main
+
+            # Compute additional window z-scores and store them
+            min_z = self.btc_context["min_zscore"]
+            max_z = self.btc_context["max_zscore"]
+            current_zscores = {"rolling_zscore": zscore_main}
+
+            for i in range(1, 6):
+                key = f"rolling_zscore_{i}"
+                win = self.btc_context.get(key)
+                if win is None:
+                    continue
+                z_i = self._compute_rolling_zscore(price_history, int(win), min_z, max_z)
+                self.btc_context[f"current_zscore_{i}"] = z_i
+                current_zscores[key] = z_i
+
+            self.btc_context["current_zscores"] = current_zscores
             
-            risk_multiplier = self._zscore_to_risk_multiplier_btc(zscore)
+            # Risk multiplier still derived from main window
+            risk_multiplier = self._zscore_to_risk_multiplier_btc(zscore_main)
             self.btc_context["current_risk_multiplier"] = risk_multiplier
         else:
             self.btc_context["current_risk_multiplier"] = 1.0
@@ -887,35 +1030,61 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         window_size = self.sol_context["rolling_zscore"]
 
         if len(price_history) >= 2:
-            # Use leak-safe approach: exclude current price from statistics calculation
             stats_data = price_history[:-1]
             
-            # Apply the window size properly
             if len(stats_data) > window_size:
-                rolling_data = stats_data[-window_size:]  # Take last window_size points
+                rolling_data = stats_data[-window_size:]
             else:
-                rolling_data = stats_data  # Use all available data if less than window
+                rolling_data = stats_data
+
+            if any(x is None or x != x for x in rolling_data):
+                self.sol_context["current_risk_multiplier"] = 1.0
+                return
                 
             self.sol_context["rolling_mean"] = sum(rolling_data) / len(rolling_data)
 
             if len(rolling_data) > 1:
                 variance = sum((x - self.sol_context["rolling_mean"]) ** 2 for x in rolling_data) / (len(rolling_data) - 1)
-                self.sol_context["rolling_std"] = variance ** 0.5
+                raw_std = variance ** 0.5
+                min_std_threshold = abs(self.sol_context["rolling_mean"]) * 0.001
+                self.sol_context["rolling_std"] = max(raw_std, min_std_threshold)
             else:
-                self.sol_context["rolling_std"] = 0.0
+                self.sol_context["rolling_std"] = abs(self.sol_context["rolling_mean"]) * 0.001
             
-            # Calculate z-score for current price
+            # Calculate main z-score (clamped)
             current_price = price_history[-1]
+            if current_price is None or current_price != current_price:
+                self.sol_context["current_risk_multiplier"] = 1.0
+                return
+
             if self.sol_context["rolling_std"] > 0:
-                self.sol_context["current_zscore"] = (current_price - self.sol_context["rolling_mean"]) / self.sol_context["rolling_std"]
+                raw_z = (current_price - self.sol_context["rolling_mean"]) / self.sol_context["rolling_std"]
             else:
-                self.sol_context["current_zscore"] = 0.0
-            
+                raw_z = 0.0
+
             # Clamp z-score to configured bounds
-            zscore = max(self.sol_context["min_zscore"], 
-                        min(self.sol_context["max_zscore"], self.sol_context["current_zscore"]))
-            
-            risk_multiplier = self._zscore_to_risk_multiplier_sol(zscore)
+            zscore_main = max(self.sol_context["min_zscore"], 
+                              min(self.sol_context["max_zscore"], raw_z))
+            self.sol_context["current_zscore"] = zscore_main
+
+            # Compute additional window z-scores and store them
+            min_z = self.sol_context["min_zscore"]
+            max_z = self.sol_context["max_zscore"]
+            current_zscores = {"rolling_zscore": zscore_main}
+
+            for i in range(1, 6):
+                key = f"rolling_zscore_{i}"
+                win = self.sol_context.get(key)
+                if win is None:
+                    continue
+                z_i = self._compute_rolling_zscore(price_history, int(win), min_z, max_z)
+                self.sol_context[f"current_zscore_{i}"] = z_i
+                current_zscores[key] = z_i
+
+            self.sol_context["current_zscores"] = current_zscores
+
+            # Risk multiplier still derived from main window
+            risk_multiplier = self._zscore_to_risk_multiplier_sol(zscore_main)
             self.sol_context["current_risk_multiplier"] = risk_multiplier
         else:
             self.sol_context["current_risk_multiplier"] = 1.0
@@ -959,20 +1128,16 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             risk_multiplier = min_risk + (max_risk - min_risk) * inverted_normalized
         
         return risk_multiplier
-
-
-
-
-
-
+    # 2 hour shorting was funding rate < 0
     
     def update_btc_visualizer_data(self, bar: Bar, btc_instrument: Dict[str, Any]) -> None:
         if not hasattr(self, 'btc_context'):
             return
             
         btc_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_zscore", value=self.btc_context.get("current_zscore", 0.0))
+
         btc_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
-    
+        
     def update_sol_visualizer_data(self, bar: Bar, sol_instrument: Dict[str, Any]) -> None:
         if not hasattr(self, 'sol_context'):
             return
@@ -986,8 +1151,9 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             
         if not hasattr(self, 'btc_context'):
             return 1.0
-            
-        return self.btc_context.get("current_risk_multiplier", 1.0)
+        
+        multiplier = self.btc_context.get("current_risk_multiplier", 1.0)
+        return multiplier
     
     def get_sol_risk_multiplier(self) -> float:
         if not self.config.sol_performance_risk_scaling.get("enabled", False):
@@ -995,8 +1161,9 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             
         if not hasattr(self, 'sol_context'):
             return 1.0
-            
-        return self.sol_context.get("current_risk_multiplier", 1.0)
+        
+        multiplier = self.sol_context.get("current_risk_multiplier", 1.0)
+        return multiplier
     
     def should_stop_executing_due_to_btc_zscore(self) -> bool:
         if not self.config.btc_performance_risk_scaling.get("enabled", False):
@@ -1047,19 +1214,68 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
         # Combine both risk multipliers (multiply them together)
         combined_risk_multiplier = btc_risk_multiplier * sol_risk_multiplier
         
-        if self.config.exp_growth_atr_risk["enabled"]:
-            base_risk_percent = Decimal(str(self.config.exp_growth_atr_risk["risk_percent"]))
+        # Handle FieldInfo objects
+        exp_growth_config = self.config.exp_growth_atr_risk if isinstance(self.config.exp_growth_atr_risk, dict) else {}
+        log_growth_config = self.config.log_growth_atr_risk if isinstance(self.config.log_growth_atr_risk, dict) else {}
+        
+        if exp_growth_config.get("enabled", False):
+            base_risk_percent = Decimal(str(exp_growth_config["risk_percent"]))
             adjusted_risk_percent = base_risk_percent * Decimal(str(combined_risk_multiplier))
             exact_contracts = self.risk_manager.exp_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, adjusted_risk_percent)
             return round(float(exact_contracts))
         
-        if self.config.log_growth_atr_risk["enabled"]:
-            base_risk_percent = Decimal(str(self.config.log_growth_atr_risk["risk_percent"]))
+        if log_growth_config.get("enabled", False):
+            base_risk_percent = Decimal(str(log_growth_config["risk_percent"]))
             adjusted_risk_percent = base_risk_percent * Decimal(str(combined_risk_multiplier))
             exact_contracts = self.risk_manager.log_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, adjusted_risk_percent)
             return round(float(exact_contracts))
         
         return self.calculate_fixed_position_size(instrument_id, entry_price)
+
+    def on_historical_data(self, data):
+        """
+        Handle historical data responses from request_bars().
+        Feed historical bars to indicators for initialization.
+        Data can be either a list of bars or a single bar.
+        """
+        if data is None:
+            return
+        
+        # Handle both single Bar and list of Bars
+        bars = [data] if isinstance(data, Bar) else data
+        
+        if not bars:
+            return
+        
+        # Feed all bars to indicators (silently - no logging spam)
+        for bar in bars:
+            instrument_id = bar.bar_type.instrument_id
+            
+            # Process BTC/SOL bars
+            if self.is_btc_instrument(instrument_id):
+                self.process_btc_bar(bar)
+                continue
+                
+            if self.is_sol_instrument(instrument_id):
+                self.process_sol_bar(bar)
+                continue
+            
+            # Process trading instrument bars
+            current_instrument = self.instrument_dict.get(instrument_id)
+            if current_instrument is None:
+                continue
+                
+            # Update indicators with historical bars
+            if "atr" in current_instrument:
+                current_instrument["atr"].handle_bar(bar)
+            
+            if self.config.use_aroon_simple_trend_system.get("enabled", False):
+                if "aroon" in current_instrument:
+                    current_instrument["aroon"].handle_bar(bar)
+            
+            if self.config.use_close_ema.get("enabled", False):
+                if "exit_trend_ema" in current_instrument:
+                    current_instrument["exit_trend_ema"].handle_bar(bar)
 
     def on_bar(self, bar: Bar) -> None:
         instrument_id = bar.bar_type.instrument_id
@@ -1089,6 +1305,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             self.add_instrument_context()
         
         self.update_rolling_24h_volume(bar, current_instrument)
+        current_instrument["fng"] = self.current_fng
 
         # Always handle ATR (needed for stop loss)
         current_instrument["atr"].handle_bar(bar)
@@ -1097,22 +1314,30 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             aroon = current_instrument["aroon"]
             aroon.handle_bar(bar)
         
+        if self.config.use_close_ema.get("enabled", False):
+            exit_trend_ema = current_instrument["exit_trend_ema"]
+            exit_trend_ema.handle_bar(bar)
+        
         self.base_collect_bar_data(bar, current_instrument)
         self.update_visualizer_data(bar, current_instrument)
 
         if self.config.use_aroon_simple_trend_system.get("enabled", False):
             aroon = current_instrument["aroon"]
             if not aroon.initialized:
+                self.log.info(f"Aroon not initialized yet for {instrument_id} - need 70 bars", LogColor.YELLOW)
                 return        
         
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
         if open_orders:
             return
-                
-        if not self.passes_coin_filters(bar, current_instrument):
-            return
         
         position = self.base_get_position(instrument_id)
+
+        # Update previous Aroon value EVERY bar (even when in position) to prevent stale crossover detection
+        if self.config.use_aroon_simple_trend_system.get("enabled", False):
+            aroon = current_instrument["aroon"]
+            if aroon.initialized:
+                current_instrument["prev_aroon_osc_value"] = float(aroon.value)
 
         if position is not None and position.side == PositionSide.SHORT:
             self.short_exit_logic(bar, current_instrument, position)
@@ -1131,12 +1356,11 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             return
             
         self.aroon_simple_trend_setup(bar, current_instrument)
-        
-        # Update previous Aroon value for next bar's crossover detection
-        if self.config.use_aroon_simple_trend_system.get("enabled", False):
-            aroon = current_instrument["aroon"]
-            if aroon.initialized:
-                current_instrument["prev_aroon_osc_value"] = float(aroon.value)
+
+
+
+                
+
     
     def aroon_simple_trend_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
         if self.is_btc_instrument(bar.bar_type.instrument_id):
@@ -1150,7 +1374,6 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             return
         
         if self.detect_aroon_crossover_below(current_instrument):
-            # Then check both toptrader and OI filters before executing
             if self.passes_five_day_scaling_filters(current_instrument):
                 self.enter_short_aroon_trend(bar, current_instrument)
 
@@ -1171,6 +1394,18 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             stop_loss_price = entry_price * 1.02
         
         qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+
+        # Get instrument info to check minimum order requirements
+        instrument = self.cache.instrument(instrument_id)
+        if instrument is not None:
+            # Round quantity to match instrument's size increment
+            qty_step = float(instrument.size_increment)
+            min_qty = float(instrument.min_quantity)
+            
+            # Round to nearest valid step
+            qty = max(min_qty, round(qty / qty_step) * qty_step)
+            
+            self.log.info(f"Adjusted qty to {qty} (min: {min_qty}, step: {qty_step})", LogColor.YELLOW)
         
         if qty > 0:
             current_instrument["in_short_position"] = True
@@ -1178,81 +1413,174 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             current_instrument["bars_since_entry"] = 0
             current_instrument["min_topt_difference_since_entry"] = None
             current_instrument["sl_price"] = stop_loss_price
-            
-            # Store entry metric values for exit logic (using ENTRY scaled values)
-            current_instrument["entry_toptrader_scaled"] = current_instrument.get("sum_toptrader_long_short_ratio_scaled_entry", 0.0)
+            current_instrument["trade_entry_timestamp"] = bar.ts_event
+                        
+            # Store entry metric values for exit logic (using ENTRY scaled values) - OI only
             current_instrument["entry_oi_scaled"] = current_instrument.get("latest_open_interest_value_scaled_entry", 0.0)
             
-            self.log.info("Executing short trade - passed all filters (aroon crossover + toptrader + OI)")
+            # ACTIVATE L3 WINDOW: Start fresh tracking for this trade
+            current_instrument["l3_window_active"] = True
+            current_instrument["l3_oi_window"] = []
+            
+            self.log.info("Executing short trade - L3 window activated for exit tracking")
+            self.log.info(f"ORDER INIT: {bar.ts_event})", LogColor.CYAN)
+            self.log.info(f"ORDER INIT Qty: {qty}, Entry: {entry_price:.6f}, SL: {stop_loss_price:.6f}", LogColor.CYAN)
+            self.log.info(f"BAR - Open: {bar.open}, High: {bar.high}, Low: {bar.low}, Close: {bar.close}", LogColor.CYAN)
+
+            # Submit simple market order - stop loss managed in short_exit_logic()
             self.order_types.submit_short_market_order(instrument_id, qty)
-    
+
     def short_exit_logic(self, bar: Bar, current_instrument: Dict[str, Any], position):
         current_instrument["bars_since_entry"] += 1
         sl_price = current_instrument.get("sl_price")
         instrument_id = bar.bar_type.instrument_id
         current_instrument["prev_bar_close"] = float(bar.close)
         
-        if sl_price is not None and float(bar.close) >= sl_price:
+        # Always check stop loss first (highest priority)
+        if sl_price is not None and float(bar.close) > sl_price:
             close_qty = min(int(abs(position.quantity)), abs(position.quantity))
             if close_qty > 0:
-                self.order_types.submit_long_market_order(instrument_id, int(close_qty))
+                self.order_types.close_position_by_market_order(instrument_id)
             self.reset_position_tracking(current_instrument)
             return
 
-        # Check for L3 metrics exit signal (counter-signals)
-        if self.check_exit_l3_metrics_signal(current_instrument, position):
+        # Check time-based exit
+        if self.check_time_based_exit(bar, current_instrument, position, self.config.time_after_listing_close):
             close_qty = min(int(abs(position.quantity)), abs(position.quantity))
             if close_qty > 0:
-                self.order_types.submit_long_market_order(instrument_id, int(close_qty))
-            self.reset_position_tracking(current_instrument)
-            return
-
-        if self.check_time_based_exit(bar, current_instrument, position):
-            close_qty = min(int(abs(position.quantity)), abs(position.quantity))
-            if close_qty > 0:
-                self.order_types.submit_long_market_order(instrument_id, int(close_qty))
+                self.order_types.close_position_by_market_order(instrument_id)
             self.reset_position_tracking(current_instrument)
             return
         
+        # Skip all other exits if time-based exit is enabled but deadline not reached
         if self.config.hold_profit_for_remaining_days:
             return
+
+        # EMA EXIT OVERRIDES OI EXIT: Check EMA first if enabled
+        should_exit = False
+        
+        if self.config.use_close_ema.get("enabled", False):
+            if self.check_ema_exit_short(bar, current_instrument):
+                should_exit = True
+        # Only check L3 OI metrics if EMA exit is NOT enabled
+        elif self.config.exit_l3_metrics_in_profit.get("enabled", False):
+            if self.check_exit_l3_metrics_signal(current_instrument, position):
+                should_exit = True
+        
+        # Execute exit if any method triggered
+        if should_exit:
+            close_qty = min(int(abs(position.quantity)), abs(position.quantity))
+            if close_qty > 0:
+                self.order_types.close_position_by_market_order(instrument_id)
+            self.reset_position_tracking(current_instrument)
+            return
+
+    def check_ema_exit_short(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
+        """
+        EMA Exit Logic for SHORT positions:
+        1. Price must stay UNDER EMA for min_bars_under_ema bars (qualification phase)
+        2. Once qualified, if price crosses back ABOVE EMA → EXIT signal
+        """
+        exit_trend_ema = current_instrument.get("exit_trend_ema")
+        
+        if not exit_trend_ema or not exit_trend_ema.initialized:
+            return False
+            
+        current_price = float(bar.close)
+        ema_value = float(exit_trend_ema.value)
+        min_bars = self.config.use_close_ema.get("min_bars_under_ema", 25)
+
+        if "ema_exit_qualified" not in current_instrument:
+            current_instrument["ema_exit_qualified"] = False
+        if "bars_under_ema_exit" not in current_instrument:
+            current_instrument["bars_under_ema_exit"] = 0
+        if "bars_over_ema_exit" not in current_instrument:
+            current_instrument["bars_over_ema_exit"] = 0
+        
+        # Price is BELOW EMA (good for short - count bars)
+        if current_price < ema_value:
+            current_instrument["bars_under_ema_exit"] += 1
+            current_instrument["bars_over_ema_exit"] = 0
+            
+            # Qualify for exit after enough bars under EMA
+            if current_instrument["bars_under_ema_exit"] >= min_bars:
+                current_instrument["ema_exit_qualified"] = True
+        # Price is ABOVE EMA (bad for short - potential exit)
+        else:
+            current_instrument["bars_over_ema_exit"] += 1
+            current_instrument["bars_under_ema_exit"] = 0
+            
+            # EXIT: Price crossed back above EMA after qualification
+            if current_instrument["ema_exit_qualified"] and current_price >= ema_value:
+                self.log.info(f"EMA EXIT SIGNAL: Price {current_price:.4f} crossed above EMA {ema_value:.4f}", LogColor.MAGENTA)
+                current_instrument["ema_exit_qualified"] = False
+                return True
+
+        return False
 
     def reset_position_tracking(self, current_instrument: Dict[str, Any]):
         current_instrument["short_entry_price"] = None
         current_instrument["bars_since_entry"] = 0
         current_instrument["sl_price"] = None
         current_instrument["in_short_position"] = False
-        current_instrument["entry_toptrader_scaled"] = None
-        current_instrument["entry_oi_scaled"] = None     
-
-
+        current_instrument["entry_oi_scaled"] = None
+        current_instrument["trade_entry_timestamp"] = None
+        current_instrument["entry_history_position"] = None
+        
+        # DEACTIVATE L3 WINDOW: Stop tracking for this trade
+        current_instrument["l3_window_active"] = False
+        current_instrument["l3_oi_window"] = []
+        
+        # Reset EMA exit tracking
+        if self.config.use_close_ema.get("enabled", False):
+            current_instrument["bars_over_ema_exit"] = 0
+            current_instrument["bars_under_ema_exit"] = 0
+            current_instrument["ema_exit_qualified"] = False
 
     def update_visualizer_data(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         inst_id = bar.bar_type.instrument_id
         self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)
 
-        # Scaled Binance metrics visualization (-1 to 1) - BOTH entry and exit
-        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_toptrader_ratio_entry", value=current_instrument.get("sum_toptrader_long_short_ratio_scaled_entry", 0.0))
+        # Scaled Binance metrics visualization (-1 to 1) - BOTH entry and exit - OI only
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_open_interest_entry", value=current_instrument.get("latest_open_interest_value_scaled_entry", 0.0))
-        current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_toptrader_ratio_exit", value=current_instrument.get("sum_toptrader_long_short_ratio_scaled_exit", 0.0))
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_open_interest_exit", value=current_instrument.get("latest_open_interest_value_scaled_exit", 0.0))
+        #current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="fng", value=current_instrument.get("fng", 0.0))
 
         # Aroon Oscillator (position 2)
-        if self.config.use_aroon_simple_trend_system.get("enabled", False):
+        aroon_config = self.config.use_aroon_simple_trend_system if isinstance(self.config.use_aroon_simple_trend_system, dict) else {}
+        if aroon_config.get("enabled", False):
             aroon = current_instrument["aroon"]
             aroon_osc_value = float(aroon.value) if aroon.value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="aroon_osc", value=aroon_osc_value)
 
-        # BTC Risk Scaling metrics
-        if self.config.btc_performance_risk_scaling.get("enabled", False) and hasattr(self, 'btc_context'):
-            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
+        # EMA Exit Indicator
+        close_ema_config = self.config.use_close_ema if isinstance(self.config.use_close_ema, dict) else {}
+        if close_ema_config.get("enabled", False):
+            exit_trend_ema = current_instrument.get("exit_trend_ema")
+            if exit_trend_ema and exit_trend_ema.initialized:
+                ema_value = float(exit_trend_ema.value)
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="exit_trend_ema", value=ema_value)
 
-        # SOL Risk Scaling metrics
-        if self.config.sol_performance_risk_scaling.get("enabled", False) and hasattr(self, 'sol_context'):
+        # BTC Risk Scaling metrics (only for non-BTC instruments)
+        btc_risk_config = self.config.btc_performance_risk_scaling if isinstance(self.config.btc_performance_risk_scaling, dict) else {}
+        if btc_risk_config.get("enabled", False) and hasattr(self, 'btc_context'):
+            if not self.is_btc_instrument(inst_id):
+                current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
+
+        # SOL Risk Scaling metrics (only for non-SOL instruments)
+        sol_risk_config = self.config.sol_performance_risk_scaling if isinstance(self.config.sol_performance_risk_scaling, dict) else {}
+        if sol_risk_config.get("enabled", False) and hasattr(self, 'sol_context'):
+            current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_zscore", value=self.sol_context.get("current_zscore", 0.0))
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="sol_risk_multiplier", value=self.sol_context.get("current_risk_multiplier", 1.0))
 
 
     def on_order_filled(self, order_filled) -> None:
+        self.log.info(f"ORDER FILLED: {order_filled.ts_event})", LogColor.CYAN)
+        self.log.info(f"ORDER FILLED: {order_filled.ts_event})", LogColor.CYAN)
+        self.log.info(f"ORDER FILLED: {order_filled.ts_event})", LogColor.CYAN)
+        self.log.info(f"ORDER FILLED: {order_filled.ts_event})", LogColor.CYAN)
+        self.log.info(f"ORDER FILLED: {order_filled.ts_event})", LogColor.CYAN)
+        self.log.info(f"ORDER px: {order_filled.last_px})", LogColor.CYAN)
         return self.base_on_order_filled(order_filled)
     
 
@@ -1263,6 +1591,8 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             self.reset_position_tracking(current_instrument)
         return self.base_on_position_closed(position_closed)
     
+
+    
     def on_error(self, error: Exception) -> None:
         return self.base_on_error(error)
     
@@ -1271,3 +1601,7 @@ class CoinListingShortStrategy(BaseStrategy, Strategy):
             raise ValueError("InstrumentId erforderlich (kein globales primäres Instrument mehr).")
         position = self.base_get_position(instrument_id)
         return self.base_close_position(position)
+    
+    def on_position_opened(self, position_opened) -> None:
+        self.log.info(f"POS OPENED: {position_opened.ts_init})", LogColor.CYAN)
+        self.log.info(f"POS OPENED: {position_opened.ts_opened})", LogColor.CYAN)

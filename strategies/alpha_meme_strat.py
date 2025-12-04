@@ -23,7 +23,7 @@ from nautilus_trader.common.enums import LogColor
 
 
 # Strategiespezifische Importe
-from nautilus_trader.indicators.rsi import RelativeStrengthIndex
+from nautilus_trader.indicators.momentum import RelativeStrengthIndex
 
 # -------------------------------------------------
 # Multi-Instrument Konfiguration (jetzt Pflicht)
@@ -44,6 +44,7 @@ class AlphaMemeStrategy(BaseStrategy, Strategy):
     def __init__(self, config: AlphaMemeStrategyConfig):
         self.instrument_dict: Dict[InstrumentId, Dict[str, Any]] = {}
         super().__init__(config)
+        config = self.config
     
         # Entfernt: primäre Instrument-Ableitungen (self.instrument_id, self.bar_type, etc.)
         self.risk_manager = None
@@ -62,6 +63,8 @@ class AlphaMemeStrategy(BaseStrategy, Strategy):
             current_instrument["rsi_oversold"] = rsi_oversold
             current_instrument["rsi"] = RelativeStrengthIndex(period=rsi_period)
             current_instrument["last_rsi_cross"] = None
+            current_instrument["seen"] = False
+            current_instrument["count"] = 0
 
     def on_start(self) -> None:
         for inst_id, ctx in self.instrument_dict.items():
@@ -72,12 +75,7 @@ class AlphaMemeStrategy(BaseStrategy, Strategy):
                 #else:
                     #raise ValueError(f"BarType (String) muss vorher in BarType konvertiert werden: {bar_type}")
         self.log.info(f"Strategy started. Instruments: {', '.join(str(i) for i in self.instrument_ids())}")
-        self.risk_manager = RiskManager(
-            self,
-            Decimal(str(self.config.risk_percent)),
-            Decimal(str(self.config.max_leverage)),
-            Decimal(str(self.config.min_account_balance)),
-        )
+        self.risk_manager = RiskManager(self.config)
         self.order_types = OrderTypes(self)
 
     # -------------------------------------------------
@@ -115,16 +113,29 @@ class AlphaMemeStrategy(BaseStrategy, Strategy):
         overbought = current_instrument["rsi_overbought"]
         oversold = current_instrument["rsi_oversold"]
 
+        self.check_new_coin(current_instrument, instrument_id, qty)
+
         if rsi_value > overbought:
             if last_cross != "rsi_overbought":
-                self.close_position(instrument_id)
-                self.submit_short_market_order(instrument_id, qty)
+                pass
+                #self.close_position(instrument_id)
+                #self.submit_short_market_order(instrument_id, qty)
             current_instrument["last_rsi_cross"] = "rsi_overbought"
         elif rsi_value < oversold:
             if last_cross != "rsi_oversold":
-                self.close_position(instrument_id)
-                self.submit_long_market_order(instrument_id, qty)
+                #self.close_position(instrument_id)
+                #self.submit_long_market_order(instrument_id, qty)
+                pass
             current_instrument["last_rsi_cross"] = "rsi_oversold"
+
+    def check_new_coin(self, current_instrument: Dict[str, Any], instrument_id, qty) -> None:
+        if not current_instrument["seen"]:
+            self.order_types.submit_short_market_order(instrument_id, qty)
+        current_instrument["seen"] = True
+        current_instrument["count"] += 1
+        if current_instrument["count"] > 4*30:
+            self.close_position(instrument_id)
+
 
     # -------------------------------------------------
     # Order Submission Wrapper (Instrument-Aware, intern noch Single)

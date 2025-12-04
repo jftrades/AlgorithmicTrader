@@ -2,24 +2,22 @@ strategy_path: "strategies.coin_listing_short_strategy:CoinListingShortStrategy"
 config_path: "strategies.coin_listing_short_strategy:CoinListingShortConfig"
 
 visualize: true
-venue: "BINANCE"
+venue: "BYBIT"
 
 instruments:
-  - instrument_id: "BTCUSDT-PERP.BINANCE"
+  - instrument_id: "BTCUSDT-LINEAR.BYBIT"
     bar_types: 
-      - "BTCUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
-    trade_size_usdt: "1"  
-    test: 0
-  - instrument_id: "SOLUSDT-PERP.BINANCE"
+      - "BTCUSDT-LINEAR.BYBIT-15-MINUTE-LAST-EXTERNAL"
+    trade_size_usdt: "1"
+  - instrument_id: "SOLUSDT-LINEAR.BYBIT"
     bar_types: 
-      - "SOLUSDT-PERP.BINANCE-15-MINUTE-LAST-EXTERNAL"
-    trade_size_usdt: "1"  
-    test: 0
+      - "SOLUSDT-LINEAR.BYBIT-15-MINUTE-LAST-EXTERNAL"
+    trade_size_usdt: "1"
 
 instruments_from_path:
-  path: "../data/DATA_STORAGE/project_future_scraper/new_binance_perpetual_futures.csv"
+  path: "../data/DATA_STORAGE/project_future_scraper/new_bybit_linear_perpetual_futures.csv"
   symbol_column: "symbol"
-  instrument_suffix: "-PERP"
+  instrument_suffix: "-LINEAR"
   bar_type_endings:
     - "-15-MINUTE-LAST-EXTERNAL"
   trade_size_usdt: "150"
@@ -30,17 +28,18 @@ data_sources:
     instrument_ids: all
     bar_types: from_instruments
 
-  - data_cls: "data.download.crypto_downloads.custom_class.metrics_data:MetricsData"
+  - data_cls: "data.download.crypto_downloads.custom_class.bybit_metrics_data:BybitMetricsData"
     instrument_ids: all
 
-  - data_cls: "data.download.crypto_downloads.custom_class.lunar_data:LunarData"
-    instrument_ids: all
+  # - data_cls: "data.download.crypto_downloads.custom_class.fear_and_greed_data:FearAndGreedData"
+  #   instrument_ids: 
+  #     - "FNG-INDEX.BINANCE"
 
 # backtest period
-start_date: "2024-01-01T00:00:00Z"
-end_date: "2025-08-01T00:00:00Z"
+start_date: "2025-01-01T00:00:00Z"
+end_date: "2025-10-01T00:00:00Z"
 
-# account/venue params
+# account/venue params  
 starting_account_balance: "1000 USDT"
 base_currency: "USDT"
 account_type: "MARGIN"
@@ -49,7 +48,6 @@ oms_type: "NETTING"
 # risk params
 close_positions_on_stop: true
 min_account_balance: 1000
-max_leverage: 1
 
 exp_growth_atr_risk:
   enabled: false
@@ -59,16 +57,25 @@ exp_growth_atr_risk:
 
 log_growth_atr_risk:
   enabled: true
-  atr_period: 20
-  atr_multiple: 3.0
-  risk_percent: 0.04
+  atr_period: 50
+  atr_multiple: 5.0
+  risk_percent: 0.05  # Base 5% risk, will be scaled by BTC/SOL multipliers (0.4x to 2.0x each)
+
+exp_fixed_trade_risk:
+  enabled: false
+  invest_percent: 0.05 # percent of current account balance per trade (no sl calculation)
+
+log_fixed_trade_risk:
+  enabled: false
+  investment_size: 50 # fixed USDT amount per trade
 
 # ===========================
 # Strategy-specific params
 # ===========================
 only_execute_short: true
-hold_profit_for_remaining_days: true
-time_after_listing_close: 19
+hold_profit_for_remaining_days: false
+time_after_listing_close: 20
+max_leverage: 5  # Increased from 1 to make risk scaling more noticeable
 
 use_min_coin_filters:
   enabled: false
@@ -78,55 +85,59 @@ use_min_coin_filters:
 
 use_aroon_simple_trend_system:
   enabled: true
-  aroon_period: 300
-  aroon_osc_short_threshold: [-1, -15, -30, -40]
+  aroon_period: 65
+  aroon_osc_short_threshold: -40
 
 entry_scale_binance_metrics: # rank based approach for ENTRY logic
   enabled: false
-  rolling_window_bars_binance: 200
+  rolling_window_bars_binance: 2000
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
 exit_scale_binance_metrics: # rank based approach for EXIT logic  
   enabled: true
-  rolling_window_bars_binance: 1200
+  rolling_window_bars_binance: 2000 # for OI metrics - needs large window to capture full OI lifecycle
   upper_percentile_threshold_binance: 95
   lower_percentile_threshold_binance: 5
 
 five_day_scaling_filters:
   enabled: false
   amount_change_scaled_values: 250
-  toptrader_short_threshold: 0.8
-  toptrader_allow_entry_difference: 0.5
   oi_trade_threshold: 0.8
   oi_allow_entry_difference: 0.5
 
 exit_l3_metrics_in_profit:
-  enabled: true
+  enabled: false
   exit_amount_change_scaled_values: 100
-  exit_toptrader_short_threshold: -0.95
-  exit_toptrader_allow_difference: 0.8
-  exit_oi_threshold: -0.95
-  exit_oi_allow_difference: 0.5
+  exit_oi_threshold: -0.8
+  exit_oi_allow_difference: 0.6  # Changed: Smaller rebound needed
+  only_check_thresholds_after_entry: true
+  exit_signal_mode: "oi_only"
+
+use_close_ema:
+  enabled: true
+  exit_trend_ema_period: 80
+  min_bars_over_ema: 28
+  min_bars_under_ema: 28
 
 btc_performance_risk_scaling:
-  enabled: true
-  risk_scaling_method: "linear" # "linear" or "exponential"
-  rolling_zscore: 500
-  stop_executing_above_zscore: 3.0
+  enabled: false
+  risk_scaling_method: "linear"
+  rolling_zscore: 200
+  stop_executing_above_zscore: 2.8
   max_zscore: 4.0
   min_zscore: -4.0
-  risk_multiplier_max_z_threshold: 0.4
-  risk_multiplier_min_z_threshold: 3.0
+  risk_multiplier_max_z_threshold: 0.4  # Min risk when BTC bullish
+  risk_multiplier_min_z_threshold: 2.0  # Max risk when BTC bearish (REDUCED from 2.0!)
 
 sol_performance_risk_scaling:
-  enabled: true
+  enabled: false
   risk_scaling_method: "linear"
-  rolling_zscore: 500
-  stop_executing_above_zscore: 3.0
+  rolling_zscore: 200
+  stop_executing_above_zscore: 2.8
   max_zscore: 4.0
   min_zscore: -4.0
-  risk_multiplier_max_z_threshold: 0.4
-  risk_multiplier_min_z_threshold: 3.0
+  risk_multiplier_max_z_threshold: 0.4  # Min risk when SOL bullish
+  risk_multiplier_min_z_threshold: 2.0  # Max risk when SOL bearish (REDUCED from 2.0!)
 
 

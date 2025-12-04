@@ -9,9 +9,9 @@ from nautilus_trader.model.enums import PositionSide
 from nautilus_trader.common.enums import LogColor
 from pydantic import Field
 
-from nautilus_trader.indicators.aroon import AroonOscillator
-from nautilus_trader.indicators.atr import AverageTrueRange
-from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
+from nautilus_trader.indicators.trend import AroonOscillator
+from nautilus_trader.indicators.volatility import AverageTrueRange
+from nautilus_trader.indicators.averages import ExponentialMovingAverage
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
@@ -150,12 +150,17 @@ class GammaShortStrategy(BaseStrategy, Strategy):
         for current_instrument in self.instrument_dict.values():
             # atr
             atr_period = self.config.atr_period
-            if self.config.exp_growth_atr_risk["enabled"]:
-                atr_period = self.config.exp_growth_atr_risk["atr_period"]
-                current_instrument["sl_atr_multiple"] = self.config.exp_growth_atr_risk["atr_multiple"]
-            elif self.config.log_growth_atr_risk["enabled"]:
-                atr_period = self.config.log_growth_atr_risk["atr_period"]
-                current_instrument["sl_atr_multiple"] = self.config.log_growth_atr_risk["atr_multiple"]
+            
+            # Handle FieldInfo objects
+            exp_growth_config = self.config.exp_growth_atr_risk if isinstance(self.config.exp_growth_atr_risk, dict) else {}
+            log_growth_config = self.config.log_growth_atr_risk if isinstance(self.config.log_growth_atr_risk, dict) else {}
+            
+            if exp_growth_config.get("enabled", False):
+                atr_period = exp_growth_config.get("atr_period", 14)
+                current_instrument["sl_atr_multiple"] = exp_growth_config.get("atr_multiple", 2.0)
+            elif log_growth_config.get("enabled", False):
+                atr_period = log_growth_config.get("atr_period", 14)
+                current_instrument["sl_atr_multiple"] = log_growth_config.get("atr_multiple", 2.0)
             else:
                 current_instrument["sl_atr_multiple"] = self.config.sl_atr_multiple
             
@@ -1047,14 +1052,18 @@ class GammaShortStrategy(BaseStrategy, Strategy):
         # Combine both risk multipliers (multiply them together)
         combined_risk_multiplier = btc_risk_multiplier * sol_risk_multiplier
         
-        if self.config.exp_growth_atr_risk["enabled"]:
-            base_risk_percent = Decimal(str(self.config.exp_growth_atr_risk["risk_percent"]))
+        # Handle FieldInfo objects
+        exp_growth_config = self.config.exp_growth_atr_risk if isinstance(self.config.exp_growth_atr_risk, dict) else {}
+        log_growth_config = self.config.log_growth_atr_risk if isinstance(self.config.log_growth_atr_risk, dict) else {}
+        
+        if exp_growth_config.get("enabled", False):
+            base_risk_percent = Decimal(str(exp_growth_config["risk_percent"]))
             adjusted_risk_percent = base_risk_percent * Decimal(str(combined_risk_multiplier))
             exact_contracts = self.risk_manager.exp_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, adjusted_risk_percent)
             return round(float(exact_contracts))
         
-        if self.config.log_growth_atr_risk["enabled"]:
-            base_risk_percent = Decimal(str(self.config.log_growth_atr_risk["risk_percent"]))
+        if log_growth_config.get("enabled", False):
+            base_risk_percent = Decimal(str(log_growth_config["risk_percent"]))
             adjusted_risk_percent = base_risk_percent * Decimal(str(btc_risk_multiplier))
             exact_contracts = self.risk_manager.log_growth_atr_risk(entry_price_decimal, stop_loss_price_decimal, adjusted_risk_percent)
             return round(float(exact_contracts))
@@ -1238,13 +1247,15 @@ class GammaShortStrategy(BaseStrategy, Strategy):
         current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="scaled_open_interest_exit", value=current_instrument.get("latest_open_interest_value_scaled_exit", 0.0))
 
         # Aroon Oscillator (position 2)
-        if self.config.use_aroon_simple_trend_system.get("enabled", False):
+        aroon_config = self.config.use_aroon_simple_trend_system if isinstance(self.config.use_aroon_simple_trend_system, dict) else {}
+        if aroon_config.get("enabled", False):
             aroon = current_instrument["aroon"]
             aroon_osc_value = float(aroon.value) if aroon.value is not None else None
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="aroon_osc", value=aroon_osc_value)
 
         # BTC Risk Scaling metrics
-        if self.config.btc_performance_risk_scaling.get("enabled", False) and hasattr(self, 'btc_context'):
+        btc_risk_config = self.config.btc_performance_risk_scaling if isinstance(self.config.btc_performance_risk_scaling, dict) else {}
+        if btc_risk_config.get("enabled", False) and hasattr(self, 'btc_context'):
             current_instrument["collector"].add_indicator(timestamp=bar.ts_event, name="btc_risk_multiplier", value=self.btc_context.get("current_risk_multiplier", 1.0))
 
 
