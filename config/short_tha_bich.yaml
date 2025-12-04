@@ -30,7 +30,7 @@ data_sources:
   #   instrument_ids: all
 
 start_date: "2025-01-01T00:00:00Z"
-end_date: "2025-03-01T00:00:00Z"
+end_date: "2025-10-01T00:00:00Z"
 
 starting_account_balance: "1000 USDT"
 base_currency: "USDT"
@@ -99,8 +99,13 @@ use_htf_ema_bias_filter:
 
 # Exit System simple:
 #_____________________
-use_macd_exit_system:
+use_trailing_stop_exit:
   enabled: true
+  atr_multiple: 2.5
+  activation_profit_atr: 1.0  # activate after 1 ATR profit
+
+use_macd_exit_system:
+  enabled: false
   macd_fast_exit_period: 65
   macd_slow_exit_period: 100
   macd_signal_exit_period: 50

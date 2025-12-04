@@ -53,6 +53,14 @@ class ShortThaBitchStratConfig(StrategyConfig):
         }
     )
 
+    use_trailing_stop_exit: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "atr_multiple": 2.0,
+            "activation_profit_atr": 1.0  # activate trailing after X ATR profit
+        }
+    )
+
     use_htf_ema_bias_filter: Dict[str, Any] = Field(
         default_factory=lambda: {
             "enabled": False,
@@ -194,6 +202,11 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             current_instrument["short_entry_price"] = None
             current_instrument["long_entry_price"] = None
             current_instrument["prev_bar_close"] = None
+            
+            # trailing stop tracking
+            current_instrument["trailing_stop_price"] = None
+            current_instrument["trailing_stop_activated"] = False
+            current_instrument["best_price_since_entry"] = None
 
            # macd exit system
             macd_exit_config = self.config.use_macd_exit_system if isinstance(self.config.use_macd_exit_system, dict) else {}
@@ -890,6 +903,13 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         
         should_exit = False
 
+        # trailing stop exit
+        trailing_config = self.config.use_trailing_stop_exit if isinstance(self.config.use_trailing_stop_exit, dict) else {}
+        if not should_exit and trailing_config.get("enabled", False):
+            if self.check_trailing_stop_exit_short(bar, current_instrument):
+                should_exit = True
+
+        # macd exit
         macd_exit_config = self.config.use_macd_exit_system if isinstance(self.config.use_macd_exit_system, dict) else {}
         if not should_exit and macd_exit_config.get("enabled", False):
             if self.check_macd_exit_short(bar, current_instrument):
@@ -915,6 +935,58 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         current_instrument["short_entry_price"] = None
         current_instrument["sl_price"] = None
         current_instrument["in_short_position"] = False
+        current_instrument["trailing_stop_price"] = None
+        current_instrument["trailing_stop_activated"] = False
+        current_instrument["best_price_since_entry"] = None
+
+    def check_trailing_stop_exit_short(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
+        """Trailing stop for short positions - trails down as price drops."""
+        trailing_config = self.config.use_trailing_stop_exit if isinstance(self.config.use_trailing_stop_exit, dict) else {}
+        
+        entry_price = current_instrument.get("short_entry_price")
+        if entry_price is None:
+            return False
+        
+        atr = current_instrument.get("atr")
+        if atr is None or not atr.initialized:
+            return False
+        
+        atr_value = float(atr.value)
+        current_price = float(bar.close)
+        atr_multiple = trailing_config.get("atr_multiple", 2.0)
+        activation_atr = trailing_config.get("activation_profit_atr", 1.0)
+        
+        # track best price (lowest for short)
+        best_price = current_instrument.get("best_price_since_entry")
+        if best_price is None or current_price < best_price:
+            current_instrument["best_price_since_entry"] = current_price
+            best_price = current_price
+        
+        # check if trailing stop should activate (price dropped enough)
+        profit_distance = entry_price - best_price
+        activation_distance = atr_value * activation_atr
+        
+        if not current_instrument.get("trailing_stop_activated", False):
+            if profit_distance >= activation_distance:
+                current_instrument["trailing_stop_activated"] = True
+                # set initial trailing stop
+                current_instrument["trailing_stop_price"] = best_price + (atr_value * atr_multiple)
+                self.log.info(f"Trailing stop ACTIVATED at {current_instrument['trailing_stop_price']:.4f}", LogColor.CYAN)
+        
+        # update trailing stop if activated (only moves down for shorts)
+        if current_instrument.get("trailing_stop_activated", False):
+            new_trail = best_price + (atr_value * atr_multiple)
+            current_trail = current_instrument.get("trailing_stop_price")
+            
+            if current_trail is None or new_trail < current_trail:
+                current_instrument["trailing_stop_price"] = new_trail
+            
+            # check if trailing stop hit
+            if current_price >= current_instrument["trailing_stop_price"]:
+                self.log.info(f"Trailing stop HIT at {current_price:.4f}", LogColor.GREEN)
+                return True
+        
+        return False
 
     def check_macd_exit_short(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
         macd_exit = current_instrument.get("macd_exit")
