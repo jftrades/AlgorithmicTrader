@@ -1,4 +1,3 @@
-## code für die dann aber wirklich nutzbar coin short strat
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional, List, Union
 from nautilus_trader.trading import Strategy

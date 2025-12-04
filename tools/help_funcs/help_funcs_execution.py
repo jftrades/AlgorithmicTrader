@@ -1,4 +1,3 @@
-# Standard Library Importe
 import sys
 import time
 import pandas as pd
@@ -16,7 +15,6 @@ import shutil
 import importlib
 from typing import Any, Dict, List
 
-# Nautilus Kern Importe
 from nautilus_trader.backtest.node import BacktestNode
 from nautilus_trader.backtest.config import BacktestDataConfig
 from core.visualizing.dashboard1 import TradingDashboard
@@ -39,7 +37,7 @@ def visualize_existing_run(data_path, TradingDashboard=None):
         TradingDashboard = setup_visualizer()
     visualizer = TradingDashboard(data_path=data_path)
     visualizer.load_data_from_csv()
-    # NEU: Lade performance_metrics.csv, falls vorhanden
+    # load performance_metrics.csv if available
     perf_path = Path(data_path) / "performance_metrics.csv"
     if perf_path.exists():
         try:
@@ -47,10 +45,10 @@ def visualize_existing_run(data_path, TradingDashboard=None):
             if not perf_df.empty:
                 metrics = perf_df.iloc[0].to_dict()
                 visualizer.metrics = metrics
-                print("Performance-Metriken aus performance_metrics.csv geladen.")
+                print("loaded performance metrics from csv")
         except Exception as e:
-            print(f"Fehler beim Laden von performance_metrics.csv: {e}")
-    print("Starte Dashboard für bestehenden Run...")
+            print(f"error loading performance_metrics.csv: {e}")
+    print("starting dashboard for existing run...")
     visualizer.visualize(visualize_after_backtest=True)
 
 def extract_metrics(result, run_params, run_id):
@@ -97,10 +95,7 @@ def extract_metrics(result, run_params, run_id):
     return metrics
 
 def calculate_max_drawdown(run_id):
-    """
-    Berechnet den maximalen Drawdown (als positiver Anteil 0..1) aus der total_equity.csv
-    für den angegebenen run_id. Liefert 0.0 falls Datei fehlt oder keine validen Daten.
-    """
+    """calculates max drawdown (0..1) from total_equity.csv for the given run_id"""
     try:
         root_dir = Path(__file__).resolve().parents[2]  # .../AlgorithmicTrader
         equity_csv = (
@@ -246,7 +241,7 @@ def show_quantstats_report_from_equity_csv(
     qs.reports.html(returns, benchmark=benchmark, output=str(output_path) if output_path else None)
 
 def _clear_directory(path: Path):
-    """Löscht sämtliche Inhalte eines Verzeichnisses ohne das Verzeichnis selbst zu entfernen."""
+    """clears all contents of a directory without removing the directory itself"""
     if not path.exists():
         return
     for child in path.iterdir():
@@ -260,12 +255,7 @@ def _clear_directory(path: Path):
 
 
 def load_qs(run_dirs, run_ids, benchmark_symbol=None, open_browser=False):
-    """
-    Generate QuantStats reports for all runs using existing total_equity.csv files:
-      results/<run_id>/general/indicators/total_equity.csv
-    Produces quantstats_report.html inside each run directory.
-    Set open_browser=True to open reports automatically (default system browser).
-    """
+    """generates quantstats reports for all runs using existing total_equity.csv files"""
     print("Generating QuantStats reports...")
     def _open_html(path_obj):
         if not open_browser:
@@ -293,10 +283,7 @@ def load_qs(run_dirs, run_ids, benchmark_symbol=None, open_browser=False):
             print(f"[QuantStats] Failed for {run_id}: {e}")
 
 def compute_missing_trade_metrics(run_ids, results_dir: Path, instrument_ids):
-    """
-    Create trade_metrics.csv for each run/instrument if it does not exist,
-    derived purely from trades.csv.
-    """
+    """creates trade_metrics.csv from trades.csv for each run/instrument if missing"""
     import pandas as _pd
     import re
 
@@ -392,18 +379,7 @@ def compute_missing_trade_metrics(run_ids, results_dir: Path, instrument_ids):
                 print(f"[compute_missing_trade_metrics] Failed for {trades_csv}: {e}")
 
 def add_trade_metrics(run_ids, results_dir: Path, summary_csv_path: Path, instrument_ids):
-    """
-    Aggregates per-instrument trade_metrics.csv files into global per-run metrics
-    and appends them as new columns to all_backtest_results.csv.
-
-    For each run:
-      Expects files at: results_dir / run_id / <instrument_id_str> / trade_metrics.csv
-    New columns (prefixed with global_):
-      final_realized_pnl, winrate, winrate_long, winrate_short,
-      pnl_long, pnl_short, long_short_ratio, n_trades, n_long_trades, n_short_trades,
-      avg_win, avg_loss, max_win, max_loss, max_consecutive_wins, max_consecutive_losses,
-      commissions
-    """
+    """aggregates per-instrument trade_metrics into global per-run metrics and appends to all_backtest_results.csv"""
     import pandas as _pd
     import re  # NEW
 
@@ -700,13 +676,7 @@ def add_trade_metrics(run_ids, results_dir: Path, summary_csv_path: Path, instru
     print("[add_trade_metrics] Global trade metrics appended.")
 
 def _resolve_data_cls(value):
-    """
-    Accepts:
-      - already-imported class
-      - "module:Class"
-      - "module.Class"
-    Returns class if importable, else returns original value (string).
-    """
+    """resolves data class from string format (module:Class or module.Class) or returns class if already imported"""
     try:
         if isinstance(value, type):
             return value
@@ -732,10 +702,7 @@ def _resolve_data_cls(value):
         return value
 
 def _is_standard_nautilus_data_cls(value) -> bool:
-    """
-    True for classes in nautilus_trader.model.data (e.g. Bar, TradeTick, QuoteTick, etc.).
-    Accepts either an imported class or a string ("module:Class" or "module.Class").
-    """
+    """returns true for classes in nautilus_trader.model.data"""
     try:
         if isinstance(value, type):
             return getattr(value, "__module__", "").startswith("nautilus_trader.model.data")
@@ -751,11 +718,7 @@ def build_data_configs(
     all_bar_types: List[str],
     catalog_path: str,
 ) -> List[BacktestDataConfig]:
-    """
-    Builds BacktestDataConfig list from normalized 'data_sources'.
-    Falls back to standard Bar config if none provided.
-    Sets client_id = "my client id" for custom (non-nautilus) data classes when missing.
-    """
+    """builds BacktestDataConfig list from normalized data_sources, falls back to standard Bar config if empty"""
     data_configs: List[BacktestDataConfig] = []
 
     if data_sources_normalized:

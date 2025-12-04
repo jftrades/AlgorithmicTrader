@@ -1,4 +1,3 @@
-# in here is the coin short strategy to short coins that have been listed for 14 days
 from datetime import datetime, time, timezone, timedelta
 from typing import Any, Dict, Optional, List
 from nautilus_trader.trading import Strategy
@@ -494,9 +493,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         return False
 
     def passes_rsi_condition_filter(self, bar: Bar, current_instrument: Dict[str, Any], trade_direction: str) -> bool:
-        """
-        RSI condition filter - only active when RSI usage_method is set to "condition"
-        """
+        """rsi condition filter - only runs when rsi usage_method is 'condition'"""
         if not self.config.use_rsi_simple_reversion_system.get("enabled", False):
             return True
             
@@ -522,10 +519,7 @@ class CoinFullStrategy(BaseStrategy,Strategy):
         return False
 
     def is_long_entry_allowed(self) -> bool:
-        """
-        Check if long entries are allowed based on configuration.
-        When only_execute_short is True, all long entries will be blocked.
-        """
+        """returns false when only_execute_short is enabled"""
         return not self.config.only_execute_short
 
     def load_onboard_dates(self):

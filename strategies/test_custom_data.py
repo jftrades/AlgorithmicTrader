@@ -1,9 +1,7 @@
-# Standard Library Importe
 from decimal import Decimal
 import time
 from typing import Any, Dict, Optional, List
 
-# Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
 from nautilus_trader.model.data import Bar, TradeTick, BarType
@@ -12,8 +10,6 @@ from nautilus_trader.model.objects import Money, Price, Quantity, Currency
 from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.common.enums import LogColor
-
-# Nautilus Strategie spezifische Importe
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.structure.TTTbreakout import TTTBreakout_Analyser
 from tools.order_management.order_types import OrderTypes
@@ -22,9 +18,6 @@ from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 from tools.help_funcs.help_funcs_strategy import create_tags
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.core import Data
-
-
-# Strategiespezifische Importe
 from nautilus_trader.indicators.momentum import RelativeStrengthIndex
 
 from AlgorithmicTrader.data.download.crypto_downloads.custom_class.metrics_data import MetricsData
@@ -34,12 +27,8 @@ from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model import DataType
 
 
-
-# -------------------------------------------------
-# Multi-Instrument Konfiguration (jetzt Pflicht)
-# -------------------------------------------------
 class TestCustomDataConfig(StrategyConfig):
-    instruments: List[dict]  # Jeder Eintrag: {"instrument_id": <InstrumentId>, "bar_types": List of <BarType>, "trade_size_usdt": <Decimal|int|float>}
+    instruments: List[dict]
     risk_percent: float
     max_leverage: float
     min_account_balance: float
@@ -54,8 +43,6 @@ class TestCustomData(BaseStrategy, Strategy):
     def __init__(self, config: TestCustomDataConfig):
         self.instrument_dict: Dict[InstrumentId, Dict[str, Any]] = {}
         super().__init__(config)
-    
-        # Entfernt: primäre Instrument-Ableitungen (self.instrument_id, self.bar_type, etc.)
         self.risk_manager = None
         self.order_types = None
         self.add_instrument_context()

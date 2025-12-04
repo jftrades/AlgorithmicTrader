@@ -22,8 +22,7 @@ class VWAPIntraday:
         }
         
     def update(self, bar, is_rth=True):
-        """Update VWAP with new bar data."""
-        # Let Nautilus VWAP handle daily reset automatically
+        """updates vwap with new bar, resets on new day"""
         self.vwap.handle_bar(bar)
         
         # Check for new day to reset our data
@@ -50,7 +49,7 @@ class VWAPIntraday:
             self._track_vwap_extremes(bar.close.as_double())
     
     def get_bands(self, multiplier=1.0):
-        """Get VWAP bands with specified multiplier."""
+        """returns (vwap, upper_band, lower_band)"""
         if len(self.prices) < 2 or sum(self.volumes) == 0:
             return self.value, None, None
             
@@ -80,7 +79,7 @@ class VWAPIntraday:
     def configure_extremes(self, min_bars_vwap_extremes: int = 10, 
                           min_band_trend_long: float = 1.0, 
                           min_band_trend_short: float = 1.0):
-        """Configure VWAP extremes tracking parameters."""
+        """sets params for vwap extremes tracking"""
         self.extremes_config = {
             'min_bars_vwap_extremes': min_bars_vwap_extremes,
             'min_band_trend_long': min_band_trend_long,
@@ -88,14 +87,14 @@ class VWAPIntraday:
         }
     
     def reset_extremes_tracking(self):
-        """Reset VWAP extremes tracking state."""
+        """resets vwap extremes tracking state"""
         self.bars_above_long_band = 0
         self.bars_below_short_band = 0
         self.long_trend_validated = False
         self.short_trend_validated = False
     
     def _track_vwap_extremes(self, close_price: float):
-        """Track consecutive bars above/below VWAP trend bands for trend validation."""
+        """tracks consecutive bars above/below trend bands"""
         if not self.initialized:
             return
             

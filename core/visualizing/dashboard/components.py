@@ -90,7 +90,7 @@ def create_trade_details_content(trade_data: pd.Series):
     action = str(trade_data.get('action', '')).upper()
     action_color = '#28a745' if action == 'BUY' else '#dc3545'
 
-    # Wichtigste Felder
+    # main fields
     key_fields = [
         'timestamp', 'action', 'open_price_actual', 'close_price_actual',
         'closed_timestamp', 'tradesize', 'sl', 'tp', 'realized_pnl', 'fee'

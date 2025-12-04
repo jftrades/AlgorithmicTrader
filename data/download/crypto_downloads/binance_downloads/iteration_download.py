@@ -3,23 +3,23 @@ from datetime import datetime, timedelta
 import csv
 import json
 import time
-import os  # NEU
+import os
 
 from main_download import CryptoDataOrchestrator
-from new_future_list_download import BinancePerpetualFuturesDiscovery  # NEU
-from fear_and_greed_download import FearAndGreedDownloader  # NEU
+from new_future_list_download import BinancePerpetualFuturesDiscovery
+from fear_and_greed_download import FearAndGreedDownloader
 
 # ========================
-# Konfiguration
+# Configuration
 # ========================
 BASE_DATA_DIR = Path(__file__).resolve().parents[3] / "DATA_STORAGE" 
 FUTURES_CSV = BASE_DATA_DIR / "project_future_scraper" / "new_binance_perpetual_futures.csv"
 
-# NEU: Konfigurierbarer Zielordner (statt fest 'csv_data')
-CSV_OUTPUT_SUBDIR = "csv_data_all"  # bei Bedarf z.B. "csv_data_alt" setzen
-os.environ["CSV_OUTPUT_SUBDIR"] = CSV_OUTPUT_SUBDIR  # für Downloader verfügbar
+# target output folder
+CSV_OUTPUT_SUBDIR = "csv_data_all"
+os.environ["CSV_OUTPUT_SUBDIR"] = CSV_OUTPUT_SUBDIR
 
-RUN_DISCOVERY = True                 # NEU: führe Discovery vor Iteration aus
+RUN_DISCOVERY = True
 DISCOVERY_WINDOW_START = "2024-01-01"
 DISCOVERY_WINDOW_END = "2025-10-07"
 DISCOVERY_ONLY_USDT = True
@@ -32,8 +32,8 @@ RUN_LUNAR = False
 RUN_VENUE = True
 RUN_BINANCE = True
 
-RUN_FNG = False  # NEU
-FNG_INSTRUMENT_ID = "FNG-INDEX.BINANCE"  # NEU
+RUN_FNG = False
+FNG_INSTRUMENT_ID = "FNG-INDEX.BINANCE"
 
 LUNAR_BUCKET = "hour"
 BINANCE_DATATYPE = "bar"
@@ -41,14 +41,11 @@ BINANCE_INTERVAL = "15m"
 SAVE_AS_CSV = True
 SAVE_IN_CATALOG = True
 DOWNLOAD_IF_MISSING = True
-# Entfernt: RUN_NEW_FUTURES und Fenster in Orchestrator
 # ========================
 
-# NEU: Ergebnis Cache
 _fng_done = False
 _fng_result = None
 
-# NEU: Helper für formatierte Trenner
 def _sep(title: str) -> str:
     line = "-" * 22
     return f"\n{line} {title.upper()} {line}"
@@ -56,7 +53,7 @@ def _sep(title: str) -> str:
 def run_discovery_if_needed():
     if not RUN_DISCOVERY:
         return
-    print("[INFO] Starte Discovery vor Iteration ...")
+    print("[INFO] Starting discovery before iteration...")
     d = BinancePerpetualFuturesDiscovery(
         start_date=DISCOVERY_WINDOW_START,
         end_date=DISCOVERY_WINDOW_END,

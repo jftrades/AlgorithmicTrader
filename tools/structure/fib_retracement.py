@@ -46,16 +46,7 @@ class FibRetracementTool:
         self.last_update_reason = None
     
     def update(self, bar: Bar) -> Optional[FibRetracement]:
-        """
-        Update Fibonacci levels based on PivotArchive state.
-        
-        Returns FibRetracement if levels are valid, None if not ready.
-        Only recalculates when:
-        1. Critical points change (price or timestamp)
-        2. PivotArchive state changes
-        3. First time initialization
-        """
-        # Get current critical points from PivotArchive
+        """updates fib levels when critical points change, returns FibRetracement if valid"""
         key_levels = self.pivot_archive.get_key_levels()
         
         # Must be initialized to calculate Fibonacci
@@ -113,9 +104,7 @@ class FibRetracementTool:
         return self.current_fib
     
     def _calculate_fibonacci_levels(self, high_point: SwingPoint, low_point: SwingPoint, pivot_direction: str) -> FibRetracement:
-        """Calculate Fibonacci retracement levels with state-aware direction"""
-        
-        # Get direction and confidence from PivotArchive
+        """calculates fib levels based on direction from pivot archive"""
         direction, confidence = self.pivot_archive.get_direction_with_confidence()
         
         # Calculate price range for Fibonacci levels
@@ -147,11 +136,11 @@ class FibRetracementTool:
         )
     
     def get_current_fibonacci(self) -> Optional[FibRetracement]:
-        """Get current Fibonacci retracement (stable until PivotArchive changes)"""
+        """returns current fib retracement, stable until pivot archive changes"""
         return self.current_fib
     
     def get_key_levels_for_strategy(self) -> dict:
-        """Get key retracement levels for strategy entry logic"""
+        """returns golden ratio levels (0.5, 0.618, 0.786) for entry logic"""
         if not self.current_fib:
             return {}
         
@@ -164,7 +153,7 @@ class FibRetracementTool:
         return key_levels
     
     def get_key_levels(self) -> dict:
-        """Compatibility method for strategy - returns all Fibonacci levels"""
+        """returns all fib levels in strategy-compatible format"""
         if not self.current_fib:
             return {}
         

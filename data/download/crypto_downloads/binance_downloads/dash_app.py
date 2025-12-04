@@ -301,7 +301,7 @@ def run_iteration(
         logs = "\n".join(res.get("logs", []))
         summaries = res.get("summaries", [])
         if not summaries:
-            return logs + "\n[HINWEIS] Keine Summaries.", ""
+            return logs + "\n[NOTE] No summaries.", ""
         # Kleine Tabelle
         table_rows = []
         for s in summaries:

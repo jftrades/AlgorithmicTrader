@@ -5,7 +5,7 @@ from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.core.datetime import dt_to_unix_nanos
 from AlgorithmicTrader.data.download.crypto_downloads.custom_class.metrics_data import MetricsData
 
-# Wichtig: Registrierung vor dem Schreiben!
+# important: register before writing
 from nautilus_trader.serialization.base import register_serializable_type
 from nautilus_trader.serialization.arrow.serializer import register_arrow
 

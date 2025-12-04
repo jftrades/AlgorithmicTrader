@@ -271,9 +271,7 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
 
     metrics_panel = build_metrics_panel(None, single_mode=single_mode)
 
-    # Neuer innerer Content-Wrapper mit reduziertem Padding
-    inner_padding = '24px' if single_mode else '22px'
-    content_body = html.Div([
+    inner_padding = '24px' if single_mode else '22px'\n    content_body = html.Div([
         collector_dropdown,
         trade_details_panel,
         price_block,
@@ -283,7 +281,7 @@ def build_layout(collectors, selected=None, runs_df=None, menu_open=False, run_i
         'padding': f'10px {inner_padding} 50px {inner_padding}',  # top padding reduziert
         'display': 'flex',
         'flexDirection': 'column',
-        'gap': '0px',  # entfernt Gap, da Komponenten eigene Margins haben
+        'gap': '0px',
         'width': '100%',
         'boxSizing': 'border-box'
     })

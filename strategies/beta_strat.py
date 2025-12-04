@@ -1,9 +1,7 @@
-# Standard Library Importe
 from decimal import Decimal
 import time
 from typing import Any, Dict, Optional, List
 
-# Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
 from nautilus_trader.model.data import Bar, TradeTick, BarType
@@ -12,8 +10,6 @@ from nautilus_trader.model.objects import Money, Price, Quantity, Currency
 from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.common.enums import LogColor
-
-# Nautilus Strategie spezifische Importe
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.structure.TTTbreakout import TTTBreakout_Analyser
 from tools.order_management.order_types import OrderTypes
@@ -21,16 +17,11 @@ from tools.order_management.risk_manager import RiskManager
 from core.visualizing.backtest_visualizer_prototype import BacktestDataCollector
 from tools.help_funcs.help_funcs_strategy import create_tags
 from nautilus_trader.common.enums import LogColor
-
-
-# Strategiespezifische Importe
 from nautilus_trader.indicators.momentum import RelativeStrengthIndex
 
-# -------------------------------------------------
-# Multi-Instrument Konfiguration (jetzt Pflicht)
-# -------------------------------------------------
+
 class RSISimpleStrategyConfig(StrategyConfig):
-    instruments: List[dict]  # Jeder Eintrag: {"instrument_id": <InstrumentId>, "bar_types": List of <BarType>, "trade_size_usdt": <Decimal|int|float>}
+    instruments: List[dict]
     risk_percent: float
     max_leverage: float
     min_account_balance: float
@@ -47,9 +38,6 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         super().__init__(config)
         self.risk_manager = RiskManager(config)
         self.risk_manager.set_strategy(self)
-    
-        # Entfernt: primäre Instrument-Ableitungen (self.instrument_id, self.bar_type, etc.)
-        #self.risk_manager = None
         self.order_types = None
         self.add_instrument_context()
 
@@ -69,17 +57,11 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
     def on_start(self) -> None:
         for inst_id, ctx in self.instrument_dict.items():
             for bar_type in ctx["bar_types"]:
-                #if isinstance(bar_type, BarType):
                 self.log.info(str(bar_type), color=LogColor.GREEN)
                 self.subscribe_bars(bar_type)
-                #else:
-                    #raise ValueError(f"BarType (String) muss vorher in BarType konvertiert werden: {bar_type}")
         self.log.info(f"Strategy started. Instruments: {', '.join(str(i) for i in self.instrument_ids())}")
         self.order_types = OrderTypes(self)
 
-    # -------------------------------------------------
-    # Ereignis Routing
-    # -------------------------------------------------
     def on_bar(self, bar: Bar) -> None:
         
         instrument_id = bar.bar_type.instrument_id
@@ -98,9 +80,6 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
         self.base_collect_bar_data(bar, current_instrument)
         self.update_visualizer_data(bar, current_instrument)
 
-    # -------------------------------------------------
-    # Entry Logic pro Instrument
-    # -------------------------------------------------
     def entry_logic(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
         trade_size_usdt = float(current_instrument["trade_size_usdt"])
@@ -123,18 +102,12 @@ class RSISimpleStrategy(BaseStrategy, Strategy):
                 self.submit_long_market_order(instrument_id, qty)
             current_instrument["last_rsi_cross"] = "rsi_oversold"
 
-    # -------------------------------------------------
-    # Order Submission Wrapper (Instrument-Aware, intern noch Single)
-    # -------------------------------------------------
     def submit_long_market_order(self, instrument_id: InstrumentId, qty: int):
         self.order_types.submit_long_market_order(instrument_id, qty)
 
     def submit_short_market_order(self, instrument_id: InstrumentId, qty: int):
         self.order_types.submit_short_market_order(instrument_id, qty)
 
-    # -------------------------------------------------
-    # Visualizer / Logging pro Instrument
-    # -------------------------------------------------
     def update_visualizer_data(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         inst_id = bar.bar_type.instrument_id
         self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)

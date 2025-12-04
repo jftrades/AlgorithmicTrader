@@ -30,7 +30,7 @@ data_sources:
   #   instrument_ids: all
 
 start_date: "2025-01-01T00:00:00Z"
-end_date: "2025-3-01T00:00:00Z"
+end_date: "2025-03-01T00:00:00Z"
 
 starting_account_balance: "1000 USDT"
 base_currency: "USDT"
@@ -49,8 +49,8 @@ min_account_balance: 1000
 log_growth_atr_risk:
   enabled: true
   atr_period: 30
-  atr_multiple: 3.0
-  risk_percent: 0.05 
+  atr_multiple: [2, 2.5, 3.0, 4.0]
+  risk_percent: 0.01
 
 # _______________________
 # Strat params

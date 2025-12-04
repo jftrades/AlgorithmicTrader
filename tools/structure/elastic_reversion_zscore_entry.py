@@ -106,15 +106,14 @@ class ElasticReversionZScoreEntry:
         if self.z_extreme_long_since_cross is None or zscore < self.z_extreme_long_since_cross:
             self.z_extreme_long_since_cross = zscore
             self.bars_since_long_extreme = 0
-            # WICHTIG: Bei neuem Extrem Reset der Recovery-Flags für neue Recovery-Möglichkeiten
+            # reset recovery flags on new extreme
             if self.allow_multiple_recoveries:
                 self.long_recovery_triggered = False
             
-        # Update Short Extreme    
         if self.z_extreme_short_since_cross is None or zscore > self.z_extreme_short_since_cross:
             self.z_extreme_short_since_cross = zscore
             self.bars_since_short_extreme = 0
-            # WICHTIG: Bei neuem Extrem Reset der Recovery-Flags für neue Recovery-Möglichkeiten
+            # reset recovery flags on new extreme
             if self.allow_multiple_recoveries:
                 self.short_recovery_triggered = False
             

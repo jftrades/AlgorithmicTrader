@@ -30,7 +30,6 @@ class TradingDashboard:
             base_dir = Path(__file__).resolve().parents[2]
             self.data_path = base_dir / "data" / "DATA_STORAGE" / "results"
         
-        # NEU: Multi-Collector
         self.collectors_data = {}
         self.selected_collector = None
 
@@ -1505,7 +1504,7 @@ class DashboardApp:
         action = str(trade_data.get('action', '')).upper()
         action_color = '#28a745' if action == 'BUY' else '#dc3545'
         
-        # Kompakte horizontale Darstellung für wichtigste Felder
+        # main fields
         key_fields = ['timestamp', 'action', 'open_price_actual', 'close_price_actual', 'closed_timestamp', 'tradesize', 'sl', 'tp', 'realized_pnl', 'fee']
         
         main_info = []

@@ -1,6 +1,3 @@
-# hier drinnen ist der gleiche Kalman Filter wie im anderen, 
-# nur dass dieser für Entry/Exits in unserem Fall benutzt wird und dafür für die Exits einen ZScore hat
-
 import numpy as np
 from collections import deque
 

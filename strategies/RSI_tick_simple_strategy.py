@@ -1,27 +1,19 @@
-# Standard Library Importe
 from decimal import Decimal
 from typing import Any, Dict, List
 
-# Nautilus Kern Importe (für Backtest eigentlich immer hinzufügen)
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
 from nautilus_trader.model.data import Bar, TradeTick
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.common.enums import LogColor
-
-# Nautilus Strategie spezifische Importe
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
-
-# Strategiespezifische Importe
 from nautilus_trader.indicators.momentum import RelativeStrengthIndex
 
-# -------------------------------------------------
-# Multi-Instrument Konfiguration (jetzt Pflicht)
-# -------------------------------------------------
+
 class RSITickSimpleStrategyConfig(StrategyConfig):
-    instruments: List[dict]  # Jeder Eintrag: {"instrument_id": <InstrumentId>, "bar_types": List of <BarType>, "trade_size_usdt": <Decimal|int|float>}
+    instruments: List[dict]
     risk_percent: float
     max_leverage: float     
     min_account_balance: float
@@ -36,8 +28,6 @@ class RSITickSimpleStrategy(BaseStrategy, Strategy):
     def __init__(self, config: RSITickSimpleStrategyConfig):
         self.instrument_dict: Dict[InstrumentId, Dict[str, Any]] = {}
         super().__init__(config)
-    
-        # Entfernt: primäre Instrument-Ableitungen (self.instrument_id, self.bar_type, etc.)
         self.risk_manager = None
         self.order_types = None
         self.add_instrument_context()

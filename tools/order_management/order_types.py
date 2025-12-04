@@ -19,9 +19,6 @@ class OrderTypes:
     def _collector(self, instrument_id):
         return self.strategy.instrument_dict[instrument_id]["collector"]
 
-    # -------------------------------------------------
-    # Market Orders
-    # -------------------------------------------------
     def submit_long_market_order(self, instrument_id, quantity: Decimal, price: Decimal = None):
         inst, instrument_id = self._resolve_instrument(instrument_id)
         order = self.strategy.order_factory.market(
@@ -48,9 +45,6 @@ class OrderTypes:
         self._collector(instrument_id).add_trade(order)
         return order
 
-    # -------------------------------------------------
-    # Market Orders with Exchange-Side Stop Loss
-    # -------------------------------------------------
     def submit_short_market_order_with_sl(self, instrument_id, quantity: Decimal, stop_loss_price: Decimal):
         inst, instrument_id = self._resolve_instrument(instrument_id)
         
@@ -113,9 +107,6 @@ class OrderTypes:
         self.strategy.log.info(f"LONG {instrument_id}: Qty={quantity}, SL={stop_loss_price}")
         return order_list
 
-    # -------------------------------------------------
-    # Bracket Orders
-    # -------------------------------------------------
     def submit_long_bracket_order(self, instrument_id, quantity: Decimal, entry_price: Decimal, stop_loss: Decimal, take_profit: Decimal):
         inst, instrument_id = self._resolve_instrument(instrument_id)
         bracket_order = self.strategy.order_factory.bracket(
@@ -152,9 +143,6 @@ class OrderTypes:
         )
         return bracket_order
 
-    # -------------------------------------------------
-    # Limit Orders
-    # -------------------------------------------------
     def submit_long_limit_order(self, instrument_id, quantity: Decimal, limit_price: Decimal):
         inst, instrument_id = self._resolve_instrument(instrument_id)
         order = self.strategy.order_factory.limit(
@@ -185,9 +173,6 @@ class OrderTypes:
         self.strategy.log.info(f"Limit SELL {instrument_id}: Qty={quantity}, Limit={limit_price}")
         return order
 
-    # -------------------------------------------------
-    # Close Position
-    # -------------------------------------------------
     def close_position_by_market_order(self, instrument_id):
         position = self.strategy.base_get_position(instrument_id)
         if position is None or position.quantity == 0:

@@ -49,7 +49,7 @@ class TradeInstance:
 
         self.price_desired = None
         self.fee = None
-        self.bar_index = None  # Index entfernt, nur Timeframe-basierte Darstellung
+        self.bar_index = None
 
 class IndicatorInstance:
     def __init__(self, name, plot_number=0):
@@ -68,7 +68,7 @@ class BacktestDataCollector:
         self.indicator_plot_number = {}
         self.initialise_result_path()
         self.plots_at_minus_one = 0
-        self.batch_size = batch_size  # NEU: Schwelle für Batch-Flush
+        self.batch_size = batch_size
         
 
     def initialise_result_path(self):
@@ -102,7 +102,7 @@ class BacktestDataCollector:
             'volume': volume,
         }
         self.bars[timeframe].append(bar_dict)
-        # NEU: Flush wenn Batch voll
+        # flush when batch is full
         if len(self.bars[timeframe]) >= self.batch_size:
             self.flush_bars(timeframe)
 
@@ -115,13 +115,10 @@ class BacktestDataCollector:
             'value': value,
             'plot_id': plot_number,
         })
-        # NEU: Flush beim Erreichen der Batchgröße
+        # flush when batch is full
         if len(self.indicators[name]) >= self.batch_size:
             self.flush_indicators(name)
 
-    # -------------------------
-    # NEU: Batch Flush Helpers
-    # -------------------------
     def _append_df(self, file_path, df):
         header = not file_path.exists()
         df.to_csv(file_path, mode='a', header=header, index=False)
@@ -147,7 +144,6 @@ class BacktestDataCollector:
         df = df[cols]
         file_path = self.path / f"bars-{timeframe}.csv"
         self._append_df(file_path, df)
-        # Entfernte Elemente aus Speicher löschen
         del entries[:batch_size]
 
     def flush_all_bars(self, force=False):
@@ -193,10 +189,7 @@ class BacktestDataCollector:
         self.flush_all_indicators(force=force)
 
     def add_trade_details(self, order_filled, parent_id):
-        """
-        Füllt die Details des Trades aus einem OrderFilled-Objekt.
-        Sucht in self.trades nach passender id und ergänzt price_actual und fee.
-        """
+        """fills in price_actual and fee from OrderFilled event"""
 
         id = order_filled.client_order_id
         price_actual = order_filled.last_px
@@ -230,22 +223,6 @@ class BacktestDataCollector:
     def add_trade(self, new_order):
         trade = TradeInstance(new_order)
         self.trades.append(trade)
-
-        # order.id                -> OrderId-Objekt (eindeutige Order-ID)
-        # order.instrument_id     -> InstrumentId-Objekt (welches Instrument)
-        # order.order_side        -> OrderSide (BUY oder SELL)
-        # order.quantity          -> OrderQty-Objekt (ursprüngliche Ordermenge)
-        # order.filled_qty        -> OrderQty-Objekt (bereits ausgeführte Menge)
-        # order.avg_price         -> Decimal (durchschnittlicher Ausführungspreis)
-        # order.status            -> OrderStatus (aktueller Status, z.B. FILLED)
-        # order.ts_event          -> int (Zeitstempel des letzten Events in Nanosekunden)
-        # order.exec_algorithm_id -> ExecAlgorithmId (falls mit Algo ausgeführt)
-        # order.exec_algorithm_params -> dict (Algo-Parameter)
-        # order.time_in_force     -> TimeInForce (z.B. FOK, GTC)
-        # order.parent_id         -> OrderId (falls Parent-Order)
-        # order.client_order_id   -> str (falls gesetzt)
-        # order.price             -> Decimal (Limitpreis, falls LimitOrder)
-        # order.type              -> OrderType (MARKET, LIMIT, etc.)
         
     def bars_to_csv(self):
         """
@@ -316,7 +293,6 @@ class BacktestDataCollector:
         pnl_long = sum(to_float(t.realized_pnl) for t in long_trades)
         pnl_short = sum(to_float(t.realized_pnl) for t in short_trades)
 
-        # Neu: separate Gewinnlisten für Long / Short
         long_wins = [to_float(t.realized_pnl) for t in long_trades if to_float(t.realized_pnl) > 0]
         short_wins = [to_float(t.realized_pnl) for t in short_trades if to_float(t.realized_pnl) > 0]
 
@@ -326,8 +302,8 @@ class BacktestDataCollector:
         n_losses = len(losses)
 
         winrate = n_wins / n_trades if n_trades > 0 else 0.0
-        winrate_long = len(long_wins) / n_long if n_long > 0 else 0.0    # Neu
-        winrate_short = len(short_wins) / n_short if n_short > 0 else 0.0 # Neu
+        winrate_long = len(long_wins) / n_long if n_long > 0 else 0.0
+        winrate_short = len(short_wins) / n_short if n_short > 0 else 0.0
         long_short_ratio = n_long / n_short if n_short > 0 else float('inf') if n_long > 0 else 0.0
         avg_win = sum(wins) / n_wins if n_wins > 0 else 0.0
         avg_loss = sum(losses) / n_losses if n_losses > 0 else 0.0
@@ -352,15 +328,14 @@ class BacktestDataCollector:
             max_consec_wins = max(max_consec_wins, curr_wins)
             max_consec_losses = max(max_consec_losses, curr_losses)
 
-        final_realized_pnl = sum(to_float(t.realized_pnl) for t in self.trades)  # NEU: Bugfix
-        # final_realized_pnl ganz oben im dict
+        final_realized_pnl = sum(to_float(t.realized_pnl) for t in self.trades)
         result = {
             "final_realized_pnl": final_realized_pnl,
             "winrate": winrate,
-            "winrate_long": winrate_long,     # Neu
-            "winrate_short": winrate_short,   # Neu
-            "pnl_long": pnl_long,       # Neu
-            "pnl_short": pnl_short,     # Neu
+            "winrate_long": winrate_long,
+            "winrate_short": winrate_short,
+            "pnl_long": pnl_long,
+            "pnl_short": pnl_short,
             "long_short_ratio": long_short_ratio,
             "n_trades": n_trades,
             "n_long_trades": n_long,
@@ -412,7 +387,7 @@ class BacktestDataCollector:
         """
         logging_message = ""
         try:
-            # NEU: restliche Batches flushen
+            # flush remaining batches
             self.flush_all(force=True)
             bars_files = self.bars_to_csv()
             ind_files = self.indicators_to_csv()
