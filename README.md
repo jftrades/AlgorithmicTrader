@@ -69,7 +69,7 @@ We have engineered a comprehensive ecosystem on top of NautilusTrader's Rust cor
 
 At the heart of our infrastructure lies **NautilusTrader** — an institutional-grade trading engine written entirely in **Rust** with Python bindings. This hybrid architecture combines the raw performance of systems programming with Python's flexibility for rapid strategy development.
 
-![Nautilius](./data/readme_visualisations/nautilus_visualisation.png)
+![Nautilius](./data/readme_visualisations/nautilus_visualisation.PNG)
 
 | Rust Advantage | Impact |
 |:---------------|:-------|
