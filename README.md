@@ -15,13 +15,11 @@
 
 <br>
 
-[Overview](#overview) · [Architecture](#system-architecture) · [Edge](#competitive-edge) · [Strategies](#trading-strategies) · [Tools](#analytical-tools) · [Installation](#installation)
+[Overview](#overview) · [Vision](#our-vision) · [Architecture](#system-architecture) · [Edge](#competitive-edge) · [Strategies](#trading-strategies) · [Tools](#analytical-tools)
 
 </div>
 
 ---
-
-<br>
 
 ## Overview
 
@@ -29,16 +27,11 @@
 
 This framework represents the intersection of **quantitative research**, **software engineering excellence**, and **institutional execution infrastructure**. We engineer self-adapting trading systems that dynamically evolve with changing market regimes — the same methodology employed by Renaissance Technologies and Two Sigma.
 
-
-<br>
-
 <div align="center">
 
 ![System Overview](./data/readme_visualisations/chip.png)
 
 </div>
-
-<br>
 
 > *"In a market where milliseconds determine winners and losers, we chose to build infrastructure that thinks in nanoseconds. Where others see complexity, we see opportunity. This is not just code — it is a competitive weapon forged through relentless iteration and an obsession with excellence."*
 
@@ -48,38 +41,42 @@ This framework represents the intersection of **quantitative research**, **softw
 
 We are building more than a trading system — we are engineering a **self-evolving quantitative infrastructure** designed to compound returns across decades, not months.
 
-<br>
-
 ### Long-Term Roadmap
 
 | Phase | Objective | Status |
-|:------|:----------|:-------|
-| **Foundation** | Institutional-grade backtesting infrastructure with NautilusTrader | ✓ Complete |
-| **Robustness** | Walk-forward validation, parameter stability analysis, regime detection | ✓ Complete |
-| **Scale** | Multi-strategy orchestration with portfolio-level risk management | In Progress |
-| **Intelligence** | Temporal Fusion Transformers for adaptive signal generation | Planned |
-| **Autonomy** | Self-optimizing systems with continuous learning pipelines | Planned |
-
-<br>
+|:------|:----------|:------:|
+| **Foundation** | Institutional-grade backtesting with NautilusTrader | ✓ |
+| **Robustness** | Walk-forward validation, parameter stability, regime detection | ✓ |
+| **Scale** | Multi-strategy orchestration with portfolio-level risk management | ◐ |
+| **Intelligence** | Temporal Fusion Transformers for adaptive signal generation | ○ |
+| **Autonomy** | Self-optimizing systems with continuous learning pipelines | ○ |
 
 ### Core Principles
 
-**Extreme Robustness Over Short-Term Performance**
-We prioritize strategies that survive regime changes, black swan events, and prolonged drawdowns. A system that compounds at 15% annually for 20 years vastly outperforms one that returns 100% before catastrophic failure.
-
-**Transformer-Based Future**
-Traditional technical indicators capture linear relationships. We are transitioning toward **attention-based architectures** that learn complex, non-linear market dynamics — identifying patterns invisible to conventional quantitative methods.
-
-**Continuous Evolution**
-Markets adapt. Strategies decay. Our infrastructure is designed for perpetual iteration: automated retraining pipelines, out-of-sample monitoring, and graceful strategy rotation when alpha erodes.
-
-<br>
+| Principle | Description |
+|:----------|:------------|
+| **Robustness First** | We prioritize strategies that survive regime changes and black swan events. A system compounding at 15% annually for 20 years outperforms one returning 100% before catastrophic failure. |
+| **Transformer Future** | Transitioning toward attention-based architectures that learn complex, non-linear market dynamics — patterns invisible to conventional methods. |
+| **Continuous Evolution** | Markets adapt. Strategies decay. Our infrastructure enables perpetual iteration: automated retraining, out-of-sample monitoring, graceful strategy rotation. |
 
 ---
 
 ## System Architecture
 
-We have engineered a comprehensive ecosystem on top of NautilusTrader's Rust core, covering the complete quantitative trading lifecycle — from raw market data ingestion to post-trade analytics.
+We have engineered a comprehensive ecosystem on top of NautilusTrader's Rust core, covering the complete quantitative trading lifecycle.
+
+### The NautilusTrader Foundation
+
+At the heart of our infrastructure lies **NautilusTrader** — an institutional-grade trading engine written entirely in **Rust** with Python bindings. This hybrid architecture combines the raw performance of systems programming with Python's flexibility for rapid strategy development.
+
+![Nautilius](./data/readme_visualisations/nautilus_visualisation.png)
+
+| Rust Advantage | Impact |
+|:---------------|:-------|
+| Zero-cost abstractions | Maximum performance without sacrificing clarity |
+| Memory safety without GC | No execution pauses during critical order flow |
+| True parallelism | Fearless concurrency for multi-strategy execution |
+| Sub-microsecond latency | Orders of magnitude faster than pure Python |
 
 <div align="center">
 
@@ -87,20 +84,16 @@ We have engineered a comprehensive ecosystem on top of NautilusTrader's Rust cor
 
 </div>
 
-<br>
-
-### What We Built
+### Infrastructure Components
 
 | Layer | Components | Function |
 |:------|:-----------|:---------|
-| **Execution** | `run_backtest.py`, `backtest_config.py` | Orchestration layer connecting strategies to NautilusTrader engine |
-| **Strategies** | `strategies/` framework | Modular signal generation with risk overlays and position management |
-| **Data Pipeline** | `data_loader.py`, Parquet catalogs | High-throughput ingestion for multi-venue tick and bar data |
-| **Analytics** | QuantStats integration | Institutional tear sheets with 50+ performance metrics |
-| **Research Tools** | `correlation_analyzer.py`, `param_analyzer.py` | Parameter stability and cross-asset dependency analysis |
-| **Visualization** | Plotly/Matplotlib dashboards | Real-time P&L tracking and regime visualization |
-
-<br>
+| **Execution** | `run_backtest.py`, `backtest_config.py` | Orchestration layer connecting strategies to NautilusTrader |
+| **Strategies** | `strategies/` framework | Modular signal generation with risk overlays |
+| **Data Pipeline** | `data_loader.py`, Parquet catalogs | High-throughput multi-venue tick and bar ingestion |
+| **Analytics** | QuantStats integration | Institutional tear sheets with 50+ metrics |
+| **Research** | `correlation_analyzer.py`, `param_analyzer.py` | Parameter stability and cross-asset analysis |
+| **Visualization** | Plotly / Matplotlib | Real-time P&L and regime dashboards |
 
 ---
 
@@ -112,24 +105,22 @@ We have engineered a comprehensive ecosystem on top of NautilusTrader's Rust cor
 
 </div>
 
-<br>
-
 ### Why We Outperform
 
 | Dimension | Retail Frameworks | **AlgorithmicTrader** |
 |:----------|:------------------|:----------------------|
-| **Latency** | Milliseconds | **Sub-microsecond** (Rust) |
-| **Simulation** | OHLC, no fees | **Tick-level**, realistic fills |
-| **Validation** | In-sample only | **Walk-forward**, regime-aware |
-| **Risk** | Post-hoc | **Real-time enforcement** |
+| **Latency** | Milliseconds | Sub-microsecond (Rust) |
+| **Simulation** | OHLC, no fees | Tick-level, realistic fills |
+| **Validation** | In-sample only | Walk-forward, regime-aware |
+| **Risk** | Post-hoc analysis | Real-time enforcement |
 
-**Three pillars of our edge:**
+**Three Pillars of Our Edge:**
 
-1. **Microstructure Fidelity** — We model order book dynamics, network latency, and venue-specific fee structures with precision. Strategies validated in our environment translate directly to live performance.
-2. **Regime Adaptation** — Markets are non-stationary. Our systems dynamically adjust parameters based on volatility clustering and correlation regime shifts, ensuring robustness across market conditions.
-3. **Research Velocity** — Our modular architecture enables rapid hypothesis testing. From initial concept to fully validated backtest in hours, not weeks — a critical advantage in competitive markets.
+1. **Microstructure Fidelity** — Order book dynamics, network latency, venue-specific fees. What validates here translates to live performance.
 
-<br>
+2. **Regime Adaptation** — Dynamic parameter adjustment based on volatility clustering and correlation shifts. Static strategies fail; ours evolve.
+
+3. **Research Velocity** — From concept to validated backtest in hours. Modular architecture enables rapid hypothesis testing.
 
 ---
 
@@ -137,33 +128,29 @@ We have engineered a comprehensive ecosystem on top of NautilusTrader's Rust cor
 
 ### Future: Transformer-Based Alpha
 
-We are implementing **Temporal Fusion Transformers** for next-generation signal generation — the same architecture Google uses for state-of-the-art time series forecasting:
+Implementing **Temporal Fusion Transformers** for next-generation signal generation:
 
-- Multi-horizon attention across minute, hourly, and daily timeframes
-- Cross-asset fusion layers for market regime detection
-- Confidence-weighted position sizing with calibrated uncertainty estimates
-
-<br>
+| Capability | Description |
+|:-----------|:------------|
+| Multi-horizon attention | Minute, hourly, and daily timeframe fusion |
+| Cross-asset layers | Market regime detection through correlated movements |
+| Calibrated confidence | Uncertainty-weighted position sizing |
 
 ### Current: Short Low Market Cap Strategy
 
-Our flagship strategy exploits structural inefficiencies in low-capitalization cryptocurrency markets — a segment where institutional players cannot operate due to liquidity constraints.
+Exploiting structural inefficiencies in low-capitalization cryptocurrency markets — where institutional players cannot operate.
 
 | Aspect | Detail |
 |:-------|:-------|
 | **Thesis** | Mean reversion after liquidity-driven pumps in shallow order books |
-| **Signal** | Momentum exhaustion detection: parabolic price moves combined with declining volume and RSI divergence |
-| **Risk** | ATR-based dynamic stops, per-asset exposure limits, portfolio-level correlation constraints |
-
-<br>
+| **Signal** | Momentum exhaustion: parabolic moves + declining volume + RSI divergence |
+| **Risk** | ATR-based stops, per-asset limits, correlation constraints |
 
 <div align="center">
 
-![Example](./data/readme_visualisations/trade_visualisation.png)
+![Trade Example](./data/readme_visualisations/trade_visualisation.png)
 
 </div>
-
-<br>
 
 ---
 
@@ -171,7 +158,7 @@ Our flagship strategy exploits structural inefficiencies in low-capitalization c
 
 ### QuantStats Integration
 
-Comprehensive performance attribution matching institutional standards. Every backtest generates detailed tear sheets analyzing risk-adjusted returns, drawdown characteristics, and return distributions across 50+ metrics.
+Institutional-standard performance attribution. Every backtest generates comprehensive tear sheets analyzing risk-adjusted returns, drawdown characteristics, and return distributions.
 
 <div align="center">
 
@@ -179,11 +166,9 @@ Comprehensive performance attribution matching institutional standards. Every ba
 
 </div>
 
-<br>
-
 ### Correlation Analyzer
 
-Sophisticated cross-asset dependency analysis for portfolio construction. We examine rolling correlation matrices, tail-dependence structures during market stress, and hierarchical cluster detection to ensure true diversification — not just the illusion of it.
+Cross-asset dependency analysis for portfolio construction: rolling correlation matrices, tail-dependence during market stress, hierarchical cluster detection.
 
 <div align="center">
 
@@ -191,11 +176,9 @@ Sophisticated cross-asset dependency analysis for portfolio construction. We exa
 
 </div>
 
-<br>
-
 ### Parameter Stability Analyzer
 
-We reject curve-fitting. Our parameter analyzer visualizes strategy performance across the entire parameter space, identifying robust **plateaus of profitability** rather than fragile peaks that collapse out-of-sample.
+We reject curve-fitting. Visualizing performance across the entire parameter space to identify **plateaus of profitability** — not fragile peaks.
 
 <div align="center">
 
@@ -205,31 +188,25 @@ We reject curve-fitting. Our parameter analyzer visualizes strategy performance 
 
 ![Parameter Comparison](./data/readme_visualisations/param_comparison_2.png)
 
-<br>
-
-![Strategy Optimization](./data/readme_visualisations/param_comparison_3.png)
-
 </div>
-
-<br>
 
 ---
 
 <div align="center">
 
-<br>
-
 ## The Bottom Line
 
-**AlgorithmicTrader** represents institutional-grade infrastructure built from first principles:
+**AlgorithmicTrader** represents institutional-grade infrastructure built from first principles.
 
 | | |
 |:--|:--|
-| Rust execution core | Nanosecond-precision data handling |
+| Rust execution core | Nanosecond-precision data |
 | Walk-forward validation | Production-ready architecture |
-| Real-time risk controls | Comprehensive analytics suite |
+| Real-time risk controls | Comprehensive analytics |
 
-This project demonstrates the same engineering rigor and quantitative methodology applied at top-tier systematic trading firms.
+<br>
+
+This project demonstrates the engineering rigor and quantitative methodology applied at top-tier systematic trading firms.
 
 <br>
 
@@ -237,15 +214,11 @@ This project demonstrates the same engineering rigor and quantitative methodolog
 
 ---
 
-<sub>
-
-*For collaboration or inquiries, please open an issue.*
-
-</sub>
+<sub>For collaboration or inquiries, please open an issue.</sub>
 
 <br>
 
-[Back to Top](#overview)
+[↑ Back to Top](#overview)
 
 ![End](./data/readme_visualisations/End.png)
 
