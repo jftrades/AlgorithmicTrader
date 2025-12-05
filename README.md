@@ -1,5 +1,5 @@
 <div align="center">
-Logo whatever kommt hier noch
+<img src="./data/readme_visualisations/AlgoTrader_white.png" alt="AlgoTrader Logo">
 <br>
 
 *Institutional-Grade Quantitative Trading Infrastructure*
