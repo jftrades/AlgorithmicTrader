@@ -1,6 +1,6 @@
 <div align="center">
 
-![AlgorithmicTrader](./data/readme_visualisations/RunOverview.png)
+![AlgorithmicTrader](./data/readme_visualisations/banner_1.png)
 
 <br>
 
@@ -17,7 +17,7 @@
 
 <br>
 
-[Overview](#overview) · [Architecture](#system-architecture) · [Core Features](#core-features) · [Performance](#performance-metrics) · [Installation](#installation)
+[Overview](#overview) · [Architecture](#system-architecture) · [Edge](#competitive-edge) · [Strategies](#trading-strategies) · [Tools](#analytical-tools) · [Installation](#installation)
 
 </div>
 
@@ -35,7 +35,7 @@ This framework represents the intersection of **quantitative research**, **softw
 
 <div align="center">
 
-![System Overview](./data/readme_visualisations/trade_visualisation.png)
+![System Overview](./data/readme_visualisations/chip.png)
 
 </div>
 
@@ -45,75 +45,97 @@ This framework represents the intersection of **quantitative research**, **softw
 
 ## System Architecture
 
-Our architecture follows institutional standards with clear separation of concerns, enabling rapid strategy development while maintaining production-grade reliability.
+We have engineered a comprehensive ecosystem on top of NautilusTrader's Rust core, covering the complete quantitative trading lifecycle.
 
 <div align="center">
 
-![Architecture Diagram](./data/readme_visualisations/correlation_analysis.png)
+![Data Architecture](./data/readme_visualisations/data_structure_alpha.png)
 
 </div>
 
 <br>
 
-### Technical Stack
+### What We Built
 
-| Layer | Technology | Purpose |
-|:------|:-----------|:--------|
-| **Execution Core** | NautilusTrader (Rust/Python) | Sub-microsecond event processing |
-| **Data Pipeline** | Polars, NumPy, Pandas | High-performance data transformation |
-| **Strategy Engine** | Custom Framework | Modular strategy composition |
-| **Risk Management** | Real-time Analytics | Position sizing, exposure control |
-| **Visualization** | Plotly, Matplotlib | Interactive performance dashboards |
-| **Infrastructure** | Docker, Redis, PostgreSQL | Scalable deployment architecture |
+| Layer | Components | Function |
+|:------|:-----------|:---------|
+| **Execution** | `run_backtest.py`, `backtest_config.py` | Orchestration layer connecting strategies to NautilusTrader engine |
+| **Strategies** | `strategies/` framework | Modular signal generation with risk overlays and position management |
+| **Data Pipeline** | `data_loader.py`, Parquet catalogs | High-throughput ingestion for multi-venue tick and bar data |
+| **Analytics** | QuantStats integration | Institutional tear sheets with 50+ performance metrics |
+| **Research Tools** | `correlation_analyzer.py`, `param_analyzer.py` | Parameter stability and cross-asset dependency analysis |
+| **Visualization** | Plotly/Matplotlib dashboards | Real-time P&L tracking and regime visualization |
 
 <br>
 
 ---
 
-## Core Features
-
-<br>
-
-### Research-Grade Backtesting
-
-- **Nanosecond-precision** event timestamps for accurate simulation
-- **Realistic market microstructure** modeling including slippage, latency, and partial fills
-- **Multi-venue order routing** simulation
-- **Walk-forward optimization** with strict out-of-sample validation
-
-<br>
+## Competitive Edge
 
 <div align="center">
 
-![Backtesting Engine](./data/readme_visualisations/detailed_run_analysis.png)
+![Banner](./data/readme_visualisations/banner_2.png)
 
 </div>
 
 <br>
 
-### Adaptive Strategy Framework
+### Why We Outperform
 
-| Strategy Class | Methodology | Market Regime |
-|:---------------|:------------|:--------------|
-| Momentum Systems | Trend-following with dynamic lookback | Trending |
-| Mean Reversion | Statistical arbitrage, pair trading | Range-bound |
-| Volatility Strategies | Options-based, VIX derivatives | High volatility |
-| ML Ensemble | Gradient boosting, neural networks | Adaptive |
+| Dimension | Retail Frameworks | **AlgorithmicTrader** |
+|:----------|:------------------|:----------------------|
+| **Latency** | Milliseconds | **Sub-microsecond** (Rust) |
+| **Simulation** | OHLC, no fees | **Tick-level**, realistic fills |
+| **Validation** | In-sample only | **Walk-forward**, regime-aware |
+| **Risk** | Post-hoc | **Real-time enforcement** |
 
-<br>
+**Three pillars of our edge:**
 
-### Risk Management Infrastructure
-
-- **Real-time P&L** monitoring with configurable drawdown limits
-- **Portfolio-level VAR** and stress testing
-- **Dynamic position sizing** based on volatility regime
-- **Correlation-aware** exposure management
+1. **Microstructure Fidelity** — Order book dynamics, latency modeling, venue-specific fees. What works here works live.
+2. **Regime Adaptation** — Dynamic parameters based on volatility clustering and correlation shifts.
+3. **Research Velocity** — Idea to validated backtest in hours, not weeks.
 
 <br>
 
 ---
 
-## Performance Metrics
+## Trading Strategies
+
+### Future: Transformer-Based Alpha
+
+Implementing **Temporal Fusion Transformers** for next-generation signal generation:
+
+- Multi-horizon attention across minute/hourly/daily timeframes
+- Cross-asset fusion for regime detection
+- Confidence-weighted position sizing
+
+<br>
+
+### Current: Short Low Market Cap Strategy
+
+Exploiting structural inefficiencies in low-cap crypto markets.
+
+| Aspect | Detail |
+|:-------|:-------|
+| **Thesis** | Mean reversion after liquidity-driven pumps in shallow order books |
+| **Signal** | Momentum exhaustion: parabolic moves + declining volume + RSI divergence |
+| **Risk** | ATR-based stops, per-asset exposure limits, correlation constraints |
+
+<br>
+
+<div align="center">
+
+![Backtesting Engine](./data/readme_visualisations/nautilius_visualisation.png)
+
+</div>
+
+<br>
+
+---
+
+## Analytical Tools
+
+### 📊 QuantStats Integration
 
 <div align="center">
 
@@ -123,62 +145,21 @@ Our architecture follows institutional standards with clear separation of concer
 
 <br>
 
-Our backtesting infrastructure is designed for institutional requirements:
+### 🔗 Correlation Analyzer
 
-| Metric | Capability |
-|:-------|:-----------|
-| **Event Processing** | 10M+ events/second |
-| **Tick Data Support** | Nanosecond resolution |
-| **Concurrent Strategies** | Unlimited parallel execution |
-| **Historical Depth** | 20+ years multi-asset data |
+Rolling matrices, tail-dependence analysis, cluster detection for portfolio diversification.
 
-<br>
+<div align="center">
 
----
+![Correlation Analysis](./data/readme_visualisations/correlation_analysis_1.png)
 
-## Installation
-
-```bash
-# Clone repository
-git clone https://github.com/yourusername/AlgorithmicTrader.git
-cd AlgorithmicTrader
-
-# Create isolated environment
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Verify installation
-python -c "import nautilus_trader; print('NautilusTrader ready')"
-```
-
-### Quick Start
-
-```python
-from algorithmic_trader import BacktestEngine, MomentumStrategy
-
-# Initialize engine
-engine = BacktestEngine(
-    venue="BINANCE",
-    start_date="2023-01-01",
-    end_date="2024-01-01"
-)
-
-# Deploy strategy
-engine.add_strategy(MomentumStrategy(lookback=20, threshold=0.02))
-
-# Execute backtest
-results = engine.run()
-results.generate_report()
-```
+</div>
 
 <br>
 
----
+### ⚙️ Parameter Stability Analyzer
 
-## Results & Analytics
+We seek **plateaus of profitability**, not fragile peaks.
 
 <div align="center">
 
@@ -192,11 +173,22 @@ results.generate_report()
 
 ![Strategy Optimization](./data/readme_visualisations/param_comparison_3.png)
 
+</div>
+
 <br>
 
-![Correlation Deep Dive](./data/readme_visualisations/correlation_analysis_1.png)
+---
 
-</div>
+## Installation
+
+```bash
+git clone https://github.com/yourusername/AlgorithmicTrader.git
+cd AlgorithmicTrader
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python -c "import nautilus_trader; print('Ready')"
+```
 
 <br>
 
@@ -206,14 +198,27 @@ results.generate_report()
 
 <br>
 
+## The Bottom Line
+
+**AlgorithmicTrader** is institutional-grade infrastructure:
+
+| | |
+|:--|:--|
+| ✓ Rust execution core | ✓ Nanosecond-precision data |
+| ✓ Walk-forward validation | ✓ Production-ready architecture |
+| ✓ Real-time risk controls | ✓ Comprehensive analytics |
+
+This is the same standard applied at top-tier quantitative funds.
+
+<br>
+
 **Built for precision. Engineered for alpha.**
 
 ---
 
 <sub>
 
-*AlgorithmicTrader is developed following institutional software engineering standards.*
-*For inquiries regarding collaboration or licensing, please open an issue.*
+*For collaboration inquiries, please open an issue.*
 
 </sub>
 
@@ -221,5 +226,8 @@ results.generate_report()
 
 [Back to Top](#overview)
 
+![End](./data/readme_visualisations/End.png)
+
 </div>
+
 
