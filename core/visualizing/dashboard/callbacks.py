@@ -8,7 +8,7 @@ import os
 import traceback
 
 from .callbacks.charts import register_chart_callbacks
-from .callbacks.menu import register_menu_callbacks  # NEU: import menu callbacks
+from .callbacks.menu import register_menu_callbacks
 
 def register_callbacks(app, repo, dash_data=None):
     # State vorbereiten – KEIN zweites repo.load_dashboard() hier!
@@ -16,8 +16,8 @@ def register_callbacks(app, repo, dash_data=None):
         "selected_collector": None,
         "selected_trade_index": None,
         "collectors": {},
-        "runs_cache": {},          # NEU
-        "active_runs": []          # NEU
+        "runs_cache": {},
+        "active_runs": []
     }
 
     if dash_data is not None:
@@ -34,10 +34,8 @@ def register_callbacks(app, repo, dash_data=None):
         state["selected_collector"] = None
         all_results_cache = None
 
-    # NEU: Registrierung der ausgelagerten Chart-Callbacks (Multi-Run + Multi-Instrument)
     register_chart_callbacks(app, repo, state)
     
-    # NEU: Registrierung der ausgelagerten und vereinheitlichten Menu-Callbacks
     register_menu_callbacks(app, repo, state)
 
     # --- Parameter Analyzer: open/close + render ---

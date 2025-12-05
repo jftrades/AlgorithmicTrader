@@ -1,5 +1,4 @@
-# ChoCh.py - Change of Character analysis using PivotArchive
-# Market structure analysis for trend continuation signals
+# change of character analysis using PivotArchive for market structure
 
 from enum import Enum
 from typing import Optional, Dict, Any

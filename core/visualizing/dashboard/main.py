@@ -58,7 +58,7 @@ def launch_dashbaord():
         runs_df = repo.load_validated_runs()
         print(f"[INFO] Loaded {len(runs_df)} validated runs")
         
-        # Neu: besten Run über run_id statt run_index
+        # load best run by run_id
         best_run_row = runs_df.iloc[0]
         best_run_id = str(best_run_row['run_id'])
         print(f"[INFO] Auto-loading best run by run_id: {best_run_id}")

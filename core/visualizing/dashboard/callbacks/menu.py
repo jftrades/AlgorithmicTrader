@@ -3,8 +3,6 @@ from dash.exceptions import PreventUpdate
 import json  # Import json for robust trigger parsing
 
 from core.visualizing.dashboard.slide_menu import SlideMenuComponent
-
-# NEU: importiere Regime-Analyzer Callback-Registrierer
 from .regime_analyzer import register_regime_analyzer_callbacks
 
 # Erzeuge die SlideMenuComponent-Instanz EINMAL global!
@@ -17,11 +15,8 @@ def _dbg(*a, **k):
         print(*a, **k)
 
 def register_menu_callbacks(app, repo, state):
-    # NEU: Registriere YAML + QuantStats Callbacks sofort
     slide_menu_component.viewer.register_callbacks(app)
     slide_menu_component.quantstats_viewer.register_callbacks(app)
-
-    # NEU: Registriere Regime Analyzer Callbacks ebenfalls
     register_regime_analyzer_callbacks(app, repo)
     
     @app.callback(
@@ -254,7 +249,6 @@ def register_menu_callbacks(app, repo, state):
                 new_is_open, new_is_fullscreen, close_button_style, updated_run_ids,
                 collector_options, collector_value)
 
-    # NEU: Separater Callback für normale Tabellen-Selektion
     @app.callback(
         [
             Output("selected-run-store", "data", allow_duplicate=True),

@@ -1,6 +1,3 @@
-#this file contains helper functions 
-
-
 def create_tags(type=None, action=None, sl=None, tp=None):
     tags = []
     if sl is not None:
@@ -14,17 +11,7 @@ def create_tags(type=None, action=None, sl=None, tp=None):
     return tags
 
 def extract_interval_from_bar_type(bar_type_str: str, instrument_id: str) -> str:
-    """
-    Liefert kompaktes Intervall:
-      5-MINUTE -> 5M
-      1-HOUR   -> 1h
-    Vorgehen:
-      1. Entfernt führendes '<instrument_id>-' falls vorhanden.
-      2. Trennt am '@' (nur linken Teil nutzen).
-      3. Splittet Rest per '-'.
-      4. Nimmt erste beiden Tokens = step, unit.
-      5. Mappt unit auf Kurzform.
-    """
+    """converts bar type string to compact interval format (5-MINUTE -> 5M, 1-HOUR -> 1h)"""
     if not bar_type_str:
         raise ValueError("bar_type_str leer.")
     # 1) Linke Seite vor '@'

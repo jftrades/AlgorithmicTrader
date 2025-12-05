@@ -6,30 +6,16 @@ from typing import List, Dict, Any, Tuple
 
 
 def load_params(yaml_path: str) -> Dict[str, Any]:
-    """
-    Lädt YAML als Dict. Leere Dateien werden als {} behandelt.
-    """
+    """loads yaml file, returns empty dict if file is empty"""
     with open(yaml_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 
 def _expand_instruments_from_path_entries(params: Dict[str, Any], yaml_path: str) -> None:
     """
-    Expands instruments from CSV definitions under 'instruments_from_path'.
-    Accepts either a single mapping or a list of mappings.
-
-    Each mapping supports:
-      path: <str> (relative to YAML file or absolute)
-      bar_type_endings: <str | List[str]>  (suffix(es) like "-15-MINUTE-LAST-EXTERNAL")
-      symbol_column: <str> (default 'symbol')
-      instrument_suffix: <str> (default '-PERP')
-      venue: <str> (optional override; else global params['venue'])
-      Any other key/value pairs are copied into each generated instrument (e.g. trade_size_usdt, test, etc.)
-
-    Generates instrument dicts:
-      instrument_id: <SYMBOL><instrument_suffix>.<VENUE>
-      bar_types: [instrument_id + ending for ending in bar_type_endings]
-      + passthrough custom keys.
+    expands instruments from csv files defined in 'instruments_from_path'
+    each entry needs: path, bar_type_endings, and optionally symbol_column, instrument_suffix, venue
+    extra keys get passed through to each generated instrument
     """
     entries = params.get("instruments_from_path")
     if not entries:
@@ -106,30 +92,9 @@ def _expand_instruments_from_path_entries(params: Dict[str, Any], yaml_path: str
 
 def _normalize_instruments(params: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    Erwartet params["instruments"] als Liste von Dicts.
-
-    Normalisiert JEDE Instrument-Definition so, dass mindestens folgende Felder
-    garantiert vorhanden sind:
-
-      - instrument_id: <str>             (PFLICHT)
-      - bar_types: List[str]             (PFLICHT; mindestens 1 Element)
-      - trade_size_usdt: <Any>           (optional; fällt auf globalen Wert zurück, wenn vorhanden)
-
-    Unterstützte Eingaben je Instrument:
-      - bar_type: "<...>"                          # einzelner String
-      - bar_types: ["<...>", "<...>"]              # Liste von Strings
-      - bar_types: [{"bar_type":"<...>"}, ...]     # Liste von Dicts mit Schlüssel "bar_type"
-
-    Alle weiteren (benutzerdefinierten) Felder werden unverändert übernommen
-    (z. B. paramXY, paramAB, ...).
-
-    Fehlerfälle:
-      - Fehlender Schlüssel 'instruments'
-      - 'instruments' ist nicht Liste
-      - Eintrag ist kein Mapping
-      - instrument_id fehlt/ist nicht str
-      - bar_type/bar_types fehlen oder ergeben nach Normalisierung leere Liste
-      - bar_types-Elemente haben unbekanntes Format
+    normalizes instruments list to ensure each entry has instrument_id and bar_types
+    handles both bar_type (single string) and bar_types (list) formats
+    applies trade_size_usdt fallback from global params if not set per instrument
     """
     if "instruments" not in params or params["instruments"] is None:
         raise KeyError("YAML fehlt Schlüssel 'instruments'. Bitte in der YAML 'instruments' spezifizieren.")
@@ -209,10 +174,7 @@ def _normalize_instruments(params: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _normalize_data_sources(params: Dict[str, Any], instruments_normalized: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Normalisiert optionale 'data_sources'-Sektion aus der YAML.
-    Rückgabe: Liste von Dicts mit Keys: data_cls, instrument_ids, bar_types (oder None), kwargs.
-    """
+    """normalizes the optional data_sources section, returns list with data_cls, instrument_ids, bar_types, kwargs"""
     ds = params.get("data_sources")
     if not ds:
         return []

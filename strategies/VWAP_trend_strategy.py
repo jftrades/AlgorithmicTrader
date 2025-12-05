@@ -1,9 +1,3 @@
-# in here will be the code for the VP_VWAP_trend_strategy
-# the VP will be used if broken to indicate trend day and VWAP will be used for entry
-
-# problems rn:
-# - we have to define what which open means (if we open above through gap should directly look for VWAP trend following)
-# - risk not working rigt -> 
 from decimal import Decimal
 from typing import Any, Dict, List
 
@@ -46,8 +40,6 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
     def __init__(self, config: VWAPTrendStrategyConfig):
         self.instrument_dict: Dict[InstrumentId, Dict[str, Any]] = {}
         super().__init__(config)
-    
-        # Remove: primary instrument derivations (self.instrument_id, self.bar_type, etc.)
         self.risk_manager = None
         self.order_types = None
         self.add_instrument_context()
@@ -135,9 +127,6 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
         )
         self.order_types = OrderTypes(self)
 
-    # -------------------------------------------------
-    # Event Routing
-    # -------------------------------------------------
     def on_bar(self, bar: Bar) -> None:
         instrument_id = bar.bar_type.instrument_id
         current_instrument = self.instrument_dict.get(instrument_id)
@@ -228,9 +217,6 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
         self.base_collect_bar_data(bar, current_instrument)
         self.update_visualizer_data(bar, current_instrument)
 
-    # -------------------------------------------------
-    # Entry Logic per Instrument
-    # -------------------------------------------------
     def entry_logic(self, bar: Bar, current_instrument: Dict[str, Any], prev_close: float = None, choch_signal=None):
         # Only enter trades during RTH
         if not self.is_rth_time(bar, current_instrument):
@@ -353,18 +339,12 @@ class VWAPTrendStrategy(BaseStrategy, Strategy):
             current_instrument["traded_today"] = True
             self.log.info(f"SHORT entry: {entry_price}, SL: {sl_price}, TP: {tp_price}, Size: {position_size}")
 
-    # -------------------------------------------------
-    # Order Submission Wrappers
-    # -------------------------------------------------
     def submit_long_market_order(self, instrument_id: InstrumentId, qty: int):
         self.order_types.submit_long_market_order(instrument_id, qty)
 
     def submit_short_market_order(self, instrument_id: InstrumentId, qty: int):
         self.order_types.submit_short_market_order(instrument_id, qty)
 
-    # -------------------------------------------------
-    # Visualizer / Logging per Instrument
-    # -------------------------------------------------
     def update_visualizer_data(self, bar: Bar, current_instrument: Dict[str, Any]) -> None:
         inst_id = bar.bar_type.instrument_id
         self.base_update_standard_indicators(bar.ts_event, current_instrument, inst_id)

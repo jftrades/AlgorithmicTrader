@@ -6,12 +6,7 @@ from data.download.download_logic_db import download_dbn, transform_dbn_to_parqu
 
 load_dotenv()
 
-# Parameter 
-# Futures Contract Month Codes:
-# H = March (März)
-# M = June (Juni)
-# U = September (September)
-# Z = December (Dezember)
+# contract month codes: H=March, M=June, U=Sept, Z=Dec
 
 symbol = "ESZ4"
 start_date = "2024-01-01"

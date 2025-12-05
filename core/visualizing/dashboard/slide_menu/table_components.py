@@ -47,7 +47,7 @@ class RunTableBuilder:
             "Risk Return Ratio",
             "Trades"
         ]
-        param_cols = self._extract_param_columns(runs_df)  # NEU
+        param_cols = self._extract_param_columns(runs_df)
         base_cols = ["run_index", "run_id"] + perf_columns_order + param_cols
         available_columns = [c for c in base_cols if c in runs_df.columns]
         table_data = runs_df[available_columns].copy()
@@ -99,7 +99,7 @@ class RunTableBuilder:
         ], id="run-table-fullscreen", style={
             'marginTop': '4px',
             'position': 'relative',
-            'zIndex': 1     # NEU: unter Toolbar
+            'zIndex': 1
         })
     
     def _create_normal_table(self, runs_df: pd.DataFrame, selected_run_indices: list = None) -> dash_table.DataTable:

@@ -9,8 +9,8 @@ def register_callbacks(app, repo, dash_data=None):
         "selected_collector": None,
         "selected_trade_index": None,
         "collectors": {},
-        "runs_cache": {},       # NEU
-        "active_runs": []       # NEU
+        "runs_cache": {},
+        "active_runs": []
     }
     if dash_data is not None:
         state["collectors"] = dash_data.collectors or {}

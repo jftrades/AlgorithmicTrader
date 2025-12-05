@@ -7,9 +7,8 @@ INPUT_ROOT = BASE_DATA_DIR / "csv_data_all"
 OUTPUT_ROOT = BASE_DATA_DIR / "csv_data_all_processed"
 FNG_DIR_NAME = "FNG-INDEX.BINANCE"
 FNG_FILE = INPUT_ROOT / FNG_DIR_NAME / "FNG.csv"
-# NEU: Dominance
-DOMINANCE_DIR_NAME = "DOMINANCE.BINANCE"  # NEU
-DOMINANCE_FILE = INPUT_ROOT / DOMINANCE_DIR_NAME / "DOMINANCE.csv"  # NEU
+DOMINANCE_DIR_NAME = "DOMINANCE.BINANCE"
+DOMINANCE_FILE = INPUT_ROOT / DOMINANCE_DIR_NAME / "DOMINANCE.csv"
 
 
 def _read_csv_safe(path: Path) -> pd.DataFrame | None:
@@ -99,7 +98,6 @@ def load_fng():
     return fng[keep].sort_values("timestamp_nano")
 
 
-# NEU: Dominance Loader (analog zu FNG, aber mehrere Metriken behalten)
 def load_dominance():
     if not DOMINANCE_FILE.exists():
         return None
@@ -119,7 +117,7 @@ def load_dominance():
     return dom[["timestamp_nano"] + metric_cols].sort_values("timestamp_nano")
 
 
-def process_symbol_dir(sym_dir: Path, fng_df: pd.DataFrame, dom_df: pd.DataFrame):  # NEU: dom_df
+def process_symbol_dir(sym_dir: Path, fng_df: pd.DataFrame, dom_df: pd.DataFrame):
     symbol = sym_dir.name
     ohlcv_path = sym_dir / "OHLCV.csv"
     metrics_path = sym_dir / "METRICS.csv"
@@ -164,7 +162,7 @@ def process_symbol_dir(sym_dir: Path, fng_df: pd.DataFrame, dom_df: pd.DataFrame
     if fng_df is not None and not fng_df.empty:
         merged = _merge_asof(merged, fng_df, right_key="timestamp_nano", prefix="fng")
 
-    # NEU: Dominance (global)
+    # dominance (global)
     if dom_df is not None and not dom_df.empty:
         merged = _merge_asof(merged, dom_df, right_key="timestamp_nano", prefix="dom")
 
@@ -173,14 +171,14 @@ def process_symbol_dir(sym_dir: Path, fng_df: pd.DataFrame, dom_df: pd.DataFrame
     metrics_cols = sorted([c for c in merged.columns if c.startswith("metrics_")])
     lunar_cols = sorted([c for c in merged.columns if c.startswith("lunar_")])
     fng_cols = sorted([c for c in merged.columns if c.startswith("fng_")])
-    dom_cols = sorted([c for c in merged.columns if c.startswith("dom_")])  # NEU
+    dom_cols = sorted([c for c in merged.columns if c.startswith("dom_")])
     others = [c for c in merged.columns if c not in base_cols + metrics_cols + lunar_cols + fng_cols + dom_cols]
     # Ensure base first, then features
     final_cols = base_cols + metrics_cols + lunar_cols + fng_cols + dom_cols + [c for c in others if c not in base_cols]
 
     merged = merged[final_cols]
 
-    # NEU: Alle leeren Einträge (NaN oder "") zu 0 (kein Data Leakage, da nur rückwärts gemergt)
+    # fill empty entries with 0
     merged = merged.replace("", pd.NA).fillna(0)
 
     # Output schreiben
@@ -203,16 +201,16 @@ def run():
     if fng_df is None:
         print("[WARN] Kein FNG gefunden – fng Spalten bleiben leer.")
 
-    dom_df = load_dominance()  # NEU
+    dom_df = load_dominance()
     if dom_df is None:
         print("[WARN] Keine Dominance-Daten gefunden – dom Spalten bleiben leer.")
 
     for sym_dir in sorted(INPUT_ROOT.iterdir()):
         if not sym_dir.is_dir():
             continue
-        if sym_dir.name in {FNG_DIR_NAME, DOMINANCE_DIR_NAME}:  # NEU Skip globale Ordner
+        if sym_dir.name in {FNG_DIR_NAME, DOMINANCE_DIR_NAME}:
             continue
-        process_symbol_dir(sym_dir, fng_df, dom_df)  # NEU dom_df übergeben
+        process_symbol_dir(sym_dir, fng_df, dom_df)
 
 
 if __name__ == "__main__":

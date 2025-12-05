@@ -15,7 +15,7 @@ class YamlViewer:
     def __init__(self):
         self._callbacks_registered = False
         self._cached_modal = None
-        self._instance_id = id(self)  # NEU: Eindeutige Instanz-ID
+        self._instance_id = id(self)
 
     def get_modal(self):
         """Return (and lazily create) the single global modal component."""
@@ -45,7 +45,7 @@ class YamlViewer:
                     short = rid[:20] + ("…" if len(rid) > 20 else "")
                     opts.append({"label": short, "value": rid})
         
-        # NEU: Wenn keine Runs ausgewählt sind, zeige GAR NICHTS an
+        # if no runs selected, show nothing
         if not opts:
             return html.Div(style={'height': '0px', 'overflow': 'hidden'})
         

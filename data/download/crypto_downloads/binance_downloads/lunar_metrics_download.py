@@ -9,7 +9,7 @@ from nautilus_trader.core.datetime import dt_to_unix_nanos, unix_nanos_to_iso860
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from data.download.crypto_downloads.custom_class.lunar_data import LunarData
-import shutil  # NEU
+import shutil
 
 
 class LunarMetricsDownloader:
@@ -26,8 +26,8 @@ class LunarMetricsDownloader:
         save_as_csv: bool = True,
         save_in_catalog: bool = True,
         download_if_missing: bool = True,
-        remove_processed: bool = True,  # NEU
-        csv_output_subdir: str | None = None,  # NEU
+        remove_processed: bool = True,
+        csv_output_subdir: str | None = None,
     ):
         self.symbol = symbol.upper()
         self.start_dt = self._to_date(start_date)
@@ -35,7 +35,6 @@ class LunarMetricsDownloader:
         self.start_str = self.start_dt.isoformat()
         self.end_str = self.end_dt.isoformat()
         self.base_dir = Path(base_data_dir)
-        # NEU: Cache Root
         self.cache_dir = self.base_dir / "cache"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         # temp & processed unter cache
@@ -47,8 +46,8 @@ class LunarMetricsDownloader:
         self.save_as_csv = save_as_csv
         self.save_in_catalog = save_in_catalog
         self.download_if_missing = download_if_missing
-        self.remove_processed = remove_processed  # NEU
-        self.csv_output_subdir = csv_output_subdir  # NEU
+        self.remove_processed = remove_processed
+        self.csv_output_subdir = csv_output_subdir
 
         # Instrument-ID (Default: <BASE>USDT-PERP)
         self.instrument_id_str = instrument_id_str or f"{self.symbol}USDT-PERP"
@@ -226,13 +225,13 @@ class LunarMetricsDownloader:
             catalog.write_data(catalog_records)
 
         if self.save_as_csv:
-            subdir = self.csv_output_subdir or os.getenv("CSV_OUTPUT_SUBDIR") or "csv_data"  # NEU
+            subdir = self.csv_output_subdir or os.getenv("CSV_OUTPUT_SUBDIR") or "csv_data"
             out_dir = self.base_dir / subdir / self.instrument_id_str
             out_dir.mkdir(parents=True, exist_ok=True)
             out_path = out_dir / "LUNAR.csv"
             try:
                 if out_path.exists():
-                    out_path.unlink()  # NEU: Entfernen falls gelockt/veraltet
+                    out_path.unlink()
                 pd.DataFrame(csv_rows).to_csv(out_path, index=False)
             except PermissionError as e:
                 print(f"[WARN] Could not write LUNAR.csv (permission): {e}")
@@ -244,7 +243,7 @@ class LunarMetricsDownloader:
             "csv_written": self.save_as_csv,
         }
 
-        # NEU: Cleanup processed directory
+        # cleanup processed directory
         if self.remove_processed:
             parent_dir = self.processed_dir.parent  # processed_lunarcrush_x_to_y
             try:

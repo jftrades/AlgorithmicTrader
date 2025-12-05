@@ -1,5 +1,5 @@
 import json
-import os  # NEU
+import os
 from pathlib import Path
 from typing import Tuple, Dict, Any
 
@@ -7,11 +7,10 @@ from lunar_metrics_download import LunarMetricsDownloader
 from venue_metrics_download import VenueMetricsDownloader
 from binance_data_download import CombinedCryptoDataDownloader
 import binance_data_download as bdd
-from fear_and_greed_download import FearAndGreedDownloader  # NEU
-# Entfernt: from new_future_list_download import BinancePerpetualFuturesDiscovery
+from fear_and_greed_download import FearAndGreedDownloader
 
 # ========================
-# Konfiguration (anpassen)
+# Configuration
 # ========================
 SYMBOL = "BTCUSDT-PERP"
 START_DATE = "2024-01-01"
@@ -21,17 +20,17 @@ BASE_DATA_DIR = str(Path(__file__).resolve().parents[3] / "DATA_STORAGE" / "csv_
 RUN_LUNAR = False
 RUN_VENUE = False
 RUN_BINANCE = True
-RUN_FNG = False  
+RUN_FNG = False
 
 LUNAR_BUCKET = "hour"
 BINANCE_DATATYPE = "bar"
 BINANCE_INTERVAL = "5m"
-FNG_INSTRUMENT_ID = "FNG-INDEX.BINANCE"  # NEU
+FNG_INSTRUMENT_ID = "FNG-INDEX.BINANCE"
 
 SAVE_AS_CSV = False
 SAVE_IN_CATALOG = True
 DOWNLOAD_IF_MISSING = True
-CSV_OUTPUT_SUBDIR = None  # NEU
+CSV_OUTPUT_SUBDIR = None
 # ========================
 
 class CryptoDataOrchestrator:
@@ -50,9 +49,9 @@ class CryptoDataOrchestrator:
         save_as_csv: bool,
         save_in_catalog: bool,
         download_if_missing: bool,
-        run_fng: bool = False,                 # NEU
-        fng_instrument_id: str = "FNG-INDEX.BINANCE",  # NEU
-        csv_output_subdir: str | None = None,  # NEU
+        run_fng: bool = False,
+        fng_instrument_id: str = "FNG-INDEX.BINANCE",
+        csv_output_subdir: str | None = None,
     ):
         # ...existing code...
         self.symbol = symbol
@@ -68,11 +67,10 @@ class CryptoDataOrchestrator:
         self.save_as_csv = save_as_csv
         self.save_in_catalog = save_in_catalog
         self.download_if_missing = download_if_missing
-        self.run_fng = run_fng          # NEU
-        self.fng_instrument_id = fng_instrument_id  # NEU
-        self.csv_output_subdir = csv_output_subdir  # NEU
+        self.run_fng = run_fng
+        self.fng_instrument_id = fng_instrument_id
+        self.csv_output_subdir = csv_output_subdir
         self.base_symbol, self.perp_symbol = self._normalize_symbols(self.symbol)
-        # Entfernt: futures-bezogene Attribute
 
     @staticmethod
     def _normalize_symbols(symbol: str) -> Tuple[str, str]:
@@ -91,8 +89,6 @@ class CryptoDataOrchestrator:
         else:
             base = perp.replace("-PERP", "")
         return base, perp
-
-    # Entfernt: run_new_futures_list
 
     def run_lunar_metrics(self) -> Dict[str, Any]:
         # ...existing code...
