@@ -73,7 +73,7 @@ relative_strength_entry:
 
 # MACD Entry - ENABLED (Original system, Sharpe: 1.75)
 use_macd_simple_reversion_system:
-  enabled: true
+  enabled: false
   macd_fast_period: 20
   macd_slow_period: 35
   macd_signal_period: 15
@@ -93,19 +93,31 @@ atr_burst_entry:
   waiting_bars_after_burst: 10
 
 use_htf_ema_bias_filter:
-  enabled: true
+  enabled: false
   ema_period: 150
+
+directional_movement_filter:
+  enabled: false
+  period: 14
+  min_di_diff: 0.005
+  require_minus_di_above: false
+
+retest_entry:
+  enabled: true  
+  breakdown_ema_period: 20
+  max_retest_bars: 30
+  retest_tolerance_atr: 1.0
 
 
 # Exit System simple:
 #_____________________
 use_trailing_stop_exit:
-  enabled: true
+  enabled: false
   atr_multiple: 2.5
-  activation_profit_atr: 1.0  # activate after 1 ATR profit
+  activation_profit_atr: 1.0
 
 use_macd_exit_system:
-  enabled: false
+  enabled: true
   macd_fast_exit_period: 65
   macd_slow_exit_period: 100
   macd_signal_exit_period: 50
