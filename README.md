@@ -59,6 +59,8 @@ We are building more than a trading system — we are engineering a **self-evolv
 | **Transformer Future** | Transitioning toward attention-based architectures that learn complex, non-linear market dynamics — patterns invisible to conventional methods. |
 | **Continuous Evolution** | Markets adapt. Strategies decay. Our infrastructure enables perpetual iteration: automated retraining, out-of-sample monitoring, graceful strategy rotation. |
 
+![Data Architecture](./data/readme_visualisations/data_structure_alpha.png)
+
 ---
 
 ## System Architecture
@@ -79,8 +81,6 @@ At the heart of our infrastructure lies **NautilusTrader** — an institutional-
 | Sub-microsecond latency | Orders of magnitude faster than pure Python |
 
 <div align="center">
-
-![Data Architecture](./data/readme_visualisations/data_structure_alpha.png)
 
 </div>
 
