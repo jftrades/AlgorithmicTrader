@@ -1,6 +1,6 @@
 <div align="center">
 
-![AlgorithmicTrader](./data/readme_visualisations/banner.png)
+![AlgorithmicTrader](./data/readme_visualisations/RunOverview.png)
 
 <br>
 
@@ -35,7 +35,7 @@ This framework represents the intersection of **quantitative research**, **softw
 
 <div align="center">
 
-![System Overview](./data/readme_visualisations/overview.png)
+![System Overview](./data/readme_visualisations/trade_visualisation.png)
 
 </div>
 
@@ -49,7 +49,7 @@ Our architecture follows institutional standards with clear separation of concer
 
 <div align="center">
 
-![Architecture Diagram](./data/readme_visualisations/architecture.png)
+![Architecture Diagram](./data/readme_visualisations/correlation_analysis.png)
 
 </div>
 
@@ -85,7 +85,7 @@ Our architecture follows institutional standards with clear separation of concer
 
 <div align="center">
 
-![Backtesting Engine](./data/readme_visualisations/backtesting.png)
+![Backtesting Engine](./data/readme_visualisations/detailed_run_analysis.png)
 
 </div>
 
@@ -117,7 +117,7 @@ Our architecture follows institutional standards with clear separation of concer
 
 <div align="center">
 
-![Performance Dashboard](./data/readme_visualisations/performance.png)
+![Performance Dashboard](./data/readme_visualisations/QuantStats.png)
 
 </div>
 
@@ -182,7 +182,19 @@ results.generate_report()
 
 <div align="center">
 
-![Trading Results](./data/readme_visualisations/results.png)
+![Parameter Analysis](./data/readme_visualisations/param_comparison_1.png)
+
+<br>
+
+![Parameter Comparison](./data/readme_visualisations/param_comparison_2.png)
+
+<br>
+
+![Strategy Optimization](./data/readme_visualisations/param_comparison_3.png)
+
+<br>
+
+![Correlation Deep Dive](./data/readme_visualisations/correlation_analysis_1.png)
 
 </div>
 
