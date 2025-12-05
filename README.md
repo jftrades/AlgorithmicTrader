@@ -45,7 +45,7 @@ We are engineering a proprietary quantitative infrastructure designed for sustai
 
 ## System Architecture
 
-We have engineered a comprehensive ecosystem on top of NautilusTrader's Rust core, covering the complete quantitative trading lifecycle.
+AlgorithmicTrader is a unified platform integrating strategy development, insightful data visualization, and robust live deployment across the entire quantitative trading lifecycle.
 
 ### The NautilusTrader Foundation
 
@@ -69,11 +69,11 @@ At the heart of our infrastructure lies **NautilusTrader** — an trading engine
 
 ## Competitive Edge
 
-1. **Microstructure Fidelity** — Order book dynamics, network latency, venue-specific fees. What validates here translates to live performance.
+1. **Microstructure Fidelity** — Order book dynamics, network latency, venue-specific fees.
 
-2. **Regime Adaptation** — Dynamic parameter adjustment based on volatility clustering and correlation shifts. Static strategies fail; ours evolve.
+2. **Regime Adaptation** — Dynamic parameter adjustment based on volatility and correlation shifts.
 
-3. **Research Velocity** — From concept to validated backtest in hours. Modular architecture enables instant hypothesis testing.
+3. **Research Velocity** — From concept to validated backtest in hours.
 
 <div align="center">
 
@@ -87,7 +87,7 @@ At the heart of our infrastructure lies **NautilusTrader** — an trading engine
 
 ### QuantStats Integration
 
-Institutional-standard performance attribution. Every backtest generates comprehensive tear sheets analyzing risk-adjusted returns, drawdown characteristics, and return distributions.
+Institutional-standard performance attribution. Comprehensive tear sheets analyzing risk-adjusted returns, drawdown characteristics, and return distributions are create in an instant.
 
 <div align="center">
 
@@ -107,7 +107,7 @@ Cross-asset dependency analysis for portfolio construction: rolling correlation 
 
 ### Parameter Stability Analyzer
 
-We reject curve-fitting - we therefore visualize performace across the entire parameter space to identify plateaus of profitability.
+We reject curve-fitting - we therefore visualize performance across the entire parameter space to identify plateaus of profitability.
 
 ![Parameter Comparison](./data/readme_visualisations/param_comparison_2.png)
 
@@ -116,12 +116,6 @@ We reject curve-fitting - we therefore visualize performace across the entire pa
 ---
 
 <div align="center">
-
-<br>
-
-The project adheres to strict engineering standards and advanced quantitative methodology for systematic trading.
-
-<br>
 
 <sub>For collaboration or inquiries, please open an issue.</sub>
 
