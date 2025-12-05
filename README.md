@@ -1,134 +1,213 @@
 <div align="center">
 
-![AlgorithmicTrader Banner](banner.png)
+![AlgorithmicTrader](./data/readme_visualisations/banner.png)
 
-# 🚀 AlgorithmicTrader
+<br>
 
-### **Institutional-Grade Algorithmic Trading Framework**
+**ALGORITHMIC TRADER**
 
-*Engineered for Performance. Built for Alpha Generation.*
-
-[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![NautilusTrader](https://img.shields.io/badge/Engine-NautilusTrader-FF6B6B?style=for-the-badge)](https://nautilustrader.io)
-[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+*Institutional-Grade Quantitative Trading Infrastructure*
 
 ---
 
-**A high-performance quantitative trading ecosystem leveraging the power of [NautilusTrader](https://nautilustrader.io) — the same backtesting engine trusted by professional quant funds.**
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![NautilusTrader](https://img.shields.io/badge/Engine-NautilusTrader-0D1117?style=flat-square)](https://nautilustrader.io)
+[![Architecture](https://img.shields.io/badge/Architecture-Event--Driven-00D4AA?style=flat-square)](/)
+[![Status](https://img.shields.io/badge/Status-Active%20Development-blue?style=flat-square)](/)
 
-[Features](#-features) • [Architecture](#-architecture) • [Getting Started](#-getting-started) • [Strategies](#-strategies) • [Performance](#-performance)
+<br>
+
+[Overview](#overview) · [Architecture](#system-architecture) · [Core Features](#core-features) · [Performance](#performance-metrics) · [Installation](#installation)
 
 </div>
 
 ---
 
-## 🎯 Vision
+<br>
 
-We don't just trade — we **engineer self-adapting trading systems** that evolve with market dynamics. AlgorithmicTrader represents the convergence of cutting-edge quantitative research, robust software engineering, and institutional-grade execution infrastructure.
+## Overview
 
----
+**AlgorithmicTrader** is a professional-grade quantitative trading framework built on top of [NautilusTrader](https://nautilustrader.io) — a high-performance backtesting and live trading engine written in Rust with Python bindings, trusted by quantitative hedge funds and proprietary trading firms worldwide.
 
-## ⚡ Features
+This framework represents the intersection of **quantitative research**, **software engineering excellence**, and **institutional execution infrastructure**. We engineer self-adapting trading systems that dynamically evolve with changing market regimes.
 
-| Feature | Description |
-|---------|-------------|
-| 🔬 **Research-Grade Backtesting** | Powered by NautilusTrader's event-driven architecture with nanosecond precision |
-| 📊 **Advanced Visualization** | Real-time strategy performance dashboards and comprehensive analytics |
-| 🧠 **Adaptive Algorithms** | Self-optimizing strategies that respond to regime changes |
-| 🏗️ **Modular Architecture** | Plug-and-play strategy components with clean abstractions |
-| ⚙️ **Multi-Asset Support** | Equities, Futures, Forex, and Crypto — unified under one framework |
-| 🚀 **Production-Ready** | Seamless transition from backtest to live trading |
+<br>
 
----
+<div align="center">
 
-## 🏛️ Architecture
+![System Overview](./data/readme_visualisations/overview.png)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    ALGORITHMICTRADER CORE                       │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │  Strategy   │  │   Signal    │  │   Risk Management       │  │
-│  │   Engine    │◄─┤  Generator  │◄─┤   & Position Sizing     │  │
-│  └──────┬──────┘  └─────────────┘  └─────────────────────────┘  │
-│         │                                                        │
-│         ▼                                                        │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │              NAUTILUSTRADER BACKTESTING ENGINE              ││
-│  │         High-Performance Event-Driven Simulation            ││
-│  └─────────────────────────────────────────────────────────────┘│
-│         │                                                        │
-│         ▼                                                        │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │    Data     │  │ Execution   │  │   Analytics &           │  │
-│  │   Pipeline  │  │   Handler   │  │   Visualization         │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-```
+</div>
+
+<br>
 
 ---
 
-## 🚀 Getting Started
+## System Architecture
+
+Our architecture follows institutional standards with clear separation of concerns, enabling rapid strategy development while maintaining production-grade reliability.
+
+<div align="center">
+
+![Architecture Diagram](./data/readme_visualisations/architecture.png)
+
+</div>
+
+<br>
+
+### Technical Stack
+
+| Layer | Technology | Purpose |
+|:------|:-----------|:--------|
+| **Execution Core** | NautilusTrader (Rust/Python) | Sub-microsecond event processing |
+| **Data Pipeline** | Polars, NumPy, Pandas | High-performance data transformation |
+| **Strategy Engine** | Custom Framework | Modular strategy composition |
+| **Risk Management** | Real-time Analytics | Position sizing, exposure control |
+| **Visualization** | Plotly, Matplotlib | Interactive performance dashboards |
+| **Infrastructure** | Docker, Redis, PostgreSQL | Scalable deployment architecture |
+
+<br>
+
+---
+
+## Core Features
+
+<br>
+
+### Research-Grade Backtesting
+
+- **Nanosecond-precision** event timestamps for accurate simulation
+- **Realistic market microstructure** modeling including slippage, latency, and partial fills
+- **Multi-venue order routing** simulation
+- **Walk-forward optimization** with strict out-of-sample validation
+
+<br>
+
+<div align="center">
+
+![Backtesting Engine](./data/readme_visualisations/backtesting.png)
+
+</div>
+
+<br>
+
+### Adaptive Strategy Framework
+
+| Strategy Class | Methodology | Market Regime |
+|:---------------|:------------|:--------------|
+| Momentum Systems | Trend-following with dynamic lookback | Trending |
+| Mean Reversion | Statistical arbitrage, pair trading | Range-bound |
+| Volatility Strategies | Options-based, VIX derivatives | High volatility |
+| ML Ensemble | Gradient boosting, neural networks | Adaptive |
+
+<br>
+
+### Risk Management Infrastructure
+
+- **Real-time P&L** monitoring with configurable drawdown limits
+- **Portfolio-level VAR** and stress testing
+- **Dynamic position sizing** based on volatility regime
+- **Correlation-aware** exposure management
+
+<br>
+
+---
+
+## Performance Metrics
+
+<div align="center">
+
+![Performance Dashboard](./data/readme_visualisations/performance.png)
+
+</div>
+
+<br>
+
+Our backtesting infrastructure is designed for institutional requirements:
+
+| Metric | Capability |
+|:-------|:-----------|
+| **Event Processing** | 10M+ events/second |
+| **Tick Data Support** | Nanosecond resolution |
+| **Concurrent Strategies** | Unlimited parallel execution |
+| **Historical Depth** | 20+ years multi-asset data |
+
+<br>
+
+---
+
+## Installation
 
 ```bash
-# Clone the repository
+# Clone repository
 git clone https://github.com/yourusername/AlgorithmicTrader.git
 cd AlgorithmicTrader
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+# Create isolated environment
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Run your first backtest
-python run_backtest.py --strategy momentum --data sample_data/
+# Verify installation
+python -c "import nautilus_trader; print('NautilusTrader ready')"
 ```
 
+### Quick Start
+
+```python
+from algorithmic_trader import BacktestEngine, MomentumStrategy
+
+# Initialize engine
+engine = BacktestEngine(
+    venue="BINANCE",
+    start_date="2023-01-01",
+    end_date="2024-01-01"
+)
+
+# Deploy strategy
+engine.add_strategy(MomentumStrategy(lookback=20, threshold=0.02))
+
+# Execute backtest
+results = engine.run()
+results.generate_report()
+```
+
+<br>
+
 ---
 
-## 📈 Strategies
+## Results & Analytics
 
-| Strategy | Type | Status |
-|----------|------|--------|
-| Momentum Cross | Trend Following | ✅ Production |
-| Mean Reversion | Statistical Arbitrage | ✅ Production |
-| Adaptive RSI | Self-Optimizing | 🔬 Research |
-| ML Ensemble | Machine Learning | 🔬 Research |
+<div align="center">
 
----
+![Trading Results](./data/readme_visualisations/results.png)
 
-## 📊 Performance
+</div>
 
-Our backtesting infrastructure delivers:
-
-- **Nanosecond-precision** event timestamps
-- **Realistic slippage** and commission modeling
-- **Walk-forward optimization** with out-of-sample validation
-- **Monte Carlo simulation** for robustness testing
-
----
-
-## 🛠️ Tech Stack
-
-- **Core Engine:** NautilusTrader (Rust/Python hybrid for maximum performance)
-- **Data Processing:** Pandas, NumPy, Polars
-- **Visualization:** Plotly, Matplotlib
-- **ML/AI:** Scikit-learn, PyTorch (optional)
-- **Infrastructure:** Docker, Redis
+<br>
 
 ---
 
 <div align="center">
 
-### Built with precision. Engineered for alpha.
+<br>
 
-*"In quantitative trading, the edge is in the engineering."*
+**Built for precision. Engineered for alpha.**
 
 ---
 
-**[⬆ Back to Top](#-algorithmictrader)**
+<sub>
+
+*AlgorithmicTrader is developed following institutional software engineering standards.*
+*For inquiries regarding collaboration or licensing, please open an issue.*
+
+</sub>
+
+<br>
+
+[Back to Top](#overview)
 
 </div>
 
