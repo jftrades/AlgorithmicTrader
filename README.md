@@ -1,5 +1,5 @@
 <div align="center">
-![Parameter Comparison](./data/readme_visualisations/param_comparison_2.png)
+Logo whatever kommt hier noch
 <br>
 
 *Institutional-Grade Quantitative Trading Infrastructure*
@@ -25,8 +25,21 @@
 
 This framework integrates quantitative research, software engineering standards, and institutional execution infrastructure. We engineer self-adapting trading systems that dynamically evolve with changing market regimes, following the same approach as leading quant firms (e.g., Renaissance Technologies, Two Sigma).
 
-<div align="center">
-</div>
+---
+
+## Our Vision
+
+We are engineering a proprietary quantitative infrastructure designed for sustained, long-term alpha generation.
+
+### Long-Term Roadmap
+
+| Phase | Objective | Status |
+|:------|:----------|:------:|
+| **Foundation** | Institutional-grade backtesting with NautilusTrader | ✓ |
+| **Robustness** | Walk-forward validation, parameter stability and regime detection | ✓ |
+| **Scale** | Multi-strategy orchestration with portfolio-level risk management | ◐ |
+| **Intelligence** | Temporal Fusion Transformers for adaptive signal generation | ○ |
+| **Autonomy** | Self-optimizing systems with continuous learning pipelines | ○ |
 
 ---
 
@@ -36,19 +49,10 @@ We have engineered a comprehensive ecosystem on top of NautilusTrader's Rust cor
 
 ### The NautilusTrader Foundation
 
-At the heart of our infrastructure lies **NautilusTrader** — an institutional-grade trading engine written entirely in **Rust** with Python bindings. This hybrid architecture combines the raw performance of systems programming with Python's flexibility for rapid strategy development.
+At the heart of our infrastructure lies **NautilusTrader** — an trading engine written entirely in Rust with Python bindings. This hybrid architecture combines both performance and Python's flexibility.
 
 ![Nautilius](./data/readme_visualisations/nautilus_visualisation.PNG)
 
-| Rust Advantage | Impact |
-|:---------------|:-------|
-| Zero-cost abstractions | Maximum performance without sacrificing clarity |
-| Memory safety without GC | No execution pauses during critical order flow |
-| True parallelism | concurrency for multi-strategy execution |
-| Sub-microsecond latency | Orders of magnitude faster than pure Python |
-
-<div align="center">
-</div>
 
 ### Infrastructure Components
 
@@ -79,22 +83,6 @@ At the heart of our infrastructure lies **NautilusTrader** — an institutional-
 
 ---
 
-## Our Vision
-
-We are engineering a proprietary quantitative infrastructure designed for sustained, long-term alpha generation.
-
-### Long-Term Roadmap
-
-| Phase | Objective | Status |
-|:------|:----------|:------:|
-| **Foundation** | Institutional-grade backtesting with NautilusTrader | ✓ |
-| **Robustness** | Walk-forward validation, parameter stability and regime detection | ✓ |
-| **Scale** | Multi-strategy orchestration with portfolio-level risk management | ◐ |
-| **Intelligence** | Temporal Fusion Transformers for adaptive signal generation | ○ |
-| **Autonomy** | Self-optimizing systems with continuous learning pipelines | ○ |
-
----
-
 ## Analytical Tools
 
 ### QuantStats Integration
@@ -120,11 +108,6 @@ Cross-asset dependency analysis for portfolio construction: rolling correlation 
 ### Parameter Stability Analyzer
 
 We reject curve-fitting - we therefore visualize performace across the entire parameter space to identify plateaus of profitability.
-<div align="center">
-
-![Parameter Analysis](./data/readme_visualisations/param_comparison_1.png)
-
-<br>
 
 ![Parameter Comparison](./data/readme_visualisations/param_comparison_2.png)
 
