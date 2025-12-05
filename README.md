@@ -23,43 +23,28 @@
 
 ## Overview
 
-**AlgorithmicTrader** is a professional-grade quantitative trading framework built on top of [NautilusTrader](https://nautilustrader.io) — a high-performance backtesting and live trading engine written in Rust with Python bindings, trusted by quantitative hedge funds and proprietary trading firms worldwide.
+**AlgorithmicTrader** is a professional-grade quantitative trading framework built on top of [NautilusTrader](https://nautilustrader.io) — a high-performance backtesting and live trading engine written in Rust with Python bindings.
 
-This framework represents the intersection of **quantitative research**, **software engineering excellence**, and **institutional execution infrastructure**. We engineer self-adapting trading systems that dynamically evolve with changing market regimes — the same methodology employed by Renaissance Technologies and Two Sigma.
+This framework integrates quantitative research, software engineering standards, and institutional execution infrastructure. We engineer self-adapting trading systems that dynamically evolve with changing market regimes, following the same approach as leading quant firms (e.g., Renaissance Technologies, Two Sigma).
 
 <div align="center">
-
-![System Overview](./data/readme_visualisations/chip.png)
-
 </div>
-
-> *"In a market where milliseconds determine winners and losers, we chose to build infrastructure that thinks in nanoseconds. Where others see complexity, we see opportunity. This is not just code — it is a competitive weapon forged through relentless iteration and an obsession with excellence."*
 
 ---
 
 ## Our Vision
 
-We are building more than a trading system — we are engineering a **self-evolving quantitative infrastructure** designed to compound returns across decades, not months.
+We are engineering a proprietary quantitative infrastructure designed for sustained, long-term alpha generation.
 
 ### Long-Term Roadmap
 
 | Phase | Objective | Status |
 |:------|:----------|:------:|
 | **Foundation** | Institutional-grade backtesting with NautilusTrader | ✓ |
-| **Robustness** | Walk-forward validation, parameter stability, regime detection | ✓ |
+| **Robustness** | Walk-forward validation, parameter stability and regime detection | ✓ |
 | **Scale** | Multi-strategy orchestration with portfolio-level risk management | ◐ |
 | **Intelligence** | Temporal Fusion Transformers for adaptive signal generation | ○ |
 | **Autonomy** | Self-optimizing systems with continuous learning pipelines | ○ |
-
-### Core Principles
-
-| Principle | Description |
-|:----------|:------------|
-| **Robustness First** | We prioritize strategies that survive regime changes and black swan events. A system compounding at 15% annually for 20 years outperforms one returning 100% before catastrophic failure. |
-| **Transformer Future** | Transitioning toward attention-based architectures that learn complex, non-linear market dynamics — patterns invisible to conventional methods. |
-| **Continuous Evolution** | Markets adapt. Strategies decay. Our infrastructure enables perpetual iteration: automated retraining, out-of-sample monitoring, graceful strategy rotation. |
-
-![Data Architecture](./data/readme_visualisations/data_structure_alpha.png)
 
 ---
 
@@ -77,11 +62,10 @@ At the heart of our infrastructure lies **NautilusTrader** — an institutional-
 |:---------------|:-------|
 | Zero-cost abstractions | Maximum performance without sacrificing clarity |
 | Memory safety without GC | No execution pauses during critical order flow |
-| True parallelism | Fearless concurrency for multi-strategy execution |
+| True parallelism | concurrency for multi-strategy execution |
 | Sub-microsecond latency | Orders of magnitude faster than pure Python |
 
 <div align="center">
-
 </div>
 
 ### Infrastructure Components
@@ -100,9 +84,6 @@ At the heart of our infrastructure lies **NautilusTrader** — an institutional-
 ## Competitive Edge
 
 <div align="center">
-
-![Banner](./data/readme_visualisations/banner_2.png)
-
 </div>
 
 ### Why We Outperform
@@ -120,31 +101,7 @@ At the heart of our infrastructure lies **NautilusTrader** — an institutional-
 
 2. **Regime Adaptation** — Dynamic parameter adjustment based on volatility clustering and correlation shifts. Static strategies fail; ours evolve.
 
-3. **Research Velocity** — From concept to validated backtest in hours. Modular architecture enables rapid hypothesis testing.
-
----
-
-## Trading Strategies
-
-### Future: Transformer-Based Alpha
-
-Implementing **Temporal Fusion Transformers** for next-generation signal generation:
-
-| Capability | Description |
-|:-----------|:------------|
-| Multi-horizon attention | Minute, hourly, and daily timeframe fusion |
-| Cross-asset layers | Market regime detection through correlated movements |
-| Calibrated confidence | Uncertainty-weighted position sizing |
-
-### Current: Short Low Market Cap Strategy
-
-Exploiting structural inefficiencies in low-capitalization cryptocurrency markets — where institutional players cannot operate.
-
-| Aspect | Detail |
-|:-------|:-------|
-| **Thesis** | Mean reversion after liquidity-driven pumps in shallow order books |
-| **Signal** | Momentum exhaustion: parabolic moves + declining volume + RSI divergence |
-| **Risk** | ATR-based stops, per-asset limits, correlation constraints |
+3. **Research Velocity** — From concept to validated backtest in hours. Modular architecture enables instant hypothesis testing.
 
 <div align="center">
 
@@ -178,8 +135,7 @@ Cross-asset dependency analysis for portfolio construction: rolling correlation 
 
 ### Parameter Stability Analyzer
 
-We reject curve-fitting. Visualizing performance across the entire parameter space to identify **plateaus of profitability** — not fragile peaks.
-
+We reject curve-fitting - we therefore visualize performace across the entire parameter space to identify plateaus of profitability.
 <div align="center">
 
 ![Parameter Analysis](./data/readme_visualisations/param_comparison_1.png)
@@ -194,25 +150,11 @@ We reject curve-fitting. Visualizing performance across the entire parameter spa
 
 <div align="center">
 
-## The Bottom Line
-
-**AlgorithmicTrader** represents institutional-grade infrastructure built from first principles.
-
-| | |
-|:--|:--|
-| Rust execution core | Nanosecond-precision data |
-| Walk-forward validation | Production-ready architecture |
-| Real-time risk controls | Comprehensive analytics |
-
 <br>
 
-This project demonstrates the engineering rigor and quantitative methodology applied at top-tier systematic trading firms.
+The project adheres to strict engineering standards and advanced quantitative methodology for systematic trading.
 
 <br>
-
-**Built for precision. Engineered for alpha.**
-
----
 
 <sub>For collaboration or inquiries, please open an issue.</sub>
 
