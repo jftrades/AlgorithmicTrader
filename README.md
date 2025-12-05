@@ -1,7 +1,5 @@
 <div align="center">
-
-![AlgorithmicTrader](./data/readme_visualisations/Banner_1.png)
-
+![Parameter Comparison](./data/readme_visualisations/param_comparison_2.png)
 <br>
 
 *Institutional-Grade Quantitative Trading Infrastructure*
@@ -29,22 +27,6 @@ This framework integrates quantitative research, software engineering standards,
 
 <div align="center">
 </div>
-
----
-
-## Our Vision
-
-We are engineering a proprietary quantitative infrastructure designed for sustained, long-term alpha generation.
-
-### Long-Term Roadmap
-
-| Phase | Objective | Status |
-|:------|:----------|:------:|
-| **Foundation** | Institutional-grade backtesting with NautilusTrader | ✓ |
-| **Robustness** | Walk-forward validation, parameter stability and regime detection | ✓ |
-| **Scale** | Multi-strategy orchestration with portfolio-level risk management | ◐ |
-| **Intelligence** | Temporal Fusion Transformers for adaptive signal generation | ○ |
-| **Autonomy** | Self-optimizing systems with continuous learning pipelines | ○ |
 
 ---
 
@@ -83,20 +65,6 @@ At the heart of our infrastructure lies **NautilusTrader** — an institutional-
 
 ## Competitive Edge
 
-<div align="center">
-</div>
-
-### Why We Outperform
-
-| Dimension | Retail Frameworks | **AlgorithmicTrader** |
-|:----------|:------------------|:----------------------|
-| **Latency** | Milliseconds | Sub-microsecond (Rust) |
-| **Simulation** | OHLC, no fees | Tick-level, realistic fills |
-| **Validation** | In-sample only | Walk-forward, regime-aware |
-| **Risk** | Post-hoc analysis | Real-time enforcement |
-
-**Three Pillars of Our Edge:**
-
 1. **Microstructure Fidelity** — Order book dynamics, network latency, venue-specific fees. What validates here translates to live performance.
 
 2. **Regime Adaptation** — Dynamic parameter adjustment based on volatility clustering and correlation shifts. Static strategies fail; ours evolve.
@@ -108,6 +76,22 @@ At the heart of our infrastructure lies **NautilusTrader** — an institutional-
 ![Trade Example](./data/readme_visualisations/trade_visualisation.png)
 
 </div>
+
+---
+
+## Our Vision
+
+We are engineering a proprietary quantitative infrastructure designed for sustained, long-term alpha generation.
+
+### Long-Term Roadmap
+
+| Phase | Objective | Status |
+|:------|:----------|:------:|
+| **Foundation** | Institutional-grade backtesting with NautilusTrader | ✓ |
+| **Robustness** | Walk-forward validation, parameter stability and regime detection | ✓ |
+| **Scale** | Multi-strategy orchestration with portfolio-level risk management | ◐ |
+| **Intelligence** | Temporal Fusion Transformers for adaptive signal generation | ○ |
+| **Autonomy** | Self-optimizing systems with continuous learning pipelines | ○ |
 
 ---
 
@@ -161,9 +145,6 @@ The project adheres to strict engineering standards and advanced quantitative me
 <br>
 
 [↑ Back to Top](#overview)
-
-![End](./data/readme_visualisations/End.png)
-
 </div>
 
 
