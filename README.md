@@ -4,8 +4,6 @@
 
 <br>
 
-**ALGORITHMIC TRADER**
-
 *Institutional-Grade Quantitative Trading Infrastructure*
 
 ---
@@ -31,7 +29,6 @@
 
 This framework represents the intersection of **quantitative research**, **software engineering excellence**, and **institutional execution infrastructure**. We engineer self-adapting trading systems that dynamically evolve with changing market regimes — the same methodology employed by Renaissance Technologies and Two Sigma.
 
-> *"In a market where milliseconds determine winners and losers, we chose to build infrastructure that thinks in nanoseconds. Where others see complexity, we see opportunity. This is not just code — it is a competitive weapon forged through relentless iteration and an obsession with excellence."*
 
 <br>
 
@@ -42,6 +39,8 @@ This framework represents the intersection of **quantitative research**, **softw
 </div>
 
 <br>
+
+> *"In a market where milliseconds determine winners and losers, we chose to build infrastructure that thinks in nanoseconds. Where others see complexity, we see opportunity. This is not just code — it is a competitive weapon forged through relentless iteration and an obsession with excellence."*
 
 ---
 
@@ -160,7 +159,7 @@ Our flagship strategy exploits structural inefficiencies in low-capitalization c
 
 <div align="center">
 
-![Backtesting Engine](./data/readme_visualisations/nautilius_visualisation.png)
+![Example](./data/readme_visualisations/trade_visualisation.png)
 
 </div>
 
@@ -211,21 +210,6 @@ We reject curve-fitting. Our parameter analyzer visualizes strategy performance 
 ![Strategy Optimization](./data/readme_visualisations/param_comparison_3.png)
 
 </div>
-
-<br>
-
----
-
-## Installation
-
-```bash
-git clone https://github.com/yourusername/AlgorithmicTrader.git
-cd AlgorithmicTrader
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python -c "import nautilus_trader; print('Ready')"
-```
 
 <br>
 
