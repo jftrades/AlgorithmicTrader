@@ -1,13 +1,4 @@
-# Strategiekonzept: “VolSpike CloseBias Reversal”
-
-# Kurzbeschreibung:
-# Die Strategie erkennt außergewöhnlich volatile Marktbewegungen mit gleichzeitig überdurchschnittlichem 
-# Volumen und reagiert darauf, wenn der Markt zum Ende der Candle hin Stärke zeigt 
-# – unabhängig davon, ob es sich um eine Rejection (Reversal) oder ein Momentum-Break handelt. 
-# Die Reversion wird zusätzlich durch ein strukturelles Überdehnungssignal (Z-Score) abgesichert.
-
-# Wir nutzen die robuste ATR Berechnung nach Welles Wilder (robuster gegen z.B. gaps)
-
+# volspike closebias reversal - detects volatile moves with high volume and close bias for reversals
 
 class VSCBRReversal:
     def __init__(self, config):

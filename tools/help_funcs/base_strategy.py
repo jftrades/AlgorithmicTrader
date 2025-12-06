@@ -28,13 +28,7 @@ class BaseStrategy(Strategy):
         self.general_collector.initialise_logging_indicator("total_equity", 4)
 
     def _base_initialize_instrument_contexts(self):
-        """
-        Build self.instrument_dict dynamically:
-        - Copies all per-instrument YAML keys (except instrument_id, bar_types) into current_instrument.
-        - Converts bar_types to BarType objects.
-        - Attempts Decimal conversion for numeric-looking string values.
-        - Adds mandatory runtime keys (realized/unrealized pnl, collector, RSI components, etc.).
-        """
+        """builds instrument_dict from yaml config with bar types, collectors, and decimal conversions"""
         if not getattr(self.config, "instruments", None):
             raise ValueError("RSISimpleStrategyConfig.instruments muss mindestens ein Instrument enthalten.")
 
@@ -238,9 +232,6 @@ class BaseStrategy(Strategy):
         collector.add_indicator(timestamp=timestamp, name="realized_pnl", value=float(instrument_ctx["realized_pnl"]))
         collector.add_indicator(timestamp=timestamp, name="equity", value=equity)
 
-        # -------------------------------------------------
-    # Stop / Abschluss Handling
-    # -------------------------------------------------
     def on_stop(self) -> None:
         self.base_on_stop()
         self.stopped = True

@@ -80,7 +80,7 @@ class ParameterAnalysisService:
                 x=[str(col) for col in pivot.columns],  # string conversion
                 y=[str(idx) for idx in pivot.index],     # string conversion
                 color_continuous_scale="Viridis",
-                aspect="auto",  # wichtig für volle Breite
+                aspect="auto",
                 origin="lower",
                 labels=dict(color=metric),
                 text_auto=True  # show values in cells
@@ -92,18 +92,17 @@ class ParameterAnalysisService:
                 coloraxis_colorbar=dict(title=metric),
                 template="plotly_white",
                 margin=dict(t=60, l=80, r=40, b=60),
-                height=400,  # etwas höher
-                width=600,   # explizite Breite
-                autosize=True,  # auto-resize
+                height=400,
+                width=600,
+                autosize=True,
                 xaxis=dict(constrain='domain'),
-                yaxis=dict(scaleanchor='x', scaleratio=1)  # entfernt für bessere Skalierung
+                yaxis=dict(scaleanchor='x', scaleratio=1)
             )
             
-            # Return als Graph-Komponente mit expliziter Konfiguration
             return dcc.Graph(
                 figure=fig,
                 config={'displayModeBar': False},
-                style={'height': '420px', 'width': '100%', 'minWidth': '500px'}  # volle Container-Breite
+                style={'height': '420px', 'width': '100%', 'minWidth': '500px'}
             )
         except Exception as e:
             print(f"[Heatmap Error] {e}")
@@ -379,7 +378,6 @@ class ParameterAnalysisService:
             })
         ]
 
-    # NEU: Interaktiver Pairplot (ersetzt statisches seaborn PNG)
     def _pairplot_matrix(self, df: pd.DataFrame, params: list[str], metric: str):
         n = len(params)
         if n < 2:

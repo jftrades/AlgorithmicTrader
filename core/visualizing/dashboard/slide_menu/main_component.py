@@ -3,11 +3,11 @@ Hauptkomponente für das Slide-Menu
 Orchestriert die verschiedenen Subkomponenten
 """
 import pandas as pd
-from dash import html, dcc  # NEU: dcc Import hinzugefügt
+from dash import html, dcc
 from .table_components import RunTableBuilder
 from .chart_components import EquityChartsBuilder
-from .yaml_viewer import YamlViewer  # NEU
-from .quantstats_viewer import QuantStatsViewer  # NEU
+from .yaml_viewer import YamlViewer
+from .quantstats_viewer import QuantStatsViewer
 
 class SlideMenuComponent:
     """UI-Komponente für das ausklappbare Slide-Menu"""
@@ -20,8 +20,8 @@ class SlideMenuComponent:
         # Subkomponenten
         self.table_builder = RunTableBuilder()
         self.charts_builder = EquityChartsBuilder()
-        self.viewer = YamlViewer()  # NEU
-        self.quantstats_viewer = QuantStatsViewer()  # NEU
+        self.viewer = YamlViewer()
+        self.quantstats_viewer = QuantStatsViewer()
     
     def create_sidebar(self, runs_df: pd.DataFrame, is_open: bool = False, is_fullscreen: bool = False, 
                       selected_run_indices: list = None, checkbox_states: dict = None, app=None) -> html.Div:
@@ -30,13 +30,13 @@ class SlideMenuComponent:
         # YAML-Viewer-Callbacks automatisch registrieren wie beim Param Analyzer
         if app is not None:
             self.viewer.register_callbacks(app)
-            self.quantstats_viewer.register_callbacks(app)  # NEU
+            self.quantstats_viewer.register_callbacks(app)
         
         sidebar_content = []
 
-        # YAML + QuantStats Controls (nur im Fullscreen-Modus)
+        # YAML + QuantStats controls (fullscreen mode only)
         yaml_controls = html.Div()
-        quantstats_controls = html.Div()  # NEU
+        quantstats_controls = html.Div()
         if is_fullscreen:
             # YAML Controls
             viewer_components = self.viewer.build_components(runs_df, selected_run_indices or [], app=app)
@@ -137,7 +137,6 @@ class SlideMenuComponent:
     
     def _create_header(self, runs_df: pd.DataFrame, is_fullscreen: bool, yaml_controls=None, quantstats_controls=None) -> html.Div:
         """Erstellt Header mit zentrierter Überschrift"""
-        # NEU: Info-Bar Daten aus erster Zeile
         info_bar = html.Div()
         if not runs_df.empty:
             row = runs_df.iloc[0]
@@ -191,7 +190,7 @@ class SlideMenuComponent:
                     'background': 'linear-gradient(100deg,#f5f3ff 0%,#faf5ff 60%,rgba(255,255,255,0.9) 100%)'
                 })
             else:
-                # NEU: Vertikale, sehr schlanke Liste ohne Kachel-/Box-Styling
+                # compact vertical list
                 def row(label, value):
                     return html.Div([
                         html.Span(f"{label}:", style={
@@ -233,7 +232,7 @@ class SlideMenuComponent:
             'position': 'relative',
             'boxShadow': '0 2px 6px -2px rgba(0,0,0,0.06)',
             'overflow': 'visible',
-            'zIndex': 18000   # NEU höher als Tabelle
+            'zIndex': 18000
         }
 
         # Controls absolut ganz rechts oben im Header platzieren
@@ -273,7 +272,7 @@ class SlideMenuComponent:
                         'border': '1px solid rgba(226,232,240,0.9)',
                         'borderRadius': '10px',
                         'boxShadow': '0 3px 10px -3px rgba(0,0,0,0.14)',
-                        'zIndex': 20000,   # NEU
+                        'zIndex': 20000,
                         'overflow': 'visible',
                         'lineHeight': '1'
                     }
@@ -424,10 +423,8 @@ class SlideMenuComponent:
                 'fontWeight': '600',
                 'fontSize': '14px'
             }),
-            # NEU: Kein statischer Titel/Placeholder mehr — nur der Container für das UI-Layout
             html.Div(id="regime-analyzer-content", style={'marginTop': '18px'})
         ])
-        # --- /NEU ---
 
         return html.Div([
             run_table,

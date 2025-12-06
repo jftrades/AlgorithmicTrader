@@ -7,7 +7,7 @@ import yaml
 from typing import List
 
 class RunValidator:
-    # Hinweis: Styling-Anpassungen betreffen nur UI-Komponenten, Logik hier bleibt unverändert.
+    # note: styling changes only affect UI components, logic stays the same
     """Strikte Validierung für Run-Daten ohne Fallbacks"""
     
     REQUIRED_COLUMNS = ["run_id", "Sharpe", "Total Return", "Max Drawdown", "Trades"]

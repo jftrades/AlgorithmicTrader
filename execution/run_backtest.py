@@ -19,9 +19,6 @@ from core.visualizing.dashboard.main import launch_dashbaord
 
 yaml_name = "short_tha_bich.yaml"
 
-# ------------------------------------------------------------
-# YAML laden & vorbereiten
-# ------------------------------------------------------------
 yaml_path = str(Path(__file__).resolve().parents[1] / "config" / yaml_name)
 params, param_grid, keys, values, static_params, all_instrument_ids, all_bar_types, data_sources_normalized = load_and_split_params(yaml_path)
 
@@ -32,11 +29,8 @@ end_date = params["end_date"]
 venue = params["venue"]
 visualize = params.get("visualize", True)
 load_qs_flag = params.get("load_qs", False)  # renamed to avoid clash with function
-bench_qs = params.get("qs_bench")  # accept both YAML key variants
+bench_qs = params.get("qs_bench")
 
-# ------------------------------------------------------------
-# Daten-/Venue-Konfiguration
-# ------------------------------------------------------------
 catalog_path = str(Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "data_catalog_wrangled")
 
 # Datenquellen aus YAML bauen (fallback auf Standard-Bar wenn nicht angegeben)
@@ -55,57 +49,34 @@ venue_config = BacktestVenueConfig(
     account_type=params.get("account_type", "MARGIN"),
     base_currency=params.get("base_currency", "USDT"),
     starting_balances=[params.get("starting_account_balance", "100000 USDT")],
-    bar_adaptive_high_low_ordering=True,  # Realistische OHLC-Sequenzierung für Bracket Orders
-    #fill_model=ImportableFillModelConfig(
-    #    fill_model_path="nautilus_trader.model.fill_models:BestPriceFillModel",
-    #    config_path="nautilus_trader.model.fill_models:FillModelConfig",
-    #    config={
-    #        "prob_fill_on_limit": 1.0,
-    #        "prob_fill_on_stop": 1.0,
-     #       "prob_slippage": 0.0,
-    #    },
-    #),
+    bar_adaptive_high_low_ordering=True,
 )
 
-# ------------------------------------------------------------
-# Ordner vorbereiten
-# ------------------------------------------------------------
 results_dir = Path(__file__).resolve().parents[1] / "data" / "DATA_STORAGE" / "results"
 results_dir.mkdir(parents=True, exist_ok=True)
-_clear_directory(results_dir)  # komplett leeren, wie bisherige Logik
+_clear_directory(results_dir)
 
-# ------------------------------------------------------------
-# Run-Konfigurationen erstellen (NICHT ausführen)
-# ------------------------------------------------------------
-run_configs = []            # Liste von BacktestRunConfig (Index i -> run_id f"run{i}")
-run_ids = []                # ["run0", "run1", ...] gleiche Reihenfolge wie run_configs
-run_params_list = []        # Liste der jeweiligen Grid-Parameter-Dicts (Index i passend zur run_id)
-run_dirs = []               # Liste der Pfade zum jeweiligen Run-Ordner
+run_configs = []
+run_ids = []
+run_params_list = []
+run_dirs = []
 
-# Wenn es keine Grid-Keys gibt, liefert itertools.product() über leere Sequenz genau 1 Kombination: ()
 for i, combination in enumerate(itertools.product(*values)):
     run_id = f"run{i}"
     run_dir = results_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # Grid-Parameter für diesen Lauf
     run_params = dict(zip(keys, combination))
-    # Config-Parameter (Grid + statische) - start with static params
     config_params = copy.deepcopy(static_params)
     
-    # Apply grid parameters using proper nested parameter setting
     for param_key, param_value in run_params.items():
         if "." in param_key:
-            # Handle nested parameters like "btc_performance_risk_scaling.risk_scaling_method"
             set_nested_parameter(config_params, param_key, param_value)
         else:
-            # Handle top-level parameters
             config_params[param_key] = param_value
     
-    # run_id als zusätzlicher Parameter in die Strategy-Config reinschreiben
     config_params["run_id"] = run_id
 
-    # Strategy-/Engine-/Run-Config bauen
     strategy_config = ImportableStrategyConfig(
         strategy_path=strategy_path,
         config_path=config_path,
@@ -120,39 +91,26 @@ for i, combination in enumerate(itertools.product(*values)):
         end=end_date,
     )
 
-    # YAML der effektiven Konfiguration speichern (inkl. run_id und Grid/Singles)
     run_config_dict = copy.deepcopy(params)
     run_config_dict.update(run_params)
     run_config_dict.update(static_params)
-    run_config_dict["run_id"] = run_id  # zusätzlich auch oben rein, damit es eindeutig im YAML steht
+    run_config_dict["run_id"] = run_id
     with open(run_dir / "run_config.yaml", "w", encoding="utf-8") as f:
         yaml.dump(run_config_dict, f, allow_unicode=True, sort_keys=False)
 
-    # Sammler füllen
     run_configs.append(run_config)
     run_ids.append(run_id)
     run_params_list.append(run_params)
     run_dirs.append(run_dir)
 
-# ------------------------------------------------------------
-# ALLE Backtests auf einmal starten
-# Erwartung: run_backtest akzeptiert Liste[BacktestRunConfig] und liefert Liste[results]
-# Reihenfolge: results[i] gehört zu run_id = f"run{i}"
-# ------------------------------------------------------------
 results = run_backtest(run_configs)
 
-# ------------------------------------------------------------
-# Metriken extrahieren & pro-Run speichern
-# ------------------------------------------------------------
 all_metrics = []
 for result, run_id, run_params, run_dir in zip(results, run_ids, run_params_list, run_dirs):
     metrics = extract_metrics(result, run_params, run_id)
     pd.DataFrame([metrics]).to_csv(run_dir / "performance_metrics.csv", index=False)
     all_metrics.append(metrics)
 
-# ------------------------------------------------------------
-# Gesamtübersicht speichern
-# ------------------------------------------------------------
 df_all = pd.DataFrame(all_metrics)
 file_path = results_dir / "all_backtest_results.csv"
 df_all.to_csv(file_path, index=False)

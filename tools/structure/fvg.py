@@ -10,19 +10,13 @@ class FVG_Analyser:
         self.bar_buffer: List[Bar] = []  # Buffer to store the last three bars
 
     def update_bars(self, bar: Bar) -> None:
-        """
-        Updates the bar buffer with the latest bar.
-        Keeps only the last three bars in the buffer.
-        """
+        """keeps only the last 3 bars in buffer"""
         self.bar_buffer.append(bar)
         if len(self.bar_buffer) > 3:
             self.bar_buffer.pop(0)
 
     def is_bullish_fvg(self) -> Tuple[bool, Tuple[Decimal, Decimal]]:
-        """
-        Checks if the last three bars form a bullish FVG.
-        Returns a tuple (bool, (high, low)) indicating if a bullish FVG exists and its range.
-        """
+        """returns (True, (high, low)) if bullish fvg detected, else (False, (0, 0))"""
         if len(self.bar_buffer) < 3:
             return False, (Decimal("0"), Decimal("0"))
 
@@ -34,10 +28,7 @@ class FVG_Analyser:
         return False, (Decimal("0"), Decimal("0"))
 
     def is_bearish_fvg(self) -> Tuple[bool, Tuple[Decimal, Decimal]]:
-        """
-        Checks if the last three bars form a bearish FVG.
-        Returns a tuple (bool, (high, low)) indicating if a bearish FVG exists and its range.
-        """
+        """returns (True, (high, low)) if bearish fvg detected, else (False, (0, 0))"""
         if len(self.bar_buffer) < 3:
             return False, (Decimal("0"), Decimal("0"))
 

@@ -75,7 +75,7 @@ class ResultsRepository:
           - str: wird als run_id interpretiert (Ordnername == run_id)
           - int: legacy -> erwartet Ordner 'run{index}'
         """
-        # Neu: zuerst versuchen wir eine direkte run_id (str)
+        # try direct run_id first
         run_dir = None
         run_id = None
         if isinstance(run_identifier, str):
@@ -196,7 +196,7 @@ class ResultsRepository:
                 except Exception as e:
                     print(f"[repo] Indicator error {ind_file}: {e}")
 
-        # Neu: Collector nur ausschließen, wenn GAR KEINE CSV (weder bars, trades.csv noch indicator CSVs) gefunden wurde.
+        # exclude collector only if no csv files found at all
         has_any_csv = bool(out["bars_variants"]) or (out["trades_df"] is not None) or bool(out["indicators_df"])
         if not has_any_csv:
             return None

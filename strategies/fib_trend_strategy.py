@@ -1,31 +1,22 @@
-# strategy for simple trend following Fibonacci retracement strategy
 from decimal import Decimal
 from typing import Any, Dict, List
 from datetime import datetime, timezone, time
 
-
-# Nautilus Core Imports
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.common.enums import LogColor
-
-# Internal Strategy Framework Imports
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
-
-# Add strategy-specific imports here
 from tools.structure.PivotArchive import PivotArchive
 from tools.structure.fib_retracement import FibRetracementTool
 from nautilus_trader.indicators.averages import ExponentialMovingAverage
 
-# -------------------------------------------------
-# Multi-Instrument Configuration
-# -------------------------------------------------
+
 class FibTrendStrategyConfig(StrategyConfig):
-    instruments: List[dict]  # Each entry: {"instrument_id": <InstrumentId>, "bar_types": List of <BarType>, "trade_size_usd": <Decimal|int|float>}
+    instruments: List[dict]
     risk_percent: float
     max_leverage: float
     min_account_balance: float

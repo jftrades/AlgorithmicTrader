@@ -1,9 +1,8 @@
-# Standard Library Importe
 from decimal import Decimal
 from typing import Any, Dict, Optional, List
 from collections import deque
 import datetime
-# Nautilus Kern offizielle Importe
+
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.config import StrategyConfig
 from nautilus_trader.model.data import Bar, BarType
@@ -20,11 +19,8 @@ from tools.structure.elastic_reversion_zscore_entry import ElasticReversionZScor
 from tools.help_funcs.adaptive_parameter_manager_new import AdaptiveParameterManager
 
 
-# -------------------------------------------------
-# Multi-Instrument Konfiguration (jetzt Pflicht)
-# -------------------------------------------------
 class Mean5mregimesStrategyConfig(StrategyConfig):
-    instruments: List[dict]  # Neues Multi-Instrument System
+    instruments: List[dict]
     risk_percent: float
     max_leverage: float
     min_account_balance: float
@@ -219,10 +215,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
             Decimal(str(self.config.min_account_balance)),
         )
         self.order_types = OrderTypes(self)
-
-    # -------------------------------------------------
-    # Ereignis Routing
-    # -------------------------------------------------
 
     def _notify_vwap_exit_if_needed(self, current_instrument: Dict[str, Any]):
         adaptive_params = self.adaptive_manager.get_adaptive_parameters(slope=self.current_htf_kalman_slope)[0]
@@ -758,9 +750,6 @@ class Mean5mregimesStrategy(BaseStrategy, Strategy):
                 self._notify_vwap_exit_if_needed(current_instrument)
                 self.close_position(instrument_id)
 
-    # -------------------------------------------------
-    # Order Submission Wrapper (Instrument-Aware)
-    # -------------------------------------------------
     def submit_long_market_order(self, instrument_id: InstrumentId, qty: int):
         self.order_types.submit_long_market_order(instrument_id, qty)
 

@@ -93,7 +93,7 @@ def build_analyzer_layout(runs_df, service: ParameterAnalysisService):
                   'alignItems': 'flex-start', 'marginBottom': '30px'}),
 
         html.Div([
-            # NEU: Horizontaler Toolbar statt vertikaler Sidebar
+            # horizontal toolbar
             html.Div([
                 # Metric
                 html.Div([

@@ -23,7 +23,7 @@ class QuantStatsViewer:
     def __init__(self):
         self._callbacks_registered = False
         self._instance_id = id(self)
-        self.debug = False  # NEU: Debug-Flag
+        self.debug = False
 
     def build_components(self, runs_df, selected_run_indices, app=None):
         """Return sidebar pieces (controls)."""
@@ -44,7 +44,7 @@ class QuantStatsViewer:
             if 0 <= idx < len(runs_df):
                 row = runs_df.iloc[idx]
                 rid = self._resolve_run_id(row)
-                short = rid[:15] + ("…" if len(rid) > 15 else "")  # NEU: Kürzer
+                short = rid[:15] + ("…" if len(rid) > 15 else "")
                 opts.append({"label": short, "value": rid})
         
         if not opts:
@@ -143,7 +143,7 @@ class QuantStatsViewer:
         """Findet die total_equity.csv für einen Run"""
         run_dir = self._results_dir() / run_id
         
-        # NEU: Zuerst im general/indicators Ordner suchen
+        # check general/indicators folder first
         general_indicators_dir = run_dir / "general" / "indicators"
         if general_indicators_dir.exists():
             equity_file = general_indicators_dir / "total_equity.csv"

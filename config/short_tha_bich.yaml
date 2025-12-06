@@ -30,7 +30,7 @@ data_sources:
   #   instrument_ids: all
 
 start_date: "2025-01-01T00:00:00Z"
-end_date: "2025-3-01T00:00:00Z"
+end_date: "2025-10-01T00:00:00Z"
 
 starting_account_balance: "1000 USDT"
 base_currency: "USDT"
@@ -49,8 +49,8 @@ min_account_balance: 1000
 log_growth_atr_risk:
   enabled: true
   atr_period: 30
-  atr_multiple: 3.0
-  risk_percent: 0.05 
+  atr_multiple: 2.5
+  risk_percent: 0.01
 
 # _______________________
 # Strat params
@@ -73,7 +73,7 @@ relative_strength_entry:
 
 # MACD Entry - ENABLED (Original system, Sharpe: 1.75)
 use_macd_simple_reversion_system:
-  enabled: true
+  enabled: false
   macd_fast_period: 20
   macd_slow_period: 35
   macd_signal_period: 15
@@ -93,19 +93,35 @@ atr_burst_entry:
   waiting_bars_after_burst: 10
 
 use_htf_ema_bias_filter:
-  enabled: true
+  enabled: false
   ema_period: 150
+
+directional_movement_filter:
+  enabled: false
+  period: 14
+  min_di_diff: 0.005
+  require_minus_di_above: false
+
+retest_entry:
+  enabled: true  
+  breakdown_ema_period: 20
+  max_retest_bars: 30
+  retest_tolerance_atr: 1.0
 
 
 # Exit System simple:
 #_____________________
+use_trailing_stop_exit:
+  enabled: false
+  atr_multiple: 2.5
+  activation_profit_atr: 1.0
+
 use_macd_exit_system:
   enabled: true
   macd_fast_exit_period: 65
   macd_slow_exit_period: 100
   macd_signal_exit_period: 50
 
-# BTC Regime Filter - DISABLED (Sharpe: 0.28, killed too many good trades)
 btc_regime_filter:
   enabled: false
   ema_period: 200

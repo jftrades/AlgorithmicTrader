@@ -1,4 +1,3 @@
-## code für die dann aber wirklich nutzbar coin short strat
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional, List, Union
 from nautilus_trader.trading import Strategy
@@ -13,6 +12,7 @@ from nautilus_trader.indicators.volatility import AverageTrueRange
 from nautilus_trader.indicators.averages import ExponentialMovingAverage
 from nautilus_trader.indicators.trend import MovingAverageConvergenceDivergence
 from nautilus_trader.indicators.momentum import RelativeStrengthIndex
+from nautilus_trader.indicators.trend import DirectionalMovement
 from tools.help_funcs.base_strategy import BaseStrategy
 from tools.order_management.order_types import OrderTypes
 from tools.order_management.risk_manager import RiskManager
@@ -51,6 +51,14 @@ class ShortThaBitchStratConfig(StrategyConfig):
             "macd_fast_exit_period": 10,
             "macd_slow_exit_period": 32,
             "macd_signal_exit_period": 10
+        }
+    )
+
+    use_trailing_stop_exit: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "atr_multiple": 2.0,
+            "activation_profit_atr": 1.0  # activate trailing after X ATR profit
         }
     )
 
@@ -103,6 +111,24 @@ class ShortThaBitchStratConfig(StrategyConfig):
             "enabled": False,
             "lookback_bars": 10,
             "weakness_threshold": -0.02
+        }
+    )
+
+    directional_movement_filter: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "period": 14,
+            "min_di_diff": 0.02,
+            "require_minus_di_above": True
+        }
+    )
+
+    retest_entry: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": False,
+            "breakdown_ema_period": 50,
+            "max_retest_bars": 10,
+            "retest_tolerance_atr": 0.3
         }
     )
 
@@ -178,6 +204,18 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             current_instrument["rsi_overbought"] = rsi_config.get("rsi_overbought", 0.7)
             current_instrument["rsi_oversold"] = rsi_config.get("rsi_oversold", 0.3)
 
+            dm_config = self.config.directional_movement_filter if isinstance(self.config.directional_movement_filter, dict) else {}
+            dm_period = dm_config.get("period", 14)
+            current_instrument["directional_movement"] = DirectionalMovement(dm_period)
+            current_instrument["min_di_diff"] = dm_config.get("min_di_diff", 0.02)
+
+            retest_config = self.config.retest_entry if isinstance(self.config.retest_entry, dict) else {}
+            retest_ema_period = retest_config.get("breakdown_ema_period", 50)
+            current_instrument["retest_ema"] = ExponentialMovingAverage(retest_ema_period)
+            current_instrument["breakdown_detected"] = False
+            current_instrument["bars_since_breakdown"] = 0
+            current_instrument["breakdown_price"] = None
+
             atr_burst_config = self.config.atr_burst_entry if isinstance(self.config.atr_burst_entry, dict) else {}
             if atr_burst_config.get("enabled", False):
                 atr_burst_period = atr_burst_config.get("atr_period_calc", 40)
@@ -195,6 +233,11 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             current_instrument["short_entry_price"] = None
             current_instrument["long_entry_price"] = None
             current_instrument["prev_bar_close"] = None
+            
+            # trailing stop tracking
+            current_instrument["trailing_stop_price"] = None
+            current_instrument["trailing_stop_activated"] = False
+            current_instrument["best_price_since_entry"] = None
 
            # macd exit system
             macd_exit_config = self.config.use_macd_exit_system if isinstance(self.config.use_macd_exit_system, dict) else {}
@@ -361,12 +404,94 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         rsi_oversold = current_instrument["rsi_oversold"]
         
         if trade_direction == "long":
-            # For long trades, RSI should be oversold (good entry condition)
             return rsi_value <= rsi_oversold
         elif trade_direction == "short":
-            # For short trades, RSI should be overbought (good entry condition)
             return rsi_value >= rsi_overbought
             
+        return False
+
+    def passes_directional_movement_filter(self, bar: Bar, current_instrument: Dict[str, Any], trade_direction: str) -> bool:
+        dm_config = self.config.directional_movement_filter if isinstance(self.config.directional_movement_filter, dict) else {}
+        if not dm_config.get("enabled", False):
+            return True
+        
+        dm = current_instrument["directional_movement"]
+        if not dm.initialized:
+            return True
+        
+        min_di_diff = current_instrument["min_di_diff"]
+        di_plus = float(dm.pos)
+        di_minus = float(dm.neg)
+        di_diff = abs(di_plus - di_minus)
+        
+        if di_diff < min_di_diff:
+            return False
+        
+        require_minus_above = dm_config.get("require_minus_di_above", True)
+        if require_minus_above and trade_direction == "short":
+            return di_minus > di_plus
+        elif require_minus_above and trade_direction == "long":
+            return di_plus > di_minus
+        
+        return True
+
+    def update_retest_state(self, bar: Bar, current_instrument: Dict[str, Any]):
+        retest_config = self.config.retest_entry if isinstance(self.config.retest_entry, dict) else {}
+        if not retest_config.get("enabled", False):
+            return
+        
+        retest_ema = current_instrument["retest_ema"]
+        if not retest_ema.initialized:
+            return
+        
+        current_price = float(bar.close)
+        ema_value = float(retest_ema.value)
+        
+        if not current_instrument.get("breakdown_detected", False):
+            if current_price < ema_value:
+                current_instrument["breakdown_detected"] = True
+                current_instrument["bars_since_breakdown"] = 0
+                current_instrument["lowest_since_breakdown"] = current_price
+        else:
+            current_instrument["bars_since_breakdown"] += 1
+            lowest = current_instrument.get("lowest_since_breakdown", current_price)
+            if current_price < lowest:
+                current_instrument["lowest_since_breakdown"] = current_price
+            
+            max_bars = retest_config.get("max_retest_bars", 10)
+            if current_instrument["bars_since_breakdown"] > max_bars:
+                current_instrument["breakdown_detected"] = False
+                current_instrument["bars_since_breakdown"] = 0
+                current_instrument["lowest_since_breakdown"] = None
+
+    def check_retest_entry_short(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
+        retest_config = self.config.retest_entry if isinstance(self.config.retest_entry, dict) else {}
+        if not retest_config.get("enabled", False):
+            return False
+        
+        if not current_instrument.get("breakdown_detected", False):
+            return False
+        
+        retest_ema = current_instrument["retest_ema"]
+        if not retest_ema.initialized:
+            return False
+        
+        atr = current_instrument.get("atr")
+        if atr is None or not atr.initialized:
+            return False
+        
+        current_price = float(bar.close)
+        ema_value = float(retest_ema.value)
+        atr_value = float(atr.value)
+        tolerance = retest_config.get("retest_tolerance_atr", 0.3) * atr_value
+        
+        lowest = current_instrument.get("lowest_since_breakdown", current_price)
+        bounced_up = current_price > lowest
+        near_ema = current_price >= ema_value - tolerance
+        
+        if bounced_up and near_ema and current_price < ema_value + tolerance:
+            return True
+        
         return False
     
 
@@ -590,6 +715,16 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
                 if "macd_exit_signal" in current_instrument and current_instrument["macd_exit"].initialized:
                     current_instrument["macd_exit_signal"].update_raw(current_instrument["macd_exit"].value)
 
+            dm_config = self.config.directional_movement_filter if isinstance(self.config.directional_movement_filter, dict) else {}
+            if dm_config.get("enabled", False):
+                if "directional_movement" in current_instrument:
+                    current_instrument["directional_movement"].handle_bar(bar)
+
+            retest_config = self.config.retest_entry if isinstance(self.config.retest_entry, dict) else {}
+            if retest_config.get("enabled", False):
+                if "retest_ema" in current_instrument:
+                    current_instrument["retest_ema"].handle_bar(bar)
+
     def on_bar(self, bar: Bar) -> None:
         instrument_id = bar.bar_type.instrument_id
 
@@ -633,6 +768,15 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
                 macd_exit_signal = current_instrument["macd_exit_signal"]
                 macd_exit_signal.update_raw(macd_exit.value)
         
+        dm_config = self.config.directional_movement_filter if isinstance(self.config.directional_movement_filter, dict) else {}
+        if dm_config.get("enabled", False):
+            current_instrument["directional_movement"].handle_bar(bar)
+
+        retest_config = self.config.retest_entry if isinstance(self.config.retest_entry, dict) else {}
+        if retest_config.get("enabled", False):
+            current_instrument["retest_ema"].handle_bar(bar)
+            self.update_retest_state(bar, current_instrument)
+
         atr_burst_config = self.config.atr_burst_entry if isinstance(self.config.atr_burst_entry, dict) else {}
         if atr_burst_config.get("enabled", False):
             atr_burst = current_instrument["atr_burst"]
@@ -670,15 +814,16 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         
         self.update_coin_price_history(bar, current_instrument)
         
-        open_orders = self.cache.orders_open(instrument_id=instrument_id)
-        if open_orders:
-            return  
-        
         position = self.base_get_position(instrument_id)
-
         
+        # if we have a position, check exit logic (even if SL order is open)
         if position is not None and position.side == PositionSide.SHORT:
             self.short_exit_logic(bar, current_instrument, position)
+            return
+        
+        # only block new entries if we have pending orders and no position
+        open_orders = self.cache.orders_open(instrument_id=instrument_id)
+        if open_orders:
             return
         
         if not self.is_trading_allowed_after_listing(bar):
@@ -688,6 +833,7 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
         
         self.atr_burst_setup(bar, current_instrument)
         self.macd_simple_reversion_setup(bar, current_instrument)
+        self.retest_entry_setup(bar, current_instrument)
         
         rsi_config = self.config.use_rsi_simple_reversion_system if isinstance(self.config.use_rsi_simple_reversion_system, dict) else {}
         if rsi_config.get("usage_method") == "execution":
@@ -741,6 +887,9 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             current_instrument["in_short_position"] = True
             current_instrument["short_entry_price"] = entry_price
             current_instrument["sl_price"] = stop_loss_price
+            current_instrument["best_price_since_entry"] = entry_price
+            current_instrument["trailing_stop_activated"] = False
+            current_instrument["trailing_stop_price"] = None
             self.order_types.submit_short_market_order_with_sl(instrument_id, qty, stop_loss_price)
 
     def enter_short_atr_burst(self, bar: Bar, current_instrument: Dict[str, Any]):
@@ -764,6 +913,9 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             current_instrument["in_short_position"] = True
             current_instrument["short_entry_price"] = entry_price
             current_instrument["sl_price"] = stop_loss_price
+            current_instrument["best_price_since_entry"] = entry_price
+            current_instrument["trailing_stop_activated"] = False
+            current_instrument["trailing_stop_price"] = None
             self.order_types.submit_short_market_order_with_sl(instrument_id, qty, stop_loss_price)
 
     def rsi_simple_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
@@ -803,6 +955,9 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             current_instrument["in_short_position"] = True
             current_instrument["short_entry_price"] = entry_price
             current_instrument["sl_price"] = stop_loss_price
+            current_instrument["best_price_since_entry"] = entry_price
+            current_instrument["trailing_stop_activated"] = False
+            current_instrument["trailing_stop_price"] = None
             self.order_types.submit_short_market_order_with_sl(instrument_id, qty, stop_loss_price)
 
     def macd_simple_reversion_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
@@ -827,17 +982,64 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
                 macd_line < 0 and signal_line < 0 and
                 self.is_long_entry_allowed() and
                 self.passes_htf_ema_bias_filter(bar, current_instrument, "long") and
-                self.passes_rsi_condition_filter(bar, current_instrument, "long")):
-                pass  # Long entries disabled via only_execute_short=true
+                self.passes_rsi_condition_filter(bar, current_instrument, "long") and
+                self.passes_directional_movement_filter(bar, current_instrument, "long")):
+                pass
             
             elif (prev_macd >= prev_signal and macd_line < signal_line and
                   macd_line > 0 and signal_line > 0 and
                   self.passes_htf_ema_bias_filter(bar, current_instrument, "short") and
-                  self.passes_rsi_condition_filter(bar, current_instrument, "short")):
+                  self.passes_rsi_condition_filter(bar, current_instrument, "short") and
+                  self.passes_directional_movement_filter(bar, current_instrument, "short")):
                 self.enter_short_macd_reversion(bar, current_instrument)
         
         current_instrument["prev_macd_line"] = macd_line
         current_instrument["prev_macd_signal"] = signal_line
+
+    def retest_entry_setup(self, bar: Bar, current_instrument: Dict[str, Any]):
+        retest_config = self.config.retest_entry if isinstance(self.config.retest_entry, dict) else {}
+        if not retest_config.get("enabled", False):
+            return
+        
+        if not self.check_retest_entry_short(bar, current_instrument):
+            return
+        
+        if not self.passes_htf_ema_bias_filter(bar, current_instrument, "short"):
+            return
+        
+        if not self.passes_directional_movement_filter(bar, current_instrument, "short"):
+            return
+        
+        self.enter_short_retest(bar, current_instrument)
+        current_instrument["breakdown_detected"] = False
+        current_instrument["bars_since_breakdown"] = 0
+        current_instrument["breakdown_price"] = None
+
+    def enter_short_retest(self, bar: Bar, current_instrument: Dict[str, Any]):
+        instrument_id = bar.bar_type.instrument_id
+        entry_price = float(bar.close)
+        
+        if not self.can_open_new_position():
+            return
+        
+        atr = current_instrument["atr"]
+        if not atr.initialized:
+            return
+        
+        atr_value = float(atr.value)
+        sl_atr_multiple = current_instrument.get("sl_atr_multiple", self.config.sl_atr_multiple)
+        stop_loss_price = entry_price + (atr_value * sl_atr_multiple)
+        
+        qty = self.calculate_risk_based_position_size(instrument_id, entry_price, stop_loss_price)
+        
+        if qty > 0:
+            current_instrument["in_short_position"] = True
+            current_instrument["short_entry_price"] = entry_price
+            current_instrument["sl_price"] = stop_loss_price
+            current_instrument["best_price_since_entry"] = entry_price
+            current_instrument["trailing_stop_activated"] = False
+            current_instrument["trailing_stop_price"] = None
+            self.order_types.submit_short_market_order_with_sl(instrument_id, qty, stop_loss_price)
 
     def enter_short_macd_reversion(self, bar: Bar, current_instrument: Dict[str, Any]):
         instrument_id = bar.bar_type.instrument_id
@@ -859,64 +1061,123 @@ class ShortThaBitchStrat(BaseStrategy, Strategy):
             current_instrument["in_short_position"] = True
             current_instrument["short_entry_price"] = entry_price
             current_instrument["sl_price"] = stop_loss_price
+            current_instrument["best_price_since_entry"] = entry_price  # init for trailing stop
+            current_instrument["trailing_stop_activated"] = False
+            current_instrument["trailing_stop_price"] = None
             self.order_types.submit_short_market_order_with_sl(instrument_id, qty, stop_loss_price)
 
     def short_exit_logic(self, bar: Bar, current_instrument: Dict[str, Any], position):
         sl_price = current_instrument.get("sl_price")
         instrument_id = bar.bar_type.instrument_id
+        current_price = float(bar.close)
         
-        # SL check removed - now handled by exchange-side stop-market order from OrderList
-        # Just reset tracking if SL was hit (for state cleanup)
+        # SL hit check - just reset tracking, exchange handles the actual close
         if sl_price is not None and float(bar.high) >= sl_price:
+            self.log.info(f"SL HIT at {current_price:.4f} (SL was {sl_price:.4f})", LogColor.RED)
             self.reset_position_tracking(current_instrument)
-            current_instrument["prev_bar_close"] = float(bar.close)
+            current_instrument["prev_bar_close"] = current_price
             return
         
-        # Check time-based exit (overrides all other exits if enabled)
+        # time-based exit
         if self.check_time_based_exit(bar, current_instrument, position, self.config.time_after_listing_close):
-            close_qty = min(int(abs(position.quantity)), abs(position.quantity))
-            if close_qty > 0:
-                # Cancel the stop-market order before closing position
-                self._cancel_open_orders(instrument_id)
-                self.order_types.submit_long_market_order(instrument_id, int(close_qty))
-            self.reset_position_tracking(current_instrument)
-            current_instrument["prev_bar_close"] = float(bar.close)
+            self._execute_exit(instrument_id, position, current_instrument, "TIME EXIT")
+            current_instrument["prev_bar_close"] = current_price
             return
         
-        # Skip all other exits if time-based exit is enabled but deadline not reached
+        # skip other exits if holding for remaining days
         if self.config.hold_profit_for_remaining_days:
-            current_instrument["prev_bar_close"] = float(bar.close)
+            current_instrument["prev_bar_close"] = current_price
             return
         
-        should_exit = False
+        # trailing stop exit
+        trailing_config = self.config.use_trailing_stop_exit if isinstance(self.config.use_trailing_stop_exit, dict) else {}
+        if trailing_config.get("enabled", False):
+            if self.check_trailing_stop_exit_short(bar, current_instrument):
+                self._execute_exit(instrument_id, position, current_instrument, "TRAILING STOP")
+                current_instrument["prev_bar_close"] = current_price
+                return
 
+        # macd exit
         macd_exit_config = self.config.use_macd_exit_system if isinstance(self.config.use_macd_exit_system, dict) else {}
-        if not should_exit and macd_exit_config.get("enabled", False):
+        if macd_exit_config.get("enabled", False):
             if self.check_macd_exit_short(bar, current_instrument):
-                should_exit = True
+                self._execute_exit(instrument_id, position, current_instrument, "MACD EXIT")
+                current_instrument["prev_bar_close"] = current_price
+                return
         
-        if should_exit:
-            close_qty = min(int(abs(position.quantity)), abs(position.quantity))
-            if close_qty > 0:
-                # Cancel the stop-market order before closing position
-                self._cancel_open_orders(instrument_id)
-                self.order_types.submit_long_market_order(instrument_id, int(close_qty))
-            self.reset_position_tracking(current_instrument)
-        
-        current_instrument["prev_bar_close"] = float(bar.close)
+        current_instrument["prev_bar_close"] = current_price
+    
+    def _execute_exit(self, instrument_id, position, current_instrument, reason: str):
+        """Execute exit - cancel SL order and close position."""
+        close_qty = abs(float(position.quantity))
+        if close_qty > 0:
+            self.log.info(f"{reason}: Closing {close_qty} @ market", LogColor.GREEN)
+            self._cancel_open_orders(instrument_id)
+            self.order_types.submit_long_market_order(instrument_id, int(close_qty))
+        self.reset_position_tracking(current_instrument)
     
     def _cancel_open_orders(self, instrument_id):
         """Cancel all open orders for the given instrument (used to cancel SL orders before manual exit)."""
         open_orders = self.cache.orders_open(instrument_id=instrument_id)
         for order in open_orders:
             self.cancel_order(order)
-        
-        current_instrument["prev_bar_close"] = float(bar.close)
 
     def reset_position_tracking(self, current_instrument: Dict[str, Any]):
         current_instrument["short_entry_price"] = None
         current_instrument["sl_price"] = None
         current_instrument["in_short_position"] = False
+        current_instrument["trailing_stop_price"] = None
+        current_instrument["trailing_stop_activated"] = False
+        current_instrument["best_price_since_entry"] = None
+
+    def check_trailing_stop_exit_short(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
+        """Trailing stop for short positions - trails down as price drops."""
+        trailing_config = self.config.use_trailing_stop_exit if isinstance(self.config.use_trailing_stop_exit, dict) else {}
+        
+        entry_price = current_instrument.get("short_entry_price")
+        if entry_price is None:
+            return False
+        
+        atr = current_instrument.get("atr")
+        if atr is None or not atr.initialized:
+            return False
+        
+        atr_value = float(atr.value)
+        current_price = float(bar.close)
+        atr_multiple = trailing_config.get("atr_multiple", 2.0)
+        activation_atr = trailing_config.get("activation_profit_atr", 1.0)
+        
+        # track best price (lowest for short)
+        best_price = current_instrument.get("best_price_since_entry")
+        if best_price is None or current_price < best_price:
+            current_instrument["best_price_since_entry"] = current_price
+            best_price = current_price
+        
+        # check if trailing stop should activate (price dropped enough)
+        profit_distance = entry_price - best_price
+        activation_distance = atr_value * activation_atr
+        
+        if not current_instrument.get("trailing_stop_activated", False):
+            if profit_distance >= activation_distance:
+                current_instrument["trailing_stop_activated"] = True
+                # set initial trailing stop
+                current_instrument["trailing_stop_price"] = best_price + (atr_value * atr_multiple)
+                self.log.info(f"Trailing stop ACTIVATED at {current_instrument['trailing_stop_price']:.4f}", LogColor.CYAN)
+        
+        # update trailing stop if activated (only moves down for shorts)
+        if current_instrument.get("trailing_stop_activated", False):
+            new_trail = best_price + (atr_value * atr_multiple)
+            current_trail = current_instrument.get("trailing_stop_price")
+            
+            if current_trail is None or new_trail < current_trail:
+                current_instrument["trailing_stop_price"] = new_trail
+            
+            # check if trailing stop hit
+            if current_price >= current_instrument["trailing_stop_price"]:
+                self.log.info(f"Trailing stop HIT at {current_price:.4f}", LogColor.GREEN)
+                return True
+        
+        return False
 
     def check_macd_exit_short(self, bar: Bar, current_instrument: Dict[str, Any]) -> bool:
         macd_exit = current_instrument.get("macd_exit")

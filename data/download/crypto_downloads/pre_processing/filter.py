@@ -4,12 +4,12 @@ import pandas as pd
 # Basis-/Output-Verzeichnisse analog pre_processing.py
 BASE_DATA_DIR = Path(__file__).resolve().parents[3] / "DATA_STORAGE"/ "csv_data_catalog"
 PROCESSED_ROOT = BASE_DATA_DIR / "csv_data_all_processed"
-FILTERED_ROOT = BASE_DATA_DIR / "csv_data_all_filtered"  # NEU
+FILTERED_ROOT = BASE_DATA_DIR / "csv_data_all_filtered"
 
 INPUT_FILENAME = "matched_data.csv"
 OUTPUT_FILENAME = "matched_data_filtered.csv"
 
-# Spalten die entfernt werden sollen
+# columns to remove
 DROP_COLS = {
     "timestamp_nano",
     "timestamp_iso",
@@ -54,7 +54,7 @@ def process_directory(sym_dir: Path, dest_root: Path):  # geändert: Zielroot
     if df is None or df.empty:
         return
 
-    # Neue timestamp-Spalte erzeugen
+    # create new timestamp column
     try:
         new_timestamp = _build_timestamp(df)
     except Exception as e:
@@ -90,7 +90,6 @@ def process_directory(sym_dir: Path, dest_root: Path):  # geändert: Zielroot
     remaining = [c for c in df.columns if c not in front]
     df = df[front + remaining]
 
-    # NEU: eigener Output-Root
     out_dir = dest_root / sym_dir.name
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / OUTPUT_FILENAME
@@ -100,11 +99,11 @@ def process_directory(sym_dir: Path, dest_root: Path):  # geändert: Zielroot
 def run():
     if not PROCESSED_ROOT.exists():
         raise FileNotFoundError(f"Verzeichnis nicht gefunden: {PROCESSED_ROOT}")
-    FILTERED_ROOT.mkdir(parents=True, exist_ok=True)  # NEU
+    FILTERED_ROOT.mkdir(parents=True, exist_ok=True)
     for sym_dir in sorted(PROCESSED_ROOT.iterdir()):
         if not sym_dir.is_dir():
             continue
-        process_directory(sym_dir, FILTERED_ROOT)  # NEU
+        process_directory(sym_dir, FILTERED_ROOT)
 
 if __name__ == "__main__":
     run()

@@ -1,4 +1,3 @@
-# strat for coin_listing_short.yaml
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional, List, Union
 from nautilus_trader.trading import Strategy

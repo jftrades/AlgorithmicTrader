@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, date
 from pathlib import Path
 from typing import List, Dict, Any
-import os  # NEU
+import os
 
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
@@ -34,7 +34,7 @@ class FearAndGreedDownloader:
         save_in_catalog: bool = True,
         download_if_missing: bool = True,
         remove_processed: bool = True,
-        csv_output_subdir: str | None = None,  # NEU
+        csv_output_subdir: str | None = None,
     ):
         self.start_dt = self._to_date(start_date)
         self.end_dt = self._to_date(end_date)
@@ -190,7 +190,7 @@ class FearAndGreedDownloader:
             catalog.write_data(records)
 
         if self.save_as_csv:
-            subdir = self.csv_output_subdir or os.getenv("CSV_OUTPUT_SUBDIR") or "csv_data"  # NEU
+            subdir = self.csv_output_subdir or os.getenv("CSV_OUTPUT_SUBDIR") or "csv_data"
             out_dir = self.base_dir / subdir / self.instrument_id_str
             out_dir.mkdir(parents=True, exist_ok=True)
             out_path = out_dir / "FNG.csv"

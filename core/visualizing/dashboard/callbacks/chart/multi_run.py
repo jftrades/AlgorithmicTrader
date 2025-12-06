@@ -179,7 +179,7 @@ def _build_single_instrument_multi_run(state, repo, instrument, active_runs, cli
         # ignore indicator collection errors
         pass
 
-    # Neu: globale Range bestimmen falls keine externe Range (x_range) gesetzt
+    # determine global range if no external x_range is set
     norm_ts = _normalize_timestamps(bars_df["timestamp"]) if isinstance(bars_df, pd.DataFrame) and "timestamp" in bars_df.columns else pd.Series([], dtype="datetime64[ns]")
     if x_range is None and not norm_ts.empty:
         computed_range = [norm_ts.min(), norm_ts.max()]
@@ -662,7 +662,6 @@ def _build_multi_instrument_multi_run(state, repo, instruments, active_runs, cli
                 linecolor=color_map.get(inst, "#000")
             )
         else:
-            # Entfernt: position=max(0.0, pos) -> führte zu rechter Leerfläche (Domain-Verkleinerung)
             axis_layout[axis_key] = dict(
                 title=dict(text=inst, font=dict(color=color_map.get(inst, "#000"), size=11)),
                 tickfont=dict(color=color_map.get(inst, "#000"), size=10),

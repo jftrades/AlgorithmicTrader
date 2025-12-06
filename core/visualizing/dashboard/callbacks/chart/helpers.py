@@ -52,8 +52,6 @@ def compute_x_range(relayoutData):
     # Sometimes Plotly returns axis names like 'xaxis2.range[0]' when secondary axes manipulated – ignore for sync.
     return None
 
-# Hinweis: compute_x_range wird jetzt auch in sync_indicator_xaxis Callback genutzt.
-
 def iter_indicator_groups(indicators_dict):
     """Group indicator DataFrames by plot_id (>0)."""
     groups = {}

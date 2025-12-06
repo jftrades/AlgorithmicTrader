@@ -595,7 +595,6 @@ def register_chart_callbacks(app, repo, state):
                 c.className = "indicator-chart"
         return price_fig, indicator_children, metrics_children, trade_details
 
-    # --- NEU: Reine X-Achsen-Synchronisierung (leichtgewichtig) ---
     @app.callback(
         Output({'type': 'indicator-graph', 'index': ALL}, 'figure'),
         [
